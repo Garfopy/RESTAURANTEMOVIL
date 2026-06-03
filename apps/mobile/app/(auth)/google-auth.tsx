@@ -1,10 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
-import {
-  GoogleSignin,
-  statusCodes,
-} from '@react-native-google-signin/google-signin';
+
+// @react-native-google-signin requiere build nativo — no disponible en Expo Go
+let GoogleSignin: any = null;
+let statusCodes: Record<string, string> = {};
+try {
+  const mod = require('@react-native-google-signin/google-signin');
+  GoogleSignin = mod.GoogleSignin;
+  statusCodes = mod.statusCodes ?? {};
+} catch {
+  // silenciado en Expo Go
+}
 import { useUserStore } from '../../store/user.store';
 import { loginWithGoogle } from '../../services/auth.service';
 import { Colors, Typography } from '../../theme';

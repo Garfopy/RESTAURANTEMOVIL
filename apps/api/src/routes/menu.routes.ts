@@ -10,7 +10,7 @@ menuRouter.get('/:restauranteId/categories', async (req: Request, res: Response,
   try {
     const restauranteId = parseInt(req.params.restauranteId);
     const categorias = await query<Categoria>(
-      `SELECT c.id, c.nombre, c.slug, c.orden, c.activo,
+      `SELECT c.id, c.nombre, c.descripcion, c.imagen, c.orden, c.activo,
               COUNT(p.id) as total_platillos
        FROM rest_categorias_menu c
        LEFT JOIN rest_platillos p ON p.categoria_id = c.id
@@ -61,7 +61,7 @@ menuRouter.get('/:restauranteId/dishes', async (req: Request, res: Response, nex
     const platillos = await query<Platillo>(
       `SELECT p.id, p.restaurante_id, p.categoria_id,
               c.nombre AS categoria_nombre,
-              p.nombre, p.descripcion, p.presentacion,
+              p.nombre, p.descripcion,
               p.precio, p.imagen, p.tiempo_preparacion_min,
               p.disponible, p.activo,
               0 AS tiene_receta,
@@ -88,7 +88,7 @@ menuRouter.get('/:restauranteId/featured', async (req: Request, res: Response, n
     const items = await query<Platillo>(
       `SELECT p.id, p.restaurante_id, p.categoria_id,
               c.nombre AS categoria_nombre,
-              p.nombre, p.descripcion, p.presentacion,
+              p.nombre, p.descripcion,
               p.precio, p.imagen, p.tiempo_preparacion_min,
               p.disponible, p.activo,
               0 AS tiene_receta,
@@ -117,7 +117,7 @@ menuRouter.get('/:restauranteId/dishes/:id', async (req: Request, res: Response,
     const platillo = await queryOne<Platillo>(
       `SELECT p.id, p.restaurante_id, p.categoria_id,
               c.nombre AS categoria_nombre,
-              p.nombre, p.descripcion, p.presentacion,
+              p.nombre, p.descripcion,
               p.precio, p.imagen, p.tiempo_preparacion_min,
               p.disponible, p.activo,
               0 AS tiene_receta

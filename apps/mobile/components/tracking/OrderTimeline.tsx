@@ -1,10 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  withSpring,
-  withDelay,
-} from 'react-native-reanimated';
+import React, { useRef, useEffect } from 'react';
+import { Animated, View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../theme';
 import type { TrackingEvent } from '@amare/types';
@@ -30,10 +25,18 @@ interface TimelineStepProps {
 }
 
 function TimelineStep({ step, index, isLast }: TimelineStepProps) {
-  const animStyle = useAnimatedStyle(() => ({
-    opacity: withDelay(index * 150, withSpring(1)),
-    transform: [{ translateX: withDelay(index * 150, withSpring(0, { from: -20 } as never)) }],
-  }));
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateX = useRef(new Animated.Value(-20)).current;
+
+  useEffect(() => {
+    const delay = index * 150;
+    Animated.parallel([
+      Animated.sequence([Animated.delay(delay), Animated.spring(opacity, { toValue: 1, useNativeDriver: true } as any)]),
+      Animated.sequence([Animated.delay(delay), Animated.spring(translateX, { toValue: 0, useNativeDriver: true } as any)]),
+    ]).start();
+  }, []);
+
+  const animStyle = { opacity, transform: [{ translateX }] };
 
   const dotColor = step.completado
     ? Colors.success
@@ -76,7 +79,7 @@ function TimelineStep({ step, index, isLast }: TimelineStepProps) {
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: Spacing.base },
-  step: { flexDirection: 'row', gap: Spacing.md, minHeight: 60, opacity: 0 },
+  step: { flexDirection: 'row', gap: Spacing.md, minHeight: 60 },
   leftCol: { alignItems: 'center', width: 24 },
   dot: {
     width: 24,

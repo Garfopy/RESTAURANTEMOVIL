@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,12 +29,27 @@ import type { Platillo, Categoria } from '@amare/types';
 export default function HomeScreen() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
-  const { seleccionada: branch, setSucursales } = useBranchStore();
+  const { seleccionada: branch } = useBranchStore();
   const { setTipoPedido, tipoPedido } = useCartStore();
   const [search, setSearch] = useState('');
 
   const { data: branches, isLoading: loadingBranches } = useBranches();
   const restauranteId = branch?.id;
+  const redirectedToBranchSelector = useRef(false);
+
+  // Si las sucursales cargaron pero ninguna está seleccionada (más de una disponible), ir al selector
+  useEffect(() => {
+    if (loadingBranches || !branches?.length || branch || redirectedToBranchSelector.current) return;
+    if (branches.length > 1) {
+      redirectedToBranchSelector.current = true;
+      router.push('/branch-selector');
+    }
+  }, [loadingBranches, branches, branch]);
+
+  // Resetear el ref cuando el usuario selecciona sucursal (para permitir re-redirigir si hace logout)
+  useEffect(() => {
+    if (branch) redirectedToBranchSelector.current = false;
+  }, [branch]);
 
   const { data: categories, isLoading: loadingCats } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured } = useFeaturedDishes(restauranteId);
@@ -116,59 +131,85 @@ export default function HomeScreen() {
           <BannerCarousel items={[]} />
         </View>
 
-        {/* Categorías */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Categorías</Text>
-          {loadingCats ? (
-            <FlatList
-              horizontal
-              data={[1, 2, 3]}
-              keyExtractor={String}
-              renderItem={() => (
-                <Skeleton width={140} height={100} borderRadius={14} style={{ marginRight: 10 }} />
-              )}
-              scrollEnabled={false}
-            />
-          ) : (
-            <FlatList
-              horizontal
-              data={categories}
-              keyExtractor={(c) => String(c.id)}
-              renderItem={({ item }) => (
-                <CategoryCard categoria={item} onPress={handleCategory} />
-              )}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingRight: Spacing.base }}
-            />
-          )}
-        </View>
+  {/* Categorías */}
+  <View style={styles.section}>
+    <View style={styles.cardSection}>
+      <Text style={styles.sectionTitle}>Categorías</Text>
 
-        {/* Destacados */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Más pedidos</Text>
-          {loadingFeatured ? (
-            <FlatList
-              horizontal
-              data={[1, 2, 3]}
-              keyExtractor={String}
-              renderItem={() => (
-                <Skeleton width={180} height={220} borderRadius={14} style={{ marginRight: 10 }} />
-              )}
-              scrollEnabled={false}
-            />
-          ) : (
-            <FlatList
-              horizontal
-              data={featured}
-              keyExtractor={(p) => String(p.id)}
-              renderItem={({ item }) => (
-                <ProductCard platillo={item} onPress={handleDish} />
-              )}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingRight: Spacing.base }}
+      {loadingCats ? (
+        <FlatList
+          horizontal
+          data={[1, 2, 3]}
+          keyExtractor={String}
+          renderItem={() => (
+            <Skeleton
+              width={140}
+              height={100}
+              borderRadius={14}
+              style={{ marginRight: 10 }}
             />
           )}
-        </View>
+          scrollEnabled={false}
+        />
+      ) : (
+        <FlatList
+          horizontal
+          data={categories}
+          keyExtractor={(c) => String(c.id)}
+          renderItem={({ item }) => (
+            <CategoryCard
+              categoria={item}
+              onPress={handleCategory}
+            />
+          )}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingRight: Spacing.base,
+          }}
+        />
+      )}
+    </View>
+  </View>
+
+{/* Destacados */}
+<View style={styles.section}>
+  <View style={styles.cardSection}>
+    <Text style={styles.sectionTitle}>🔥 Más pedidos</Text>
+
+    {loadingFeatured ? (
+      <FlatList
+        horizontal
+        data={[1, 2, 3]}
+        keyExtractor={String}
+        renderItem={() => (
+          <Skeleton
+            width={180}
+            height={220}
+            borderRadius={14}
+            style={{ marginRight: 10 }}
+          />
+        )}
+        scrollEnabled={false}
+      />
+    ) : (
+      <FlatList
+        horizontal
+        data={featured}
+        keyExtractor={(p) => String(p.id)}
+        renderItem={({ item }) => (
+          <ProductCard
+            platillo={item}
+            onPress={handleDish}
+          />
+        )}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingRight: Spacing.base,
+        }}
+      />
+    )}
+  </View>
+</View>
 
         <View style={{ height: 120 }} />
       </ScrollView>
@@ -179,47 +220,118 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  content: { paddingBottom: Spacing.base },
+  safe: {
+    flex: 1,
+    backgroundColor: '#F6F7FB',
+  },
 
-  // Header
+  content: {
+    paddingBottom: 120,
+  },
+
+  // HEADER PREMIUM
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.base,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 10,
   },
+
   greeting: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.white,
-    marginBottom: 4,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFF',
+    letterSpacing: -0.5,
   },
+
   branchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-  },
-  branchName: { color: Colors.accent, fontSize: 13, fontWeight: '500' },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarLetter: { color: Colors.white, fontWeight: '700', fontSize: 18 },
+    alignSelf: 'flex-start',
 
-  // Sections
-  section: { paddingHorizontal: Spacing.base, marginTop: Spacing.base },
-  sectionNoPad: { marginTop: Spacing.base },
-  sectionTitle: {
-    ...Typography.h3,
-    color: Colors.text,
-    fontWeight: '700',
-    marginBottom: Spacing.sm,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
+
+  branchName: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+    marginHorizontal: 4,
+  },
+
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+
+    backgroundColor: Colors.accent,
+
+    justifyContent: 'center',
+    alignItems: 'center',
+
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+
+  avatarLetter: {
+    color: '#FFF',
+    fontWeight: '800',
+    fontSize: 20,
+  },
+
+  // SECCIONES
+  section: {
+    paddingHorizontal: 20,
+    marginTop: 28,
+  },
+
+  sectionNoPad: {
+    marginTop: 22,
+  },
+
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 16,
+    letterSpacing: -0.5,
+  },
+
+cardSection: {
+  backgroundColor: '#FFFFFF',
+  borderRadius: 24,
+  paddingVertical: 18,
+  paddingLeft: 16,
+
+  shadowColor: '#000',
+  shadowOffset: {
+    width: 0,
+    height: 4,
+  },
+  shadowOpacity: 0.06,
+  shadowRadius: 12,
+  elevation: 4,
+},
 });

@@ -6,8 +6,8 @@ export const promotionsRouter = Router();
 // GET /promotions  — lee el banner desde global_settings
 promotionsRouter.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const settings = await queryOne<{ setting_value: string }>(
-      `SELECT setting_value FROM global_settings WHERE setting_key = 'mobile_promotions'`
+    const settings = await queryOne<{ valor: string }>(
+      `SELECT valor FROM global_settings WHERE clave = 'mobile_promotions'`
     );
 
     if (!settings) {
@@ -16,7 +16,7 @@ promotionsRouter.get('/', async (_req: Request, res: Response, next: NextFunctio
     }
 
     try {
-      const promotions = JSON.parse(settings.setting_value);
+      const promotions = JSON.parse(settings.valor);
       res.json({ ok: true, data: Array.isArray(promotions) ? promotions : [] });
     } catch {
       res.json({ ok: true, data: [] });

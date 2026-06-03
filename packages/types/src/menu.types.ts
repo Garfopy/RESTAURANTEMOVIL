@@ -1,7 +1,7 @@
 export interface Categoria {
   id: number;
   nombre: string;
-  slug: string | null;
+  descripcion: string | null;
   imagen: string | null;
   orden: number;
   activo: boolean;
@@ -33,7 +33,6 @@ export interface Platillo {
   categoria_nombre: string;
   nombre: string;
   descripcion: string | null;
-  presentacion: string | null;
   precio: number;
   imagen: string | null;
   tiempo_preparacion_min: number;

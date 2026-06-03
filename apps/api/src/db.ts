@@ -14,6 +14,13 @@ export const pool = mysql.createPool({
   queueLimit: 0,
   timezone: '+00:00',
   charset: 'utf8mb4',
+  typeCast(field, next) {
+    if (field.type === 'DECIMAL' || field.type === 'NEWDECIMAL') {
+      const value = field.string();
+      return value === null ? null : parseFloat(value);
+    }
+    return next();
+  },
 });
 
 export async function query<T = unknown>(

@@ -111,7 +111,7 @@ function CartItemRow({
   return (
     <View style={styles.itemRow}>
       <Image
-            source={item.platillo.imagen ?? require('../assets/placeholder-food.png')}
+            source={item.platillo.imagen ?? require('../assets/placeholder-food.jpg')}
         style={styles.itemImg}
         contentFit="cover"
       />

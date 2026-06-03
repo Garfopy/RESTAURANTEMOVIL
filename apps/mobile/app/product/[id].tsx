@@ -84,7 +84,7 @@ export default function ProductScreen() {
         {/* Imagen */}
         <View style={styles.imageContainer}>
           <Image
-            source={platillo.imagen ?? require('../../assets/placeholder-food.png')}
+            source={platillo.imagen ?? require('../../assets/placeholder-food.jpg')}
             style={styles.image}
             contentFit="cover"
           />

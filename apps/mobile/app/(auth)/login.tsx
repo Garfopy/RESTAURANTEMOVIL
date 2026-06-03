@@ -1,12 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../theme';
@@ -14,27 +7,27 @@ import { Colors, Spacing } from '../../theme';
 export default function LoginScreen() {
   const router = useRouter();
 
-  const logoOpacity = useSharedValue(0);
-  const logoScale = useSharedValue(0.7);
-  const btnsOpacity = useSharedValue(0);
-  const btnsTranslate = useSharedValue(40);
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.7)).current;
+  const btnsOpacity = useRef(new Animated.Value(0)).current;
+  const btnsTranslate = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
-    logoOpacity.value = withTiming(1, { duration: 600 });
-    logoScale.value = withSpring(1, { damping: 14 });
-    btnsOpacity.value = withDelay(400, withTiming(1, { duration: 600 }));
-    btnsTranslate.value = withDelay(400, withSpring(0, { damping: 16 }));
+    Animated.parallel([
+      Animated.timing(logoOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(logoScale, { toValue: 1, damping: 14, useNativeDriver: true } as any),
+      Animated.sequence([
+        Animated.delay(400),
+        Animated.parallel([
+          Animated.timing(btnsOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+          Animated.spring(btnsTranslate, { toValue: 0, damping: 16, useNativeDriver: true } as any),
+        ]),
+      ]),
+    ]).start();
   }, []);
 
-  const logoStyle = useAnimatedStyle(() => ({
-    opacity: logoOpacity.value,
-    transform: [{ scale: logoScale.value }],
-  }));
-
-  const btnsStyle = useAnimatedStyle(() => ({
-    opacity: btnsOpacity.value,
-    transform: [{ translateY: btnsTranslate.value }],
-  }));
+  const logoStyle = { opacity: logoOpacity, transform: [{ scale: logoScale }] };
+  const btnsStyle = { opacity: btnsOpacity, transform: [{ translateY: btnsTranslate }] };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -44,7 +37,7 @@ export default function LoginScreen() {
           <View style={styles.logoCircle}>
             <Ionicons name="restaurant" size={48} color={Colors.accent} />
           </View>
-          <Text style={styles.appName}>Amare</Text>
+          <Text style={styles.appName}>Restaurante 1</Text>
           <Text style={styles.tagline}>Gastronomía premium a tu puerta</Text>
         </Animated.View>
 

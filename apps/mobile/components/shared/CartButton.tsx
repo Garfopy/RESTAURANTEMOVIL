@@ -1,10 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+import React, { useRef } from 'react';
+import { Animated, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { Colors, Shadows } from '../../theme';
@@ -14,18 +9,17 @@ export function CartButton() {
   const router = useRouter();
   const itemCount = useCartStore((s) => s.itemCount);
   const total = useCartStore((s) => s.total);
-  const scale = useSharedValue(1);
+  const scale = useRef(new Animated.Value(1)).current;
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const animStyle = { transform: [{ scale }] };
 
   if (itemCount === 0) return null;
 
   function handlePress() {
-    scale.value = withSpring(0.94, { damping: 12 }, () => {
-      scale.value = withSpring(1);
-    });
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 0.94, damping: 12, useNativeDriver: true } as any),
+      Animated.spring(scale, { toValue: 1, damping: 12, useNativeDriver: true } as any),
+    ]).start();
     router.push('/cart');
   }
 

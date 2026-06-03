@@ -2,6 +2,7 @@
   "name": "amare-app",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",

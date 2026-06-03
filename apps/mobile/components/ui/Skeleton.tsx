@@ -1,12 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-  interpolateColor,
-} from 'react-native-reanimated';
+import React, { useEffect, useRef } from 'react';
+import { Animated, View, StyleSheet, ViewStyle } from 'react-native';
 import { Colors, BorderRadius } from '../../theme';
 
 interface SkeletonProps {
@@ -17,23 +10,25 @@ interface SkeletonProps {
 }
 
 export function Skeleton({ width = '100%', height = 16, borderRadius = BorderRadius.sm, style }: SkeletonProps) {
-  const shimmer = useSharedValue(0);
+  const shimmer = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    shimmer.value = withRepeat(withTiming(1, { duration: 1200 }), -1, true);
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 1200, useNativeDriver: false }),
+        Animated.timing(shimmer, { toValue: 0, duration: 1200, useNativeDriver: false }),
+      ])
+    ).start();
   }, [shimmer]);
 
-  const animStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      shimmer.value,
-      [0, 1],
-      ['#E5E5EA', '#F2F2F7']
-    ),
-  }));
+  const backgroundColor = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#E5E5EA', '#F2F2F7'],
+  });
 
   return (
     <Animated.View
-      style={[{ width, height, borderRadius } as ViewStyle, animStyle, style]}
+      style={[{ width, height, borderRadius } as ViewStyle, { backgroundColor }, style]}
     />
   );
 }

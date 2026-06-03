@@ -1,3 +1,4 @@
+import '../global.css';
 import React, { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,6 +19,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
+import { getMe } from '../services/auth.service';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -26,6 +28,7 @@ const queryClient = new QueryClient({
     queries: {
       retry: 2,
       staleTime: 60 * 1000,
+      throwOnError: false,
     },
   },
 });
@@ -53,7 +56,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  const { hydrateFromStorage } = useUserStore();
+  const { hydrateFromStorage, setUser, logout } = useUserStore();
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -68,6 +71,19 @@ export default function RootLayout() {
     async function init() {
       await hydrateFromStorage();
       await hydrateCart();
+
+      // Si se restauró un token, validarlo con el servidor
+      const { isAuthenticated, token } = useUserStore.getState();
+      if (isAuthenticated && token) {
+        try {
+          const user = await getMe();
+          setUser(user);
+        } catch {
+          // Token inválido o expirado — cerrar sesión
+          await logout();
+        }
+      }
+
       if (fontsLoaded) {
         await SplashScreen.hideAsync();
       }
@@ -86,6 +102,7 @@ export default function RootLayout() {
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(auth)" />
               <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
               <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
               <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
               <Stack.Screen name="checkout/order-type" />

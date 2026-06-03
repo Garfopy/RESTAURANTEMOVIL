@@ -61,9 +61,10 @@ ordersRouter.post('/', requireAuth, async (req: Request, res: Response, next: Ne
       );
       const total = subtotal; // sin cargo por envío por ahora
 
-      // Crear registro en rest_visitas
+      // Crear registro en rest_visitas (tipo='mobile', qr_code generado con UUID)
       const [visitaResult] = await conn.execute(
-        `INSERT INTO rest_visitas (restaurante_id, tipo) VALUES (?, 'mobile')`,
+        `INSERT INTO rest_visitas (restaurante_id, qr_code, tipo, estado)
+         VALUES (?, CONCAT('mob-', UUID()), 'mobile', 'activa')`,
         [payload.restaurante_id]
       );
       const visitaId = (visitaResult as { insertId: number }).insertId;

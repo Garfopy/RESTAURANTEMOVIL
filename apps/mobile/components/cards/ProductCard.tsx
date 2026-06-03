@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
+  Animated,
   TouchableOpacity,
   Text,
   StyleSheet,
@@ -7,11 +8,6 @@ import {
   Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Shadows, Typography } from '../../theme';
 import { useFavoritesStore } from '../../store/favorites.store';
@@ -26,19 +22,17 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ platillo, onPress, width = 180 }: ProductCardProps) {
-  const scale = useSharedValue(1);
+  const scale = useRef(new Animated.Value(1)).current;
   const isFavorite = useFavoritesStore((s) => s.isFavorite(platillo.id));
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const animStyle = { transform: [{ scale }] };
 
   function handlePressIn() {
-    scale.value = withSpring(0.96, { damping: 15 });
+    Animated.spring(scale, { toValue: 0.96, damping: 15, useNativeDriver: true } as any).start();
   }
 
   function handlePressOut() {
-    scale.value = withSpring(1, { damping: 12 });
+    Animated.spring(scale, { toValue: 1, damping: 12, useNativeDriver: true } as any).start();
     onPress(platillo);
   }
 
@@ -51,7 +45,7 @@ export function ProductCard({ platillo, onPress, width = 180 }: ProductCardProps
     >
       <View style={styles.imageContainer}>
         <Image
-          source={platillo.imagen ?? require('../../assets/placeholder-food.png')}
+          source={platillo.imagen ?? require('../../assets/placeholder-food.jpg')}
           style={styles.image}
           contentFit="cover"
           transition={300}

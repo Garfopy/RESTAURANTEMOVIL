@@ -11,6 +11,7 @@ interface UserState {
   isLoading: boolean;
   login: (sesion: Sesion) => Promise<void>;
   logout: () => Promise<void>;
+  setUser: (user: MobileUser) => void;
   updateProfile: (data: Partial<MobileUser>) => void;
   hydrateFromStorage: () => Promise<void>;
 }
@@ -28,7 +29,11 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   logout: async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
-    set({ user: null, token: null, isAuthenticated: false });
+    set({ user: null, token: null, isAuthenticated: false, isLoading: false });
+  },
+
+  setUser: (user: MobileUser) => {
+    set({ user, isLoading: false });
   },
 
   updateProfile: (data: Partial<MobileUser>) => {
@@ -40,12 +45,13 @@ export const useUserStore = create<UserState>((set, get) => ({
     try {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
       if (token) {
+        // Sólo restauramos el token; isLoading queda true para que _layout valide con el servidor
         set({ token, isAuthenticated: true });
+        return;
       }
     } catch {
       // token no disponible
-    } finally {
-      set({ isLoading: false });
     }
+    set({ isLoading: false });
   },
 }));

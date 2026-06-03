@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import path from 'path';
 
 import { errorHandler, notFound } from './middleware/error.middleware';
 import { authRouter } from './routes/auth.routes';
@@ -19,12 +20,26 @@ export const app = express();
 // Security
 app.use(helmet());
 app.use(cors({
-  origin: [
-    'http://localhost:19006',
-    'http://localhost:8081',
-    'exp://localhost:8081',
-    /^https:\/\/.*\.expo\.dev$/,
-  ],
+  origin: (origin, callback) => {
+    // En desarrollo permitir cualquier origen local o el env CORS_ORIGIN
+    const allowed = [
+      'http://localhost:19006',
+      'http://localhost:8081',
+      'exp://localhost:8081',
+    ];
+    const corsEnv = process.env.CORS_ORIGIN;
+    if (corsEnv) allowed.push(corsEnv);
+
+    // Sin origin (curl, mobile nativo con RN) o origen en lista → ok
+    if (!origin || allowed.includes(origin) || /^https:\/\/.*\.expo\.dev$/.test(origin)) {
+      callback(null, true);
+    } else if (process.env.NODE_ENV !== 'production') {
+      // En desarrollo permitir cualquier origen LAN (192.168.x.x / 10.x.x.x)
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 
@@ -36,6 +51,9 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'amare-api', version: '1.0.0' });
 });
+
+// Static files (product images, etc.)
+app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.use('/auth', authRouter);

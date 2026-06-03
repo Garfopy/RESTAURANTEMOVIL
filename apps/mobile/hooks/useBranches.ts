@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getBranches, getNearestBranches, getBranchById } from '../services/branches.service';
 import { useBranchStore } from '../store/branch.store';
@@ -10,15 +11,19 @@ export const branchKeys = {
 };
 
 export function useBranches() {
-  return useQuery({
+  const query = useQuery({
     queryKey: branchKeys.all,
     queryFn: getBranches,
     staleTime: 5 * 60 * 1000,
-    select: (data: Sucursal[]) => {
-      useBranchStore.getState().setSucursales(data);
-      return data;
-    },
   });
+
+  useEffect(() => {
+    if (query.data) {
+      useBranchStore.getState().setSucursales(query.data);
+    }
+  }, [query.data]);
+
+  return query;
 }
 
 export function useNearestBranches(lat?: number, lng?: number) {
