@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,13 +16,13 @@ import { useBranchStore } from '../../store/branch.store';
 import { useCartStore } from '../../store/cart.store';
 import { useBranches } from '../../hooks/useBranches';
 import { useFeaturedDishes, useCategories } from '../../hooks/useMenu';
-import { Colors, Spacing, Typography } from '../../theme';
+import { Colors } from '../../theme';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
-import { CartButton } from '../../components/shared/CartButton';
 import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
+import { CartButton } from '../../components/shared/CartButton';
 import { Skeleton } from '../../components/ui/Skeleton';
 import type { Platillo, Categoria } from '@amare/types';
 
@@ -30,33 +30,19 @@ export default function HomeScreen() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const { seleccionada: branch } = useBranchStore();
-  const { setTipoPedido, tipoPedido } = useCartStore();
+  const { tipoPedido, setTipoPedido } = useCartStore();
   const [search, setSearch] = useState('');
-
-  const { data: branches, isLoading: loadingBranches } = useBranches();
+  
   const restauranteId = branch?.id;
-  const redirectedToBranchSelector = useRef(false);
-
-  // Si las sucursales cargaron pero ninguna está seleccionada (más de una disponible), ir al selector
-  useEffect(() => {
-    if (loadingBranches || !branches?.length || branch || redirectedToBranchSelector.current) return;
-    if (branches.length > 1) {
-      redirectedToBranchSelector.current = true;
-      router.push('/branch-selector');
-    }
-  }, [loadingBranches, branches, branch]);
-
-  // Resetear el ref cuando el usuario selecciona sucursal (para permitir re-redirigir si hace logout)
-  useEffect(() => {
-    if (branch) redirectedToBranchSelector.current = false;
-  }, [branch]);
-
   const { data: categories, isLoading: loadingCats } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured } = useFeaturedDishes(restauranteId);
 
   function handleSearch() {
     if (search.trim() && restauranteId) {
-      router.push({ pathname: '/category/[id]', params: { id: 'search', q: search.trim(), restauranteId: String(restauranteId) } });
+      router.push({ 
+        pathname: '/category/[id]', 
+        params: { id: 'search', q: search.trim(), restauranteId: String(restauranteId) } 
+      });
     }
   }
 
@@ -76,262 +62,225 @@ export default function HomeScreen() {
     });
   }
 
-  const greeting = user?.nombre
-    ? `Hola, ${user.nombre.split(' ')[0]} 👋`
-    : 'Bienvenido 👋';
-
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[0]}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{greeting}</Text>
-            {branch && (
-              <TouchableOpacity
-                style={styles.branchRow}
-                onPress={() => router.push('/branch-selector')}
-              >
-                <Ionicons name="location-outline" size={14} color={Colors.accent} />
-                <Text style={styles.branchName}>{branch.nombre}</Text>
-                <Ionicons name="chevron-down" size={14} color={Colors.accent} />
-              </TouchableOpacity>
-            )}
-          </View>
-          <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarLetter}>
-                {user?.nombre?.[0]?.toUpperCase() ?? '?'}
+      <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
+      
+      {/* HEADER ULTRA-SLIM CORREGIDO */}
+      <View style={styles.topNav}>
+        <TouchableOpacity 
+          style={styles.locationSelector}
+          onPress={() => router.push('/branch-selector')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location" size={18} color={Colors.primary} />
+          <View style={{ marginLeft: 8 }}>
+            <Text style={styles.locationLabel}>Entregar en</Text>
+            <View style={styles.row}>
+              <Text style={styles.locationName} numberOfLines={1}>
+                {branch?.nombre ?? 'Seleccionar sucursal'}
               </Text>
+              <Ionicons name="chevron-down" size={14} color="#6B7280" />
             </View>
-          </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={() => router.push('/(tabs)/profile')}
+          style={styles.profileTrigger}
+          activeOpacity={0.7}
+        >
+          <View style={styles.miniAvatar}>
+            <Text style={styles.avatarText}>{user?.nombre?.[0] ?? '?'}</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* SALUDO Y BUSCADOR */}
+        <View style={styles.welcomeSection}>
+          <Text style={styles.greetingText}>
+            {user?.nombre ? `Hola, ${user.nombre.split(' ')[0]}` : 'Bienvenido'} 
+          </Text>
+          <Text style={styles.subtitleText}>¿Qué se te antoja hoy?</Text>
+          
+          <View style={styles.searchContainer}>
+            <SearchBar
+              value={search}
+              onChangeText={setSearch}
+              onSubmit={handleSearch}
+              placeholder="Busca tu platillo favorito..."
+            />
+          </View>
         </View>
 
-        {/* Search */}
-        <View style={styles.section}>
-          <SearchBar
-            value={search}
-            onChangeText={setSearch}
-            onSubmit={handleSearch}
-          />
-        </View>
-
-        {/* Order type */}
-        <View style={styles.sectionNoPad}>
-          <OrderTypeSelector value={tipoPedido} onChange={setTipoPedido} />
-        </View>
-
-        {/* Banners (usamos categorías como demo hasta tener real) */}
-        <View style={styles.section}>
+        {/* BANNERS */}
+        <View style={styles.bannerSection}>
           <BannerCarousel items={[]} />
         </View>
 
-  {/* Categorías */}
-  <View style={styles.section}>
-    <View style={styles.cardSection}>
-      <Text style={styles.sectionTitle}>Categorías</Text>
-
-      {loadingCats ? (
-        <FlatList
-          horizontal
-          data={[1, 2, 3]}
-          keyExtractor={String}
-          renderItem={() => (
-            <Skeleton
-              width={140}
-              height={100}
-              borderRadius={14}
-              style={{ marginRight: 10 }}
-            />
-          )}
-          scrollEnabled={false}
-        />
-      ) : (
-        <FlatList
-          horizontal
-          data={categories}
-          keyExtractor={(c) => String(c.id)}
-          renderItem={({ item }) => (
-            <CategoryCard
-              categoria={item}
-              onPress={handleCategory}
-            />
-          )}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{
-            paddingRight: Spacing.base,
-          }}
-        />
-      )}
-    </View>
-  </View>
-
-{/* Destacados */}
-<View style={styles.section}>
-  <View style={styles.cardSection}>
-    <Text style={styles.sectionTitle}>🔥 Más pedidos</Text>
-
-    {loadingFeatured ? (
-      <FlatList
-        horizontal
-        data={[1, 2, 3]}
-        keyExtractor={String}
-        renderItem={() => (
-          <Skeleton
-            width={180}
-            height={220}
-            borderRadius={14}
-            style={{ marginRight: 10 }}
+        {/* CATEGORÍAS */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Explorar menú</Text>
+        </View>
+        {loadingCats ? (
+          <View style={styles.horizontalList}>
+            {[1, 2, 3].map((i) => <Skeleton key={i} width={100} height={100} borderRadius={20} style={{marginRight: 12}} />)}
+          </View>
+        ) : (
+          <FlatList
+            horizontal
+            data={categories}
+            keyExtractor={(item) => item.id.toString()}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalList}
+            renderItem={({ item }) => (
+              <CategoryCard categoria={item} onPress={handleCategory} />
+            )}
           />
         )}
-        scrollEnabled={false}
-      />
-    ) : (
-      <FlatList
-        horizontal
-        data={featured}
-        keyExtractor={(p) => String(p.id)}
-        renderItem={({ item }) => (
-          <ProductCard
-            platillo={item}
-            onPress={handleDish}
+
+        {/* DESTACADOS */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Los más pedidos </Text>
+          <TouchableOpacity>
+            <Text style={styles.seeAll}>Ver todo</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {loadingFeatured ? (
+          <View style={styles.horizontalList}>
+            {[1, 2].map((i) => <Skeleton key={i} width={200} height={250} borderRadius={25} style={{marginRight: 15}} />)}
+          </View>
+        ) : (
+          <FlatList
+            horizontal
+            data={featured}
+            keyExtractor={(item) => item.id.toString()}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalList}
+            renderItem={({ item }) => (
+              <ProductCard platillo={item} onPress={handleDish} />
+            )}
           />
         )}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingRight: Spacing.base,
-        }}
-      />
-    )}
-  </View>
-</View>
 
-        <View style={{ height: 120 }} />
+        {/* Espacio final interno para empujar el contenido arriba del dock */}
+        <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* BOTÓN DEL CARRITO ORIGINAL */}
       <CartButton />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#F6F7FB',
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  
+  topNav: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#FFF',
+    
+    // 🌟 CORRECCIÓN MAESTRA: Asegura que el header reciba los clics en iOS/Android
+    // evitando bloqueos de capas absolutas transparentes
+    zIndex: 50, 
+    elevation: 5, 
   },
-
-  content: {
-    paddingBottom: 120,
-  },
-
-  // HEADER PREMIUM
-  header: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    elevation: 10,
-  },
-
-  greeting: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFF',
-    letterSpacing: -0.5,
-  },
-
-  branchRow: {
+  locationSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-
-    marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-
-    borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    flex: 1,
+    paddingVertical: 4, // Área de toque expandida
   },
-
-  branchName: {
-    color: '#FFF',
-    fontSize: 13,
+  locationLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
     fontWeight: '600',
-    marginHorizontal: 4,
+    textTransform: 'uppercase',
   },
-
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-
-    backgroundColor: Colors.accent,
-
-    justifyContent: 'center',
+  locationName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    marginRight: 4,
+  },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  profileTrigger: {
+    marginLeft: 15,
+    padding: 2,
+  },
+  miniAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  avatarText: { fontWeight: '800', color: Colors.primary },
 
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 8,
+  scrollContent: { 
+    paddingTop: 10,
+    paddingBottom: 130, 
   },
 
-  avatarLetter: {
-    color: '#FFF',
-    fontWeight: '800',
-    fontSize: 20,
-  },
-
-  // SECCIONES
-  section: {
+  welcomeSection: {
     paddingHorizontal: 20,
-    marginTop: 28,
+    marginVertical: 15,
   },
-
-  sectionNoPad: {
-    marginTop: 22,
-  },
-
-  sectionTitle: {
+  greetingText: {
     fontSize: 24,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 16,
     letterSpacing: -0.5,
   },
-
-cardSection: {
-  backgroundColor: '#FFFFFF',
-  borderRadius: 24,
-  paddingVertical: 18,
-  paddingLeft: 16,
-
-  shadowColor: '#000',
-  shadowOffset: {
-    width: 0,
-    height: 4,
+  subtitleText: {
+    fontSize: 15,
+    color: '#6B7280',
+    marginTop: 2,
   },
-  shadowOpacity: 0.06,
-  shadowRadius: 12,
-  elevation: 4,
-},
+  searchContainer: {
+    marginTop: 20,
+  },
+
+  orderTypeWrapper: {
+    marginVertical: 10,
+  },
+
+  bannerSection: {
+    marginTop: 10,
+  },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginTop: 30,
+    marginBottom: 15,
+  },
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.3,
+  },
+  seeAll: {
+    color: Colors.primary,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  horizontalList: {
+    paddingLeft: 20,
+  },
 });

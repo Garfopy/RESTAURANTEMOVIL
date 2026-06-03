@@ -132,40 +132,52 @@ menuRouter.get('/:restauranteId/dishes/:id', async (req: Request, res: Response,
       return;
     }
 
-    // Obtener modificadores si existen
-    const modificadores = await query<Modificador>(
-      `SELECT m.id, m.nombre, m.tipo, m.requerido,
-              m.min_selecciones, m.max_selecciones
-       FROM rest_modificadores m
-       JOIN rest_platillo_modificadores pm ON pm.modificador_id = m.id
-       WHERE pm.platillo_id = ? AND m.activo = 1
-       ORDER BY pm.orden`,
+    // Paso 1: obtener la receta del platillo
+    const receta = await queryOne<{ id: number }>(
+      `SELECT id FROM rest_recetas WHERE platillo_id = ?`,
       [platilloId]
     );
 
-    if (modificadores.length > 0) {
-      const modIds = modificadores.map((m) => m.id);
-      const opciones = await query<{
-        id: number; modificador_id: number; nombre: string; precio_extra: number; activo: boolean;
+    if (receta) {
+      // Paso 2: ingredientes con precio_extra > 0 → extras seleccionables
+      const ingredientes = await query<{
+        id: number;
+        ingrediente_nombre: string;
+        precio_extra: number;
+        codigo_display: string | null;
       }>(
-        `SELECT id, modificador_id, nombre, precio_extra, activo
-         FROM rest_opciones_modificador
-         WHERE modificador_id IN (${modIds.map(() => '?').join(',')})
-           AND activo = 1`,
-        modIds
+        `SELECT ri.id,
+                i.nombre AS ingrediente_nombre,
+                COALESCE(ri.precio_extra, 0) AS precio_extra,
+                ri.codigo_display
+         FROM rest_receta_ingredientes ri
+         JOIN rest_ingredientes i ON i.id = ri.ingrediente_id
+         WHERE ri.receta_id = ? AND ri.precio_extra > 0
+         ORDER BY i.nombre`,
+        [receta.id]
       );
 
-      const platilloConMods: Platillo = {
-        ...platillo,
-        modificadores: modificadores.map((m) => ({
-          ...m,
-          opciones: opciones.filter((o) => o.modificador_id === m.id),
-        })),
-      };
+      const modificadores: Modificador[] = ingredientes.length > 0
+        ? [{
+            id: receta.id,
+            nombre: 'Extras',
+            tipo: 'checkbox',
+            requerido: false,
+            min_selecciones: 0,
+            max_selecciones: ingredientes.length,
+            opciones: ingredientes.map((ri) => ({
+              id: ri.id,
+              modificador_id: receta.id,
+              nombre: ri.codigo_display ?? ri.ingrediente_nombre,
+              precio_extra: ri.precio_extra,
+              activo: true,
+            })),
+          }]
+        : [];
 
-      res.json({ ok: true, data: platilloConMods });
+      res.json({ ok: true, data: { ...platillo, tiene_receta: true, modificadores } });
     } else {
-      res.json({ ok: true, data: { ...platillo, modificadores: [] } });
+      res.json({ ok: true, data: { ...platillo, tiene_receta: false, modificadores: [] } });
     }
   } catch (err) {
     next(err);

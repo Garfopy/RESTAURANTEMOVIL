@@ -25,6 +25,7 @@ export default function RegisterScreen() {
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // <-- Estado para el ojito
   const [loading, setLoading] = useState(false);
 
   async function handleRegister() {
@@ -61,13 +62,19 @@ export default function RegisterScreen() {
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
+          {/* Botón de regreso con estilo de "círculo" moderno */}
           <TouchableOpacity style={styles.back} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color={Colors.white} />
+            <View style={styles.iconButton}>
+              <Ionicons name="arrow-back" size={22} color="#111827" />
+            </View>
           </TouchableOpacity>
 
-          <Text style={styles.title}>Crear cuenta</Text>
-          <Text style={styles.subtitle}>Regístrate para empezar a ordenar</Text>
+          <View style={styles.header}>
+            <Text style={styles.title}>Crear cuenta</Text>
+            <Text style={styles.subtitle}>Regístrate para empezar a ordenar</Text>
+          </View>
 
           <View style={styles.form}>
             <View style={styles.inputGroup}>
@@ -77,7 +84,7 @@ export default function RegisterScreen() {
                 value={nombre}
                 onChangeText={setNombre}
                 autoCapitalize="words"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor="#9CA3AF"
                 placeholder="Tu nombre"
               />
             </View>
@@ -91,21 +98,33 @@ export default function RegisterScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoComplete="email"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor="#9CA3AF"
                 placeholder="correo@ejemplo.com"
               />
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Contraseña</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                placeholderTextColor={Colors.textMuted}
-                placeholder="Mínimo 8 caracteres"
-              />
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.inputPassword}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword} // <-- Lógica de ocultar/mostrar
+                  placeholderTextColor="#9CA3AF"
+                  placeholder="Mínimo 8 caracteres"
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                    size={22}
+                    color="#6B7280"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <Button
@@ -114,7 +133,7 @@ export default function RegisterScreen() {
               loading={loading}
               fullWidth
               size="lg"
-              style={{ marginTop: Spacing.sm }}
+              style={styles.submitButton}
             />
 
             <TouchableOpacity
@@ -134,35 +153,105 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.primary },
+  safe: {
+    flex: 1,
+    backgroundColor: '#FFFFFF', // Fondo totalmente blanco
+  },
   container: {
     flexGrow: 1,
-    paddingHorizontal: Spacing['2xl'],
-    paddingTop: Spacing.base,
-    paddingBottom: Spacing['3xl'],
+    paddingHorizontal: Spacing['2xl'] || 24,
+    paddingTop: Spacing.base || 16,
+    paddingBottom: Spacing['3xl'] || 40,
   },
-  back: { marginBottom: Spacing.xl },
+  back: {
+    marginBottom: Spacing.xl || 32,
+    alignSelf: 'flex-start',
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    marginBottom: Spacing.xl || 32,
+  },
   title: {
-    fontFamily: 'PlayfairDisplay_700Bold',
-    fontSize: 32,
-    color: Colors.white,
-    marginBottom: 6,
+    fontFamily: 'PlayfairDisplay_700Bold', // Mantiene tu tipografía elegante
+    fontSize: 34,
+    fontWeight: '800',
+    color: '#111827', // Texto oscuro casi negro
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
-  subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.6)', marginBottom: Spacing.xl },
-  form: { gap: Spacing.base },
-  inputGroup: { gap: 6 },
-  label: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)' },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280', // Gris elegante
+  },
+  form: {
+    gap: Spacing.base || 16,
+  },
+  inputGroup: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginLeft: 4,
+  },
   input: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
+    backgroundColor: '#F9FAFB', // Fondo ligeramente gris
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    fontSize: 16,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#E5E7EB', // Borde sutil
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  inputPassword: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    fontSize: 16,
+    color: '#111827',
+  },
+  eyeIcon: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    fontSize: 15,
-    color: Colors.white,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  loginLink: { alignItems: 'center', marginTop: Spacing.sm },
-  loginText: { color: 'rgba(255,255,255,0.6)', fontSize: 14 },
-  loginBold: { color: Colors.accent, fontWeight: '700' },
+  submitButton: {
+    marginTop: Spacing.sm || 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3, // Sombra suave en el botón para darle profundidad
+  },
+  loginLink: {
+    alignItems: 'center',
+    marginTop: Spacing.lg || 24,
+  },
+  loginText: {
+    color: '#6B7280',
+    fontSize: 15,
+  },
+  loginBold: {
+    color: Colors.accent || '#111827', // Usa tu color acento o un negro fuerte
+    fontWeight: '700',
+  },
 });
