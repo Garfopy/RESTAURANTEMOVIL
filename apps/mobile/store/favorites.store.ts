@@ -1,8 +1,9 @@
 import { create } from 'zustand';
+import { apiClient } from '../services/api';
 
 interface FavoritesState {
   ids: Set<number>;
-  toggle: (platilloId: number) => void;
+  toggle: (platilloId: number) => Promise<void>;
   syncFromServer: (ids: number[]) => void;
   isFavorite: (platilloId: number) => boolean;
 }
@@ -10,14 +11,23 @@ interface FavoritesState {
 export const useFavoritesStore = create<FavoritesState>((set, get) => ({
   ids: new Set<number>(),
 
-  toggle: (platilloId) => {
+  toggle: async (platilloId) => {
     const ids = new Set(get().ids);
-    if (ids.has(platilloId)) {
-      ids.delete(platilloId);
-    } else {
-      ids.add(platilloId);
+    const isAdding = !ids.has(platilloId);
+    
+    // Actualización optimista (UI rápida)
+    if (isAdding) ids.add(platilloId); else ids.delete(platilloId);
+    set({ ids: new Set(ids) });
+
+    try {
+      // Llamada real a la API que creamos
+      await apiClient.post(`/favorites/${platilloId}`);
+    } catch (error) {
+      // Si falla, revertimos el estado local
+      const rollbackIds = new Set(get().ids);
+      if (isAdding) rollbackIds.delete(platilloId); else rollbackIds.add(platilloId);
+      set({ ids: rollbackIds });
     }
-    set({ ids });
   },
 
   syncFromServer: (serverIds) => {

@@ -1,4 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import path from 'path';
 import { z } from 'zod';
 import { query, queryOne } from '../db';
 import { requireAuth } from '../middleware/auth.middleware';
@@ -9,6 +11,17 @@ export const profileRouter = Router();
 
 // Todos los endpoints requieren auth
 profileRouter.use(requireAuth);
+
+// Configuración de almacenamiento local para imágenes
+const storage = multer.diskStorage({
+  destination: 'uploads/',
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'avatar-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage });
 
 // GET /profile
 profileRouter.get('/', (req: Request, res: Response) => {
@@ -47,6 +60,30 @@ profileRouter.put('/', async (req: Request, res: Response, next: NextFunction) =
     );
 
     res.json({ ok: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /profile/avatar
+profileRouter.post('/avatar', upload.single('foto'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user?.id) throw new AppError('No autorizado', 401);
+    if (!req.file) throw new AppError('No se recibió ninguna imagen', 400);
+
+    // Generamos la URL de acceso de forma dinámica basada en la petición
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+    
+    const nuevaFotoUrl = `${baseUrl}/uploads/${req.file.filename}`;
+
+    await query(
+      'UPDATE mobile_usuarios SET foto_url = ? WHERE id = ?',
+      [nuevaFotoUrl, req.user.id]
+    );
+
+    res.json({ ok: true, foto_url: nuevaFotoUrl });
   } catch (err) {
     next(err);
   }
@@ -124,52 +161,6 @@ profileRouter.delete('/addresses/:id', async (req: Request, res: Response, next:
     if (!dir) throw new AppError('Dirección no encontrada', 404, 'NOT_FOUND');
     await query('UPDATE mobile_direcciones SET activo = 0 WHERE id = ?', [dirId]);
     res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /profile/favorites
-profileRouter.get('/favorites', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const favorites = await query(
-      `SELECT p.id, p.nombre, p.precio, p.imagen, p.descripcion,
-              c.nombre AS categoria_nombre
-       FROM mobile_favoritos f
-       JOIN rest_platillos p ON p.id = f.platillo_id
-       LEFT JOIN rest_categorias_menu c ON c.id = p.categoria_id
-       WHERE f.usuario_id = ? AND p.activo = 1
-       ORDER BY f.created_at DESC`,
-      [req.user!.id]
-    );
-    res.json({ ok: true, data: favorites });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /profile/favorites/:platilloId  — toggle
-profileRouter.post('/favorites/:platilloId', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const platilloId = parseInt(req.params.platilloId);
-    const existing = await queryOne(
-      'SELECT id FROM mobile_favoritos WHERE usuario_id = ? AND platillo_id = ?',
-      [req.user!.id, platilloId]
-    );
-
-    if (existing) {
-      await query(
-        'DELETE FROM mobile_favoritos WHERE usuario_id = ? AND platillo_id = ?',
-        [req.user!.id, platilloId]
-      );
-      res.json({ ok: true, favorito: false });
-    } else {
-      await query(
-        'INSERT INTO mobile_favoritos (usuario_id, platillo_id) VALUES (?, ?)',
-        [req.user!.id, platilloId]
-      );
-      res.json({ ok: true, favorito: true });
-    }
   } catch (err) {
     next(err);
   }

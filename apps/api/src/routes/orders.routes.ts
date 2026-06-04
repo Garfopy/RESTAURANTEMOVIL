@@ -64,13 +64,14 @@ ordersRouter.post('/', requireAuth, async (req: Request, res: Response, next: Ne
       // Crear registro en rest_visitas (tipo='mobile', qr_code generado con UUID)
       const [visitaResult] = await conn.execute(
         `INSERT INTO rest_visitas (restaurante_id, qr_code, tipo, estado)
-         VALUES (?, CONCAT('mob-', UUID()), 'mobile', 'activa')`,
+         VALUES (?, CONCAT('mob-', REPLACE(UUID(), '-', ''), '-', UNIX_TIMESTAMP()), 'mobile', 'activa')`,
         [payload.restaurante_id]
       );
       const visitaId = (visitaResult as { insertId: number }).insertId;
 
       // Crear pedido
-      const folio = `AM-${Date.now()}`;
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      const folio = `AM-${Date.now().toString().slice(-6)}${randomSuffix}`;
       const [pedidoResult] = await conn.execute(
         `INSERT INTO rest_pedidos
            (restaurante_id, visita_id, folio, estado, subtotal, total,

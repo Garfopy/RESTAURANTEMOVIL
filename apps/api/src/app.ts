@@ -11,6 +11,7 @@ import { menuRouter } from './routes/menu.routes';
 import { ordersRouter } from './routes/orders.routes';
 import { paymentsRouter } from './routes/payments.routes';
 import { profileRouter } from './routes/profile.routes';
+import { favoritesRouter } from './routes/favorites.routes';
 import { promotionsRouter } from './routes/promotions.routes';
 
 dotenv.config();
@@ -54,6 +55,7 @@ app.get('/health', (_req, res) => {
 
 // Static files (product images, etc.)
 app.use('/public', express.static(path.join(__dirname, '../public')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/auth', authRouter);
@@ -62,6 +64,7 @@ app.use('/menu', menuRouter);
 app.use('/orders', ordersRouter);
 app.use('/payments', paymentsRouter);
 app.use('/profile', profileRouter);
+app.use('/favorites', favoritesRouter);
 app.use('/promotions', promotionsRouter);
 
 // 404 + Error handler

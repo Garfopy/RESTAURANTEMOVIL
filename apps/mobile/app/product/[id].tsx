@@ -11,6 +11,7 @@ import {
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
 import { useCartStore } from '../../store/cart.store';
 import { useFavoritesStore } from '../../store/favorites.store';
@@ -84,7 +85,7 @@ export default function ProductScreen() {
         {/* Imagen */}
         <View style={styles.imageContainer}>
           <Image
-            source={platillo.imagen ?? require('../../assets/placeholder-food.jpg')}
+            source={formatImageUrl(platillo.imagen) ?? require('../../assets/placeholder-food.jpg')}
             style={styles.image}
             contentFit="cover"
           />

@@ -5,13 +5,16 @@ import {
   StyleSheet,
   SafeAreaView,
   TouchableOpacity,
+  FlatList,
   ScrollView,
   Alert,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import MapView, { Marker, Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { apiClient } from '../../services/api';
 
 // Stores de la aplicación
 import { useCartStore } from '../../store/cart.store';
@@ -44,39 +47,63 @@ export default function OrderTypeScreen() {
   const { items, total, tipoPedido, setTipoPedido, restauranteId } = useCartStore();
   const { sucursales } = useBranchStore();
   
-  // 🌟 Estado del usuario para guardar/leer direcciones registradas
-  // Nota: Ajusta 'direccionGuardada' y 'setDireccionGuardada' según las propiedades reales de tu useUserStore
-  const userState = useUserStore() as any;
-  const direccionRegistrada = userState?.direccionGuardada || userState?.user?.direccion || '';
-  const actualizarDireccionUsuario = userState?.setDireccionGuardada || userState?.updateProfile;
+  const user = useUserStore(s => s.user);
+
+  // Estados para direcciones persistentes
+  const [direccionesGuardadas, setDireccionesGuardadas] = useState<any[]>([]);
+  const [direccionSeleccionada, setDireccionSeleccionada] = useState<any | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const [addressData, setAddressData] = useState<any>(null); // Datos desglosados del geocode
 
   // Estados locales para el flujo de ubicación
   const [loading, setLoading] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [ubicacionVisual, setUbicacionVisual] = useState<string>('');
+  const [coords, setCoords] = useState<{
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+  } | null>(null);
 
   // Sincronizar y procesar la ubicación según el tipo de entrega seleccionado
+  useEffect(() => {
+    cargarDirecciones();
+  }, []);
+
   useEffect(() => {
     if (!tipoPedido) return;
 
     if (tipoPedido === 'delivery') {
-      // 1. Prioridad: Si ya hay una dirección guardada en el perfil del usuario, usar esa.
-      if (direccionRegistrada) {
-        setUbicacionVisual(direccionRegistrada);
-      } else {
-        // 2. Si no hay dirección previa, obtener la ubicación GPS actual.
+      // Lógica para entrega a domicilio
+      if (direccionesGuardadas.length === 0) {
+        setShowMap(true);
         obtenerUbicacionGPS();
       }
     } else if (tipoPedido === 'pickup') {
-      // 3. Si es para llevar, buscar los datos de la sucursal activa en la BD mapeados en el store
-      const sucursalActiva = sucursales.find(s => String(s.id) === String(restauranteId));
-      if (sucursalActiva) {
-        setUbicacionVisual(sucursalActiva.direccion || sucursalActiva.descripcion || 'Sucursal Amare Seleccionada');
-      } else {
-        setUbicacionVisual('Dirección del restaurante no disponible');
-      }
+      // Lógica para recoger en tienda
+      setShowMap(false);
+      const sucursalIdStr = String(restauranteId);
+      const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
+      setUbicacionVisual(sucursal?.direccion || sucursal?.descripcion || 'Sucursal Seleccionada');
     }
-  }, [tipoPedido, direccionRegistrada, restauranteId, sucursales]);
+  }, [tipoPedido, restauranteId, sucursales]);
+
+  async function cargarDirecciones() {
+    try {
+      const res = await apiClient.get('/profile/addresses');
+      if (res.data.ok) {
+        setDireccionesGuardadas(res.data.data);
+        const principal = res.data.data.find((d: any) => d.es_principal) || res.data.data[0];
+        if (principal) {
+          setDireccionSeleccionada(principal);
+          setUbicacionVisual(`${principal.calle} ${principal.numero || ''}, ${principal.colonia}`);
+        }
+      }
+    } catch (err) {
+      console.error('Error al cargar direcciones:', err);
+    }
+  }
 
   // Función asíncrona para consultar el GPS del dispositivo y aplicar geocoding inverso
   async function obtenerUbicacionGPS() {
@@ -97,27 +124,48 @@ export default function OrderTypeScreen() {
         accuracy: Location.Accuracy.Balanced,
       });
 
-      // Convertir coordenadas de latitud y longitud en una dirección legible por humanos
-      const reverseGeocode = await Location.reverseGeocodeAsync({
+      const initialRegion = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      };
+
+      setCoords(initialRegion);
+      await actualizarDireccionTexto(initialRegion.latitude, initialRegion.longitude);
+      
+    } catch (error) {
+      console.error('Error al obtener la ubicación:', error);
+      setUbicacionVisual('Dirección no encontrada automáticamente');
+    } finally {
+      setLoadingLocation(false);
+    }
+  }
+
+  // Nueva función para actualizar el texto de la dirección basado en coordenadas
+  async function actualizarDireccionTexto(lat: number, lng: number) {
+    try {
+      const reverseGeocode = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lng,
       });
 
       if (reverseGeocode && reverseGeocode.length > 0) {
         const address = reverseGeocode[0];
-        const direccionFormateada = `${address.street || 'Calle'} ${address.name || ''}, Col. ${address.district || address.subregion || ''}, ${address.city || ''}`;
-        setUbicacionVisual(direccionFormateada);
+        const calle = `${address.street || 'Calle'} ${address.name || ''}`;
+        const colonia = address.district || address.subregion || '';
+        const direccionFormateada = `${calle}, Col. ${colonia}, ${address.city || ''}`;
         
-        // Guardar automáticamente en el estado global para futuras compras si existe la función
-        if (typeof actualizarDireccionUsuario === 'function') {
-          actualizarDireccionUsuario(direccionFormateada);
-        }
-      } else {
-        setUbicacionVisual('Ubicación detectada por GPS');
+        setUbicacionVisual(direccionFormateada);
+        setAddressData({
+          calle,
+          colonia,
+          ciudad: address.city || '',
+          lat,
+          lng,
+          cp: address.postalCode
+        });
       }
-    } catch (error) {
-      console.error('Error al obtener la ubicación:', error);
-      setUbicacionVisual('Dirección no encontrada automáticamente');
     } finally {
       setLoadingLocation(false);
     }
@@ -149,19 +197,56 @@ export default function OrderTypeScreen() {
     }
   }
 
+  // Se dispara cuando el usuario termina de mover el mapa
+  function handleRegionChangeComplete(region: Region) {
+    if (tipoPedido === 'delivery') {
+      setCoords(region);
+      // Solo actualizamos el texto si no estamos cargando inicialmente
+      actualizarDireccionTexto(region.latitude, region.longitude);
+    }
+  }
+
+  async function guardarNuevaDireccion() {
+    if (!addressData) return null;
+    try {
+      const res = await apiClient.post('/profile/addresses', {
+        alias: 'Ubicación actual',
+        calle: addressData.calle,
+        colonia: addressData.colonia,
+        ciudad: addressData.ciudad,
+        lat: addressData.lat,
+        lng: addressData.lng,
+        cp: addressData.cp,
+        es_principal: direccionesGuardadas.length === 0
+      });
+      return res.data.data;
+    } catch (err) {
+      console.error('Error al guardar dirección:', err);
+      return null;
+    }
+  }
+
   async function handleContinue() {
     if (!tipoPedido) {
       Alert.alert('Selección requerida', 'Por favor, elige cómo quieres recibir tu pedido.');
       return;
     }
 
-    if (tipoPedido === 'delivery' && (!ubicacionVisual || ubicacionVisual.includes('...'))) {
+    if (tipoPedido === 'delivery' && !direccionSeleccionada && !addressData) {
       Alert.alert('Dirección requerida', 'Por favor, introduce una dirección de entrega válida.');
       return;
     }
 
     setLoading(true);
     try {
+      let finalAddressId = direccionSeleccionada?.id;
+      
+      // Si el usuario movió el mapa y no seleccionó una guardada, la guardamos ahora
+      if (tipoPedido === 'delivery' && !direccionSeleccionada && addressData) {
+        const nueva = await guardarNuevaDireccion();
+        finalAddressId = nueva?.id;
+      }
+
       const { client_secret, id: intentId } = await createPaymentIntent({
         restaurante_id: restauranteId!,
         amount: total,
@@ -175,6 +260,7 @@ export default function OrderTypeScreen() {
           intentId,
           restauranteId: String(restauranteId),
           tipoPedido,
+          direccionId: finalAddressId,
           direccionEntrega: ubicacionVisual, // Enviamos la dirección procesada al checkout
         },
       });
@@ -232,18 +318,70 @@ export default function OrderTypeScreen() {
         {/* 🌟 SECCIÓN DINÁMICA DE DETALLES DE UBICACIÓN */}
         {tipoPedido ? (
           <View style={styles.locationContainer}>
-            <View style={styles.locationHeader}>
-              <Ionicons 
-                name={tipoPedido === 'delivery' ? "location" : "storefront"} 
-                size={20} 
-                color={Colors.primary || '#111827'} 
-              />
-              <Text style={styles.locationTitle}>
-                {tipoPedido === 'delivery' ? 'Dirección de Entrega' : 'Recoges en'}
-              </Text>
-            </View>
+            {tipoPedido === 'delivery' && direccionesGuardadas.length > 0 && (
+              <View style={{ marginBottom: 10 }}>
+                <Text style={styles.locationTitle}>Tus direcciones</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                  {direccionesGuardadas.map((dir) => (
+                    <TouchableOpacity
+                      key={dir.id}
+                      style={[styles.addressChip, direccionSeleccionada?.id === dir.id && styles.addressChipActive]}
+                      onPress={() => {
+                        setDireccionSeleccionada(dir);
+                        setUbicacionVisual(`${dir.calle}, ${dir.colonia}`);
+                        setShowMap(false);
+                      }}
+                    >
+                      <Ionicons name="home-outline" size={14} color={direccionSeleccionada?.id === dir.id ? '#FFF' : '#6B7280'} />
+                      <Text style={[styles.addressChipText, direccionSeleccionada?.id === dir.id && { color: '#FFF' }]}>{dir.alias}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity 
+                    style={styles.addressChip} 
+                    onPress={() => {
+                      setDireccionSeleccionada(null);
+                      setShowMap(true);
+                      obtenerUbicacionGPS();
+                    }}
+                  >
+                    <Ionicons name="add" size={16} color={Colors.primary} />
+                    <Text style={{ color: Colors.primary, fontWeight: '600' }}>Nueva</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            )}
+
+            {(!direccionesGuardadas.length || tipoPedido === 'pickup' || showMap) && (
+              <View style={styles.locationHeader}>
+                <Ionicons 
+                  name={tipoPedido === 'delivery' ? "location" : "storefront"} 
+                  size={20} 
+                  color={Colors.primary || '#111827'} 
+                />
+                <Text style={styles.locationTitle}>
+                  {tipoPedido === 'delivery' ? 'Dirección de Entrega' : 'Recoges en'}
+                </Text>
+              </View>
+            )}
             
             <View style={styles.locationBox}>
+              {tipoPedido === 'delivery' && coords && (showMap || direccionesGuardadas.length === 0) && (
+                <View style={styles.mapWrapper}>
+                  <MapView
+                    style={styles.miniMap}
+                    region={coords}
+                    onRegionChangeComplete={handleRegionChangeComplete}
+                    showsUserLocation
+                    rotateEnabled={false}
+                    pitchEnabled={false}
+                  />
+                  <View style={styles.mapCenterPointer} pointerEvents="none">
+                    <Ionicons name="location" size={40} color={Colors.primary || '#111827'} style={{ marginTop: -40 }} />
+                    <View style={styles.pointerShadow} />
+                  </View>
+                </View>
+              )}
+
               {loadingLocation ? (
                 <View style={styles.locationLoading}>
                   <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
@@ -419,6 +557,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
+  addressChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    marginRight: 8,
+    gap: 6,
+  },
+  addressChipActive: {
+    backgroundColor: Colors.primary || '#111827',
+  },
+  addressChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
   locationBox: {
     backgroundColor: '#F9FAFB',
     borderRadius: 16,
@@ -454,6 +610,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: Colors.primary || '#111827',
+  },
+  mapWrapper: {
+    height: 180,
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  miniMap: {
+    flex: 1,
+  },
+  mapCenterPointer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -20,
+    marginTop: -20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointerShadow: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    marginTop: -2,
   },
 
   // SUMMARY

@@ -10,6 +10,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../../store/user.store';
 import { useBranchStore } from '../../store/branch.store';
@@ -50,7 +51,11 @@ export default function HomeScreen() {
     if (!restauranteId) return;
     router.push({
       pathname: '/category/[id]',
-      params: { id: String(cat.id), restauranteId: String(restauranteId) },
+      params: { 
+        id: String(cat.id), 
+        restauranteId: String(restauranteId),
+        nombre: cat.nombre // Enviamos el nombre para que el título no sea genérico
+      },
     });
   }
 
@@ -91,7 +96,11 @@ export default function HomeScreen() {
           activeOpacity={0.7}
         >
           <View style={styles.miniAvatar}>
-            <Text style={styles.avatarText}>{user?.nombre?.[0] ?? '?'}</Text>
+            {user?.foto_url ? (
+              <Image source={{ uri: user.foto_url }} style={styles.miniAvatarImg} />
+            ) : (
+              <Text style={styles.avatarText}>{user?.nombre?.[0] ?? '?'}</Text>
+            )}
           </View>
         </TouchableOpacity>
       </View>
@@ -128,7 +137,7 @@ export default function HomeScreen() {
         </View>
         {loadingCats ? (
           <View style={styles.horizontalList}>
-            {[1, 2, 3].map((i) => <Skeleton key={i} width={100} height={100} borderRadius={20} style={{marginRight: 12}} />)}
+            {[1, 2, 3].map((i) => <Skeleton key={i} width={140} height={100} borderRadius={20} style={{marginRight: 12}} />)}
           </View>
         ) : (
           <FlatList
@@ -153,7 +162,7 @@ export default function HomeScreen() {
         
         {loadingFeatured ? (
           <View style={styles.horizontalList}>
-            {[1, 2].map((i) => <Skeleton key={i} width={200} height={250} borderRadius={25} style={{marginRight: 15}} />)}
+            {[1, 2].map((i) => <Skeleton key={i} width={180} height={250} borderRadius={25} style={{marginRight: 15}} />)}
           </View>
         ) : (
           <FlatList
@@ -226,6 +235,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  miniAvatarImg: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: { fontWeight: '800', color: Colors.primary },
 

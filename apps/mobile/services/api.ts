@@ -4,7 +4,7 @@ import { useUserStore } from '../store/user.store';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: 30000, // Aumentamos el tiempo de espera global a 30 segundos
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -38,4 +38,13 @@ export function getApiError(error: unknown): string {
     return data?.error ?? error.message;
   }
   return String(error);
+}
+
+/**
+ * Convierte una ruta relativa de la base de datos en una URL absoluta para el móvil
+ */
+export function formatImageUrl(path?: string | null): string | undefined {
+  if (!path) return undefined;
+  if (path.startsWith('http')) return path;
+  return `${API_BASE_URL}/${path.replace(/^\//, '')}`;
 }

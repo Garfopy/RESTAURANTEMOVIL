@@ -10,6 +10,7 @@ import {
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Shadows, Typography } from '../../theme';
+import { formatImageUrl } from '../../services/api';
 import { useFavoritesStore } from '../../store/favorites.store';
 import type { Platillo } from '@amare/types';
 
@@ -23,7 +24,8 @@ interface ProductCardProps {
 
 export function ProductCard({ platillo, onPress, width = 180 }: ProductCardProps) {
   const scale = useRef(new Animated.Value(1)).current;
-  const isFavorite = useFavoritesStore((s) => s.isFavorite(platillo.id));
+  // Seleccionamos directamente la propiedad del set para que React detecte el cambio
+  const isFavorite = useFavoritesStore((s) => s.ids.has(platillo.id));
 
   const animStyle = { transform: [{ scale }] };
 
@@ -33,24 +35,26 @@ export function ProductCard({ platillo, onPress, width = 180 }: ProductCardProps
 
   function handlePressOut() {
     Animated.spring(scale, { toValue: 1, damping: 12, useNativeDriver: true } as any).start();
-    onPress(platillo);
   }
 
   return (
     <AnimatedTouchable
+      onPress={() => onPress(platillo)}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      delayPressIn={100}
       activeOpacity={1}
       style={[styles.card, { width }, animStyle]}
     >
       <View style={styles.imageContainer}>
         <Image
-          source={platillo.imagen ?? require('../../assets/placeholder-food.jpg')}
+          source={formatImageUrl(platillo.imagen) ?? require('../../assets/placeholder-food.jpg')}
           style={styles.image}
           contentFit="cover"
           transition={300}
         />
-        {!platillo.disponible && (
+        {/* Solo mostrar si disponible es explícitamente false */}
+        {platillo.disponible === false && (
           <View style={styles.unavailableOverlay}>
             <Text style={styles.unavailableText}>No disponible</Text>
           </View>

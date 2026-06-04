@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, SafeAreaView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../services/api';
 import { useFavoritesStore } from '../../store/favorites.store';
@@ -16,16 +16,27 @@ export default function FavoritesScreen() {
   const syncFromServer = useFavoritesStore((s) => s.syncFromServer);
   const restauranteId = useBranchStore((s) => s.seleccionada?.id);
 
-  const { data: favorites, isLoading } = useQuery<Platillo[]>({
+  const { data: favorites, isLoading, refetch } = useQuery<Platillo[]>({
     queryKey: ['favorites'],
     queryFn: async () => {
-      const res = await apiClient.get('/profile/favorites');
+      const res = await apiClient.get('/favorites');
       return res.data.data;
     },
-    onSuccess(data: Platillo[]) {
-      syncFromServer(data.map((p) => p.id));
-    },
-  } as never);
+  });
+
+  // Forzar actualización cada vez que el usuario entra a la pestaña
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
+
+  // Sincronizar el store global cuando cambian los datos (reemplazo de onSuccess)
+  useEffect(() => {
+    if (favorites) {
+      syncFromServer(favorites.map((p) => p.id));
+    }
+  }, [favorites, syncFromServer]);
 
   function handleDish(p: Platillo) {
     if (!restauranteId) return;

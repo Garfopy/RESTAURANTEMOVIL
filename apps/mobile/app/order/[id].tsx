@@ -3,139 +3,285 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
+  SafeAreaView,
   TouchableOpacity,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useOrder, useOrderTracking } from '../../hooks/useOrders';
-import { OrderTimeline } from '../../components/tracking/OrderTimeline';
+import { Image } from 'expo-image';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '../../services/api';
+import { Colors, Spacing, Shadows } from '../../theme';
+import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { Colors, Spacing, Typography } from '../../theme';
 
-const ESTADO_LABEL: Record<string, string> = {
-  pendiente: 'Pendiente',
-  en_preparacion: 'En preparación',
-  listo: 'Listo para recoger',
-  en_camino: 'En camino',
-  entregado: 'Entregado',
-  cancelado: 'Cancelado',
-};
-
-const ESTADO_COLOR: Record<string, string> = {
-  pendiente: Colors.warning,
-  en_preparacion: Colors.accent,
-  listo: Colors.success,
-  en_camino: Colors.info,
-  entregado: Colors.success,
-  cancelado: Colors.error,
+const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }> = {
+  pendiente: { label: 'Recibido', color: '#F59E0B', icon: 'time-outline' },
+  en_preparacion: { label: 'En Cocina', color: '#8B5CF6', icon: 'restaurant-outline' },
+  listo: { label: 'Listo', color: '#10B981', icon: 'checkmark-circle-outline' },
+  en_camino: { label: 'En Camino', color: '#3B82F6', icon: 'bicycle-outline' },
+  entregado: { label: 'Entregado', color: '#10B981', icon: 'ribbon-outline' },
+  cancelado: { label: 'Cancelado', color: '#EF4444', icon: 'close-circle-outline' },
 };
 
 export default function OrderDetailScreen() {
+  const { id } = useLocalSearchParams();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const orderId = Number(id);
 
-  const { data: order, isLoading: loadingOrder } = useOrder(orderId);
-  const { data: tracking } = useOrderTracking(orderId);
+  const { data: order, isLoading } = useQuery({
+    queryKey: ['order', id],
+    queryFn: async () => {
+      const res = await apiClient.get(`/orders/${id}`);
+      return res.data.data;
+    },
+  });
+
+  if (isLoading) return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Skeleton width={40} height={40} borderRadius={20} />
+        <Skeleton width={120} height={20} />
+      </View>
+      <View style={{ padding: 20, gap: 20 }}>
+        <Skeleton height={150} borderRadius={20} />
+        <Skeleton height={200} borderRadius={20} />
+      </View>
+    </SafeAreaView>
+  );
+
+  const status = ESTADO_INFO[order?.estado] || ESTADO_INFO.pendiente;
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {order ? `Pedido ${order.folio ?? `#${order.id}`}` : 'Seguimiento'}
-        </Text>
-        <View style={{ width: 24 }} />
+        <View>
+          <Text style={styles.headerTitle}>{order?.folio}</Text>
+          <Text style={styles.headerSubtitle}>
+            {new Date(order?.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
+          </Text>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: status.color + '15' }]}>
+          <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {loadingOrder ? (
-          <>
-            <Skeleton height={28} width="50%" />
-            <Skeleton height={16} style={{ marginTop: 8 }} />
-          </>
-        ) : order ? (
-          <>
-            {/* Estado actual */}
-            <View
-              style={[styles.estadoBadge, { backgroundColor: ESTADO_COLOR[order.estado] + '22' }]}
-            >
-              <View
-                style={[styles.estadoDot, { backgroundColor: ESTADO_COLOR[order.estado] }]}
-              />
-              <Text style={[styles.estadoText, { color: ESTADO_COLOR[order.estado] }]}>
-                {ESTADO_LABEL[order.estado] ?? order.estado}
-              </Text>
-            </View>
-
-            {/* Timeline */}
-            {tracking && tracking.length > 0 && (
-              <View style={styles.timelineSection}>
-                <Text style={styles.sectionTitle}>Seguimiento</Text>
-                <OrderTimeline steps={tracking} />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        
+        {/* SECCIÓN DE TRACKING VISUAL */}
+        <View style={styles.card}>
+          <View style={styles.trackingRow}>
+            {order?.estado === 'en_camino' ? (
+              <View style={styles.lottieContainer}>
+                <LottieView
+                  source={{ uri: 'https://lottie.host/3629399e-2624-432a-9e2b-231362070f90/sY5i6s131P.json' }} // Animación de scooter de reparto
+                  autoPlay
+                  loop
+                  style={styles.lottieAnimation}
+                />
+              </View>
+            ) : (
+              <View style={[styles.iconContainer, { backgroundColor: status.color }]}>
+                <Ionicons name={status.icon as any} size={24} color="#FFF" />
               </View>
             )}
-
-            {/* Items */}
-            <View style={styles.itemsSection}>
-              <Text style={styles.sectionTitle}>Artículos</Text>
-              {order.items?.map((item, i) => (
-                <View key={i} style={styles.itemRow}>
-                  <Text style={styles.itemQty}>{item.cantidad}x</Text>
-                  <Text style={styles.itemNombre} numberOfLines={2}>
-                    {item.platillo_id}
-                  </Text>
-                  <Text style={styles.itemPrice}>
-                    ${(item.precio_unit * item.cantidad).toFixed(2)}
-                  </Text>
-                </View>
-              ))}
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.trackingTitle}>Estado del pedido</Text>
+              <Text style={styles.trackingDesc}>Tu orden está siendo procesada en {order?.restaurante_nombre}</Text>
             </View>
-          </>
-        ) : null}
+          </View>
+          
+          <View style={styles.stepperContainer}>
+            {['pendiente', 'en_preparacion', 'listo', 'entregado'].map((step, idx) => {
+              const isCompleted = ['pendiente', 'en_preparacion', 'listo', 'en_camino', 'entregado'].indexOf(order?.estado) >= idx;
+              return (
+                <React.Fragment key={step}>
+                  <View style={[styles.stepDot, isCompleted && { backgroundColor: status.color }]} />
+                  {idx < 3 && <View style={[styles.stepLine, isCompleted && { backgroundColor: status.color }]} />}
+                </React.Fragment>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* DETALLES DE ENTREGA */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Detalles de entrega</Text>
+        </View>
+        <View style={styles.card}>
+          <View style={styles.detailItem}>
+            <Ionicons name={order?.tipo_pedido === 'delivery' ? "location-outline" : "storefront-outline"} size={20} color="#6B7280" />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.detailLabel}>{order?.tipo_pedido === 'delivery' ? 'Dirección de envío' : 'Recoges en sucursal'}</Text>
+              <Text style={styles.detailValue}>{order?.direccion_entrega || order?.restaurante_nombre}</Text>
+            </View>
+          </View>
+          {order?.notas && (
+             <View style={[styles.detailItem, { marginTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 12 }]}>
+                <Ionicons name="chatbubble-ellipses-outline" size={20} color="#6B7280" />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.detailLabel}>Notas del pedido</Text>
+                  <Text style={styles.detailValue}>{order?.notas}</Text>
+                </View>
+             </View>
+          )}
+        </View>
+
+        {/* PRODUCTOS */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Tu pedido</Text>
+          <Text style={styles.itemCount}>{order?.items?.length} items</Text>
+        </View>
+        <View style={styles.card}>
+          {order?.items?.map((item: any, index: number) => (
+            <View key={item.id} style={[styles.productRow, index !== 0 && styles.borderTop]}>
+              <Image 
+                source={item.platillo_imagen || 'https://via.placeholder.com/150'} 
+                style={styles.productImg}
+              />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.productName}>{item.platillo_nombre}</Text>
+                <Text style={styles.productQty}>Cantidad: {item.cantidad}</Text>
+              </View>
+              <Text style={styles.productPrice}>${(item.precio_unit * item.cantidad).toFixed(2)}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* RESUMEN DE PAGO */}
+        <View style={styles.card}>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Subtotal</Text>
+            <Text style={styles.summaryValue}>${order?.subtotal?.toFixed(2)}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Costo de envío</Text>
+            <Text style={styles.summaryValue}>$0.00</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.summaryRow}>
+            <Text style={styles.totalLabel}>Total</Text>
+            <Text style={styles.totalValue}>${order?.total?.toFixed(2)} MXN</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.helpButton} activeOpacity={0.8}>
+          <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
+          <Text style={styles.helpButtonText}>Necesito ayuda con mi pedido</Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
+  safe: { flex: 1, backgroundColor: '#F9FAFB' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.sm,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFF',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: '#F3F4F6',
   },
-  headerTitle: { ...Typography.h3, fontWeight: '700', color: Colors.text },
-  content: { padding: Spacing.base, gap: Spacing.base, paddingBottom: 40 },
-  estadoBadge: {
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
+  headerSubtitle: { fontSize: 13, color: '#6B7280' },
+  statusBadge: {
+    marginLeft: 'auto',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  statusText: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+  
+  content: { padding: 20, gap: 16 },
+  
+  card: {
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    padding: 20,
+    ...Shadows.sm,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  
+  trackingRow: { flexDirection: 'row', alignItems: 'center' },
+  iconContainer: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  trackingTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  trackingDesc: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+  
+  lottieContainer: {
+    width: 48, // Mismo tamaño que el iconContainer para mantener la alineación
+    height: 48,
+    borderRadius: 16,
+    overflow: 'hidden', // Asegura que la animación no se desborde
+  },
+  lottieAnimation: {
+    width: '100%',
+    height: '100%',
+  },
+  stepperContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    marginTop: 24,
+    paddingHorizontal: 10,
   },
-  estadoDot: { width: 10, height: 10, borderRadius: 5 },
-  estadoText: { fontSize: 15, fontWeight: '700' },
-  timelineSection: { gap: 10 },
-  itemsSection: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: Spacing.md,
-    gap: 8,
+  stepDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#E5E7EB' },
+  stepLine: { flex: 1, height: 3, backgroundColor: '#E5E7EB', marginHorizontal: 4 },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  itemQty: { fontSize: 13, fontWeight: '700', color: Colors.textMuted, minWidth: 24 },
-  itemNombre: { flex: 1, fontSize: 13, color: Colors.text },
-  itemPrice: { fontSize: 13, fontWeight: '700', color: Colors.primary },
+  sectionTitle: { fontSize: 15, fontWeight: '700', color: '#374151' },
+  itemCount: { fontSize: 13, color: '#9CA3AF' },
+
+  detailItem: { flexDirection: 'row', alignItems: 'flex-start' },
+  detailLabel: { fontSize: 12, color: '#9CA3AF', fontWeight: '600', textTransform: 'uppercase' },
+  detailValue: { fontSize: 14, color: '#111827', fontWeight: '500', marginTop: 2 },
+
+  productRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  borderTop: { borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  productImg: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#F3F4F6' },
+  productName: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  productQty: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  productPrice: { fontSize: 14, fontWeight: '700', color: '#111827' },
+
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  summaryLabel: { fontSize: 14, color: '#6B7280' },
+  summaryValue: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
+  totalLabel: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary },
+
+  helpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    marginTop: 8,
+    marginBottom: 40,
+  },
+  helpButtonText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
 });

@@ -3,6 +3,10 @@ import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, Typography } from '../../theme';
+import { formatImageUrl } from '../../services/api';
+// Nota: Asegúrate de que el tipo `Categoria` en `@amare/types`
+// tenga una propiedad `imagen?: string;` para que esto funcione correctamente.
+// El backend debe proveer la URL de la imagen en este campo.
 import type { Categoria } from '@amare/types';
 
 interface CategoryCardProps {
@@ -16,19 +20,17 @@ export function CategoryCard({ categoria, onPress, width = 140, height = 100 }: 
   return (
     <TouchableOpacity
       onPress={() => onPress(categoria)}
+      delayPressIn={100}
       activeOpacity={0.85}
       style={[styles.card, { width, height }]}
     >
-      {categoria.imagen ? (
-        <Image
-          source={categoria.imagen}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={200}
-        />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, styles.placeholder]} />
-      )}
+      <Image
+        source={formatImageUrl(categoria.imagen) || require('../../assets/placeholder-food.jpg')}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        transition={300}
+        placeholder={{ blurhash: 'L38Wx:0000_300~q_3Rj00-;%M_3' }}
+      />
       <LinearGradient
         colors={['transparent', 'rgba(26,26,46,0.85)']}
         style={StyleSheet.absoluteFill}

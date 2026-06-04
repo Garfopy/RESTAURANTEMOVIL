@@ -6,7 +6,7 @@ import {
   FlatList,
   SafeAreaView,
   TouchableOpacity,
-} from 'react-native';
+} from 'react-native'; 
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useDishes } from '../../hooks/useMenu';
@@ -20,11 +20,15 @@ import type { Platillo } from '@amare/types';
 
 export default function CategoryScreen() {
   const router = useRouter();
-  const { id, restauranteId, q: initialQ } = useLocalSearchParams<{
+  const { id, restauranteId, q: initialQ, nombre } = useLocalSearchParams<{
     id: string;
     restauranteId: string;
     q?: string;
+    nombre?: string; // Añadimos 'nombre' a los parámetros locales
   }>();
+
+  // Usamos el nombre de la categoría para el título, si está disponible
+  const screenTitle = id === 'search' ? 'Buscar' : (nombre || 'Categoría');
 
   const [query, setQuery] = useState(initialQ ?? '');
 
@@ -48,7 +52,7 @@ export default function CategoryScreen() {
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>
-          {id === 'search' ? 'Buscar' : 'Categoría'}
+          {screenTitle}
         </Text>
         <View style={{ width: 24 }} />
       </View>
