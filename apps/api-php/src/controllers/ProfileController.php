@@ -29,9 +29,8 @@ class ProfileController
         $input = ValidationMiddleware::getAllInput();
 
         $rules = [
-            'name' => 'min:3|max:100',
-            'phone' => 'max:20',
-            'address' => 'max:255'
+            'nombre' => 'min:3|max:200',
+            'telefono' => 'max:30'
         ];
 
         $errors = ValidationMiddleware::validate($rules, $input);
@@ -42,16 +41,12 @@ class ProfileController
 
         $updateData = [];
         
-        if (isset($input['name'])) {
-            $updateData['name'] = $input['name'];
+        if (isset($input['nombre'])) {
+            $updateData['nombre'] = $input['nombre'];
         }
         
-        if (isset($input['phone'])) {
-            $updateData['phone'] = $input['phone'];
-        }
-        
-        if (isset($input['address'])) {
-            $updateData['address'] = $input['address'];
+        if (isset($input['telefono'])) {
+            $updateData['telefono'] = $input['telefono'];
         }
 
         if (empty($updateData)) {
@@ -71,14 +66,16 @@ class ProfileController
     {
         $user = AuthMiddleware::authenticate();
         
-        $sql = "SELECT o.*, b.name as branch_name 
-                FROM orders o
-                LEFT JOIN branches b ON o.branch_id = b.id
-                WHERE o.user_id = :user_id
-                ORDER BY o.created_at DESC
+        $sql = "SELECT p.id, p.folio, p.estado, p.subtotal, p.total,
+                       p.tipo_pedido, p.created_at,
+                       r.nombre AS restaurante_nombre
+                FROM rest_pedidos p
+                JOIN rest_restaurantes r ON r.id = p.restaurante_id
+                WHERE p.mobile_usuario_id = :usuario_id
+                ORDER BY p.created_at DESC
                 LIMIT 50";
         
-        $orders = \Amare\Api\Config\Database::query($sql, [':user_id' => $user->id]);
+        $orders = \Amare\Api\Config\Database::query($sql, [':usuario_id' => $user->id]);
         
         foreach ($orders as &$order) {
             $order['items'] = $this->getOrderItems($order['id']);
@@ -89,11 +86,15 @@ class ProfileController
 
     private function getOrderItems(int $orderId): array
     {
-        $sql = "SELECT oi.*, p.name as product_name 
-                FROM order_items oi
-                LEFT JOIN products p ON oi.product_id = p.id
-                WHERE oi.order_id = :order_id";
+        $sql = "SELECT pi.id, pi.platillo_id, pl.nombre AS platillo_nombre,
+                       pl.imagen AS platillo_imagen,
+                       pi.cantidad, pi.precio_unit, pi.notas,
+                       pi.estado,
+                       (pi.cantidad * pi.precio_unit) AS subtotal
+                FROM rest_pedido_items pi
+                JOIN rest_platillos pl ON pl.id = pi.platillo_id
+                WHERE pi.pedido_id = :pedido_id";
         
-        return \Amare\Api\Config\Database::query($sql, [':order_id' => $orderId]);
+        return \Amare\Api\Config\Database::query($sql, [':pedido_id' => $orderId]);
     }
 }

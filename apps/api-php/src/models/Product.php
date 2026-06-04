@@ -10,67 +10,62 @@ class Product
 {
     public static function getAll(?int $categoryId = null, ?int $branchId = null): array
     {
-        $sql = "SELECT p.*, c.name as category_name, GROUP_CONCAT(i.url) as images
-                FROM products p
-                LEFT JOIN categories c ON p.category_id = c.id
-                LEFT JOIN product_images i ON p.id = i.product_id
-                WHERE p.active = 1";
+        $sql = "SELECT p.id, p.restaurante_id, p.categoria_id,
+                       c.nombre as categoria_nombre,
+                       p.nombre, p.descripcion,
+                       p.precio, p.imagen, p.tiempo_preparacion_min,
+                       p.disponible, p.activo
+                FROM rest_platillos p
+                LEFT JOIN rest_categorias_menu c ON p.categoria_id = c.id
+                WHERE p.activo = 1";
         
         $params = [];
         
         if ($categoryId !== null) {
-            $sql .= " AND p.category_id = :category_id";
-            $params[':category_id'] = $categoryId;
+            $sql .= " AND p.categoria_id = :categoria_id";
+            $params[':categoria_id'] = $categoryId;
         }
         
         if ($branchId !== null) {
-            $sql .= " AND (p.branch_id IS NULL OR p.branch_id = :branch_id)";
-            $params[':branch_id'] = $branchId;
+            $sql .= " AND (p.restaurante_id IS NULL OR p.restaurante_id = :restaurante_id)";
+            $params[':restaurante_id'] = $branchId;
         }
         
-        $sql .= " GROUP BY p.id ORDER BY p.name";
+        $sql .= " ORDER BY p.nombre";
         
-        $products = Database::query($sql, $params);
-        
-        foreach ($products as &$product) {
-            $product['images'] = $product['images'] ? explode(',', $product['images']) : [];
-        }
-        
-        return $products;
+        return Database::query($sql, $params);
     }
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT p.*, c.name as category_name, GROUP_CONCAT(i.url) as images
-                FROM products p
-                LEFT JOIN categories c ON p.category_id = c.id
-                LEFT JOIN product_images i ON p.id = i.product_id
-                WHERE p.id = :id AND p.active = 1
-                GROUP BY p.id";
+        $sql = "SELECT p.id, p.restaurante_id, p.categoria_id,
+                       c.nombre as categoria_nombre,
+                       p.nombre, p.descripcion,
+                       p.precio, p.imagen, p.tiempo_preparacion_min,
+                       p.disponible, p.activo
+                FROM rest_platillos p
+                LEFT JOIN rest_categorias_menu c ON p.categoria_id = c.id
+                WHERE p.id = :id AND p.activo = 1
+                LIMIT 1";
         
-        $product = Database::queryOne($sql, [':id' => $id]);
-        
-        if ($product) {
-            $product['images'] = $product['images'] ? explode(',', $product['images']) : [];
-        }
-        
-        return $product;
+        return Database::queryOne($sql, [':id' => $id]);
     }
 
     public static function create(array $data): int
     {
-        $sql = "INSERT INTO products (name, description, price, category_id, branch_id, image, preparation_time, active, created_at) 
-                VALUES (:name, :description, :price, :category_id, :branch_id, :image, :preparation_time, :active, NOW())";
+        $sql = "INSERT INTO rest_platillos (nombre, descripcion, precio, categoria_id, restaurante_id, imagen, tiempo_preparacion_min, disponible, activo, created_at) 
+                VALUES (:nombre, :descripcion, :precio, :categoria_id, :restaurante_id, :imagen, :tiempo_preparacion_min, :disponible, :activo, NOW())";
         
         return Database::execute($sql, [
-            ':name' => $data['name'],
-            ':description' => $data['description'] ?? null,
-            ':price' => $data['price'],
-            ':category_id' => $data['category_id'] ?? null,
-            ':branch_id' => $data['branch_id'] ?? null,
-            ':image' => $data['image'] ?? null,
-            ':preparation_time' => $data['preparation_time'] ?? null,
-            ':active' => $data['active'] ?? 1
+            ':nombre' => $data['nombre'],
+            ':descripcion' => $data['descripcion'] ?? null,
+            ':precio' => $data['precio'],
+            ':categoria_id' => $data['categoria_id'] ?? null,
+            ':restaurante_id' => $data['restaurante_id'] ?? null,
+            ':imagen' => $data['imagen'] ?? null,
+            ':tiempo_preparacion_min' => $data['tiempo_preparacion_min'] ?? null,
+            ':disponible' => $data['disponible'] ?? 1,
+            ':activo' => $data['activo'] ?? 1
         ]);
     }
 
@@ -90,12 +85,12 @@ class Product
             return false;
         }
 
-        $sql = "UPDATE products SET " . implode(', ', $setClause) . " WHERE id = :id";
+        $sql = "UPDATE rest_platillos SET " . implode(', ', $setClause) . " WHERE id = :id";
         return Database::rowCount($sql, $params) > 0;
     }
 
     public static function delete(int $id): bool
     {
-        return Database::rowCount("UPDATE products SET active = 0 WHERE id = :id", [':id' => $id]) > 0;
+        return Database::rowCount("UPDATE rest_platillos SET activo = 0 WHERE id = :id", [':id' => $id]) > 0;
     }
 }

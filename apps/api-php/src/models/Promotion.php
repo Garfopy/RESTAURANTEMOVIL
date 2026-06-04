@@ -10,79 +10,63 @@ class Promotion
 {
     public static function getAll(): array
     {
-        $sql = "SELECT * FROM promotions 
-                WHERE active = 1 
-                AND (start_date IS NULL OR start_date <= NOW()) 
-                AND (end_date IS NULL OR end_date >= NOW())
-                ORDER BY created_at DESC";
+        $sql = "SELECT valor FROM global_settings WHERE clave = 'mobile_promotions' LIMIT 1";
+        $settings = Database::queryOne($sql);
         
-        return Database::query($sql);
+        if (!$settings || !$settings['valor']) {
+            return [];
+        }
+        
+        try {
+            $promotions = json_decode($settings['valor'], true);
+            return is_array($promotions) ? $promotions : [];
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT * FROM promotions 
-                WHERE id = :id AND active = 1 
-                AND (start_date IS NULL OR start_date <= NOW()) 
-                AND (end_date IS NULL OR end_date >= NOW())
-                LIMIT 1";
+        $promotions = self::getAll();
         
-        return Database::queryOne($sql, [':id' => $id]);
+        foreach ($promotions as $promotion) {
+            if (isset($promotion['id']) && (int)$promotion['id'] === $id) {
+                return $promotion;
+            }
+        }
+        
+        return null;
     }
 
     public static function create(array $data): int
     {
-        $sql = "INSERT INTO promotions (name, description, discount_type, discount_value, code, min_order_amount, max_uses, start_date, end_date, active, created_at) 
-                VALUES (:name, :description, :discount_type, :discount_value, :code, :min_order_amount, :max_uses, :start_date, :end_date, :active, NOW())";
-        
-        return Database::execute($sql, [
-            ':name' => $data['name'],
-            ':description' => $data['description'] ?? null,
-            ':discount_type' => $data['discount_type'],
-            ':discount_value' => $data['discount_value'],
-            ':code' => $data['code'] ?? null,
-            ':min_order_amount' => $data['min_order_amount'] ?? null,
-            ':max_uses' => $data['max_uses'] ?? null,
-            ':start_date' => $data['start_date'] ?? null,
-            ':end_date' => $data['end_date'] ?? null,
-            ':active' => $data['active'] ?? 1
-        ]);
+        // Las promociones se gestionan como JSON en global_settings
+        // Este método no está soportado en la API original
+        return 0;
     }
 
     public static function update(int $id, array $data): bool
     {
-        $setClause = [];
-        $params = [':id' => $id];
-
-        foreach ($data as $key => $value) {
-            if ($value !== null) {
-                $setClause[] = "{$key} = :{$key}";
-                $params[":{$key}"] = $value;
-            }
-        }
-
-        if (empty($setClause)) {
-            return false;
-        }
-
-        $sql = "UPDATE promotions SET " . implode(', ', $setClause) . " WHERE id = :id";
-        return Database::rowCount($sql, $params) > 0;
+        // Las promociones se gestionan como JSON en global_settings
+        return false;
     }
 
     public static function delete(int $id): bool
     {
-        return Database::rowCount("UPDATE promotions SET active = 0 WHERE id = :id", [':id' => $id]) > 0;
+        // Las promociones se gestionan como JSON en global_settings
+        return false;
     }
 
     public static function validateCode(string $code): ?array
     {
-        $sql = "SELECT * FROM promotions 
-                WHERE code = :code 
-                AND active = 1 
-                AND (start_date IS NULL OR start_date <= NOW()) 
-                AND (end_date IS NULL OR end_date >= NOW())
-                LIMIT 1";
+        $promotions = self::getAll();
         
-        return Database::queryOne($sql, [':code' => $code]);
+        foreach ($promotions as $promotion) {
+            if (isset($promotion['code']) && $promotion['code'] === $code) {
+                return $promotion;
+            }
+        }
+        
+        return null;
     }
 }

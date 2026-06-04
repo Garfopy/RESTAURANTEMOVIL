@@ -32,11 +32,10 @@ class AuthController
         }
 
         $userId = User::create([
-            'name' => $input['name'],
+            'nombre' => $input['name'],
             'email' => $input['email'],
-            'password' => password_hash($input['password'], PASSWORD_DEFAULT),
-            'phone' => $input['phone'] ?? null,
-            'address' => $input['address'] ?? null
+            'password_hash' => password_hash($input['password'], PASSWORD_DEFAULT),
+            'telefono' => $input['phone'] ?? null
         ]);
 
         if (!$userId) {
@@ -47,8 +46,10 @@ class AuthController
         $token = AuthMiddleware::generateToken([
             'id' => $user['id'],
             'email' => $user['email'],
-            'name' => $user['name']
+            'nombre' => $user['nombre']
         ]);
+
+        unset($user['password_hash']);
 
         Response::success([
             'user' => $user,
@@ -72,17 +73,17 @@ class AuthController
         $input = ValidationMiddleware::getAllInput();
         $user = User::findByEmail($input['email']);
 
-        if (!$user || !isset($user['password']) || !User::verifyPassword($input['password'], $user['password'])) {
+        if (!$user || !isset($user['password_hash']) || !User::verifyPassword($input['password'], $user['password_hash'])) {
             Response::unauthorized('Credenciales inválidas');
         }
 
         $token = AuthMiddleware::generateToken([
             'id' => $user['id'],
             'email' => $user['email'],
-            'name' => $user['name']
+            'nombre' => $user['nombre']
         ]);
 
-        unset($user['password']);
+        unset($user['password_hash']);
 
         Response::success([
             'user' => $user,
@@ -109,7 +110,7 @@ class AuthController
 
             $googleId = $payload['sub'];
             $email = $payload['email'];
-            $name = $payload['name'];
+            $nombre = $payload['name'];
 
             $user = User::findByGoogleId($googleId);
 
@@ -120,7 +121,7 @@ class AuthController
                     User::updateGoogleId($user['id'], $googleId);
                 } else {
                     $userId = User::create([
-                        'name' => $name,
+                        'nombre' => $nombre,
                         'email' => $email,
                         'google_id' => $googleId
                     ]);
@@ -131,10 +132,10 @@ class AuthController
             $token = AuthMiddleware::generateToken([
                 'id' => $user['id'],
                 'email' => $user['email'],
-                'name' => $user['name']
+                'nombre' => $user['nombre']
             ]);
 
-            unset($user['password']);
+            unset($user['password_hash']);
 
             Response::success([
                 'user' => $user,
@@ -175,7 +176,7 @@ class AuthController
 
         $userData = User::findById($user->id);
 
-        if (!$userData || !isset($userData['password']) || !User::verifyPassword($input['current_password'], $userData['password'])) {
+        if (!$userData || !isset($userData['password_hash']) || !User::verifyPassword($input['current_password'], $userData['password_hash'])) {
             Response::error('Contraseña actual inválida', 400);
         }
 

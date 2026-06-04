@@ -10,35 +10,35 @@ class User
 {
     public static function create(array $data): int
     {
-        $sql = "INSERT INTO users (name, email, password, phone, address, google_id, created_at) 
-                VALUES (:name, :email, :password, :phone, :address, :google_id, NOW())";
+        $sql = "INSERT INTO mobile_usuarios (nombre, email, password_hash, telefono, foto_url, google_id, created_at) 
+                VALUES (:nombre, :email, :password_hash, :telefono, :foto_url, :google_id, NOW())";
         
         return Database::execute($sql, [
-            ':name' => $data['name'],
+            ':nombre' => $data['nombre'],
             ':email' => $data['email'],
-            ':password' => $data['password'] ?? null,
-            ':phone' => $data['phone'] ?? null,
-            ':address' => $data['address'] ?? null,
+            ':password_hash' => $data['password_hash'] ?? null,
+            ':telefono' => $data['telefono'] ?? null,
+            ':foto_url' => $data['foto_url'] ?? null,
             ':google_id' => $data['google_id'] ?? null
         ]);
     }
 
     public static function findByEmail(string $email): ?array
     {
-        $sql = "SELECT * FROM users WHERE email = :email LIMIT 1";
+        $sql = "SELECT * FROM mobile_usuarios WHERE email = :email LIMIT 1";
         return Database::queryOne($sql, [':email' => $email]);
     }
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT id, name, email, phone, address, google_id, created_at, updated_at 
-                FROM users WHERE id = :id LIMIT 1";
+        $sql = "SELECT id, nombre, email, telefono, foto_url, google_id, activo, created_at, updated_at 
+                FROM mobile_usuarios WHERE id = :id LIMIT 1";
         return Database::queryOne($sql, [':id' => $id]);
     }
 
     public static function findByGoogleId(string $googleId): ?array
     {
-        $sql = "SELECT * FROM users WHERE google_id = :google_id LIMIT 1";
+        $sql = "SELECT * FROM mobile_usuarios WHERE google_id = :google_id LIMIT 1";
         return Database::queryOne($sql, [':google_id' => $googleId]);
     }
 
@@ -59,23 +59,23 @@ class User
         }
 
         $setClause[] = "updated_at = NOW()";
-        $sql = "UPDATE users SET " . implode(', ', $setClause) . " WHERE id = :id";
+        $sql = "UPDATE mobile_usuarios SET " . implode(', ', $setClause) . " WHERE id = :id";
         
         return Database::rowCount($sql, $params) > 0;
     }
 
     public static function updatePassword(int $id, string $password): bool
     {
-        $sql = "UPDATE users SET password = :password, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE mobile_usuarios SET password_hash = :password_hash, updated_at = NOW() WHERE id = :id";
         return Database::rowCount($sql, [
-            ':password' => password_hash($password, PASSWORD_DEFAULT),
+            ':password_hash' => password_hash($password, PASSWORD_DEFAULT),
             ':id' => $id
         ]) > 0;
     }
 
     public static function updateGoogleId(int $id, string $googleId): bool
     {
-        $sql = "UPDATE users SET google_id = :google_id, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE mobile_usuarios SET google_id = :google_id, updated_at = NOW() WHERE id = :id";
         return Database::rowCount($sql, [
             ':google_id' => $googleId,
             ':id' => $id
@@ -89,7 +89,7 @@ class User
 
     public static function existsByEmail(string $email, ?int $excludeId = null): bool
     {
-        $sql = "SELECT COUNT(*) as count FROM users WHERE email = :email";
+        $sql = "SELECT COUNT(*) as count FROM mobile_usuarios WHERE email = :email";
         $params = [':email' => $email];
         
         if ($excludeId !== null) {

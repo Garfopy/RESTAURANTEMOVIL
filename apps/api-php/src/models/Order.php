@@ -10,13 +10,15 @@ class Order
 {
     public static function getByUser(int $userId): array
     {
-        $sql = "SELECT o.*, b.name as branch_name 
-                FROM orders o
-                LEFT JOIN branches b ON o.branch_id = b.id
-                WHERE o.user_id = :user_id
-                ORDER BY o.created_at DESC";
+        $sql = "SELECT p.id, p.folio, p.estado, p.subtotal, p.total,
+                       p.tipo_pedido, p.created_at,
+                       r.nombre AS restaurante_nombre
+                FROM rest_pedidos p
+                JOIN rest_restaurantes r ON r.id = p.restaurante_id
+                WHERE p.mobile_usuario_id = :usuario_id
+                ORDER BY p.created_at DESC";
         
-        $orders = Database::query($sql, [':user_id' => $userId]);
+        $orders = Database::query($sql, [':usuario_id' => $userId]);
         
         foreach ($orders as &$order) {
             $order['items'] = self::getOrderItems($order['id']);
@@ -27,16 +29,16 @@ class Order
 
     public static function findById(int $id, ?int $userId = null): ?array
     {
-        $sql = "SELECT o.*, b.name as branch_name 
-                FROM orders o
-                LEFT JOIN branches b ON o.branch_id = b.id
-                WHERE o.id = :id";
+        $sql = "SELECT p.*, r.nombre AS restaurante_nombre
+                FROM rest_pedidos p
+                JOIN rest_restaurantes r ON r.id = p.restaurante_id
+                WHERE p.id = :id";
         
         $params = [':id' => $id];
         
         if ($userId !== null) {
-            $sql .= " AND o.user_id = :user_id";
-            $params[':user_id'] = $userId;
+            $sql .= " AND p.mobile_usuario_id = :usuario_id";
+            $params[':usuario_id'] = $userId;
         }
         
         $order = Database::queryOne($sql, $params);
@@ -55,17 +57,19 @@ class Order
         try {
             $pdo->beginTransaction();
             
-            $sql = "INSERT INTO orders (user_id, branch_id, order_type, status, subtotal, tax, total, notes, payment_status, created_at) 
-                    VALUES (:user_id, :branch_id, :order_type, 'pending', :subtotal, :tax, :total, :notes, 'pending', NOW())";
+            $folio = 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
+            
+            $sql = "INSERT INTO rest_pedidos (restaurante_id, mobile_usuario_id, folio, estado, subtotal, total, tipo_pedido, notas, created_at) 
+                    VALUES (:restaurante_id, :mobile_usuario_id, :folio, 'pendiente', :subtotal, :total, :tipo_pedido, :notas, NOW())";
             
             $orderId = Database::execute($sql, [
-                ':user_id' => $data['user_id'],
-                ':branch_id' => $data['branch_id'],
-                ':order_type' => $data['order_type'],
+                ':restaurante_id' => $data['restaurante_id'],
+                ':mobile_usuario_id' => $data['user_id'],
+                ':folio' => $folio,
                 ':subtotal' => $data['subtotal'],
-                ':tax' => $data['tax'] ?? 0,
                 ':total' => $data['total'],
-                ':notes' => $data['notes'] ?? null
+                ':tipo_pedido' => $data['order_type'],
+                ':notas' => $data['notes'] ?? null
             ]);
             
             if (!$orderId) {
@@ -74,16 +78,15 @@ class Order
             }
             
             foreach ($data['items'] as $item) {
-                $itemSql = "INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price, options) 
-                           VALUES (:order_id, :product_id, :quantity, :unit_price, :total_price, :options)";
+                $itemSql = "INSERT INTO rest_pedido_items (pedido_id, platillo_id, cantidad, precio_unit, notas, estado) 
+                           VALUES (:pedido_id, :platillo_id, :cantidad, :precio_unit, :notas, 'pendiente')";
                 
                 Database::execute($itemSql, [
-                    ':order_id' => $orderId,
-                    ':product_id' => $item['product_id'],
-                    ':quantity' => $item['quantity'],
-                    ':unit_price' => $item['unit_price'],
-                    ':total_price' => $item['total_price'],
-                    ':options' => $item['options'] ?? null
+                    ':pedido_id' => $orderId,
+                    ':platillo_id' => $item['product_id'],
+                    ':cantidad' => $item['quantity'],
+                    ':precio_unit' => $item['unit_price'],
+                    ':notas' => $item['options'] ?? null
                 ]);
             }
             
@@ -99,11 +102,15 @@ class Order
 
     private static function getOrderItems(int $orderId): array
     {
-        $sql = "SELECT oi.*, p.name as product_name, p.price
-                FROM order_items oi
-                LEFT JOIN products p ON oi.product_id = p.id
-                WHERE oi.order_id = :order_id";
+        $sql = "SELECT pi.id, pi.platillo_id, pl.nombre AS platillo_nombre,
+                       pl.imagen AS platillo_imagen,
+                       pi.cantidad, pi.precio_unit, pi.notas,
+                       pi.estado,
+                       (pi.cantidad * pi.precio_unit) AS subtotal
+                FROM rest_pedido_items pi
+                JOIN rest_platillos pl ON pl.id = pi.platillo_id
+                WHERE pi.pedido_id = :pedido_id";
         
-        return Database::query($sql, [':order_id' => $orderId]);
+        return Database::query($sql, [':pedido_id' => $orderId]);
     }
 }

@@ -37,8 +37,8 @@ class OrderController
         $input = ValidationMiddleware::getAllInput();
 
         $rules = [
-            'branch_id' => 'required|integer',
-            'order_type' => 'required|in:pickup,delivery',
+            'restaurante_id' => 'required|integer',
+            'tipo_pedido' => 'required|in:delivery,pickup,eat_in',
             'subtotal' => 'required|numeric',
             'total' => 'required|numeric',
             'items' => 'required|array'
@@ -54,15 +54,26 @@ class OrderController
             Response::validationError(['items' => ['Debe incluir al menos un producto']]);
         }
 
+        // Mapear items del payload (product_id, quantity, unit_price, options)
+        // a lo que espera la DB (platillo_id, cantidad, precio_unit, notas)
+        $items = [];
+        foreach ($input['items'] as $item) {
+            $items[] = [
+                'platillo_id' => $item['product_id'] ?? $item['platillo_id'],
+                'cantidad' => $item['quantity'] ?? $item['cantidad'],
+                'precio_unit' => $item['unit_price'] ?? $item['precio_unit'],
+                'notas' => $item['options'] ?? $item['notas'] ?? null
+            ];
+        }
+
         $orderId = Order::create([
+            'restaurante_id' => $input['restaurante_id'],
             'user_id' => $user->id,
-            'branch_id' => $input['branch_id'],
-            'order_type' => $input['order_type'],
+            'order_type' => $input['tipo_pedido'],
             'subtotal' => $input['subtotal'],
-            'tax' => $input['tax'] ?? 0,
             'total' => $input['total'],
-            'notes' => $input['notes'] ?? null,
-            'items' => $input['items']
+            'notes' => $input['notas'] ?? null,
+            'items' => $items
         ]);
 
         if (!$orderId) {
