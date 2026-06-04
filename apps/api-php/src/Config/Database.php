@@ -39,7 +39,7 @@ class Database
                 echo json_encode([
                     'success' => false,
                     'message' => 'Error de conexión a la base de datos',
-                    'error' => $_ENV['APP_DEBUG'] ? $e->getMessage() : null
+                    'error' => ($_ENV['APP_DEBUG'] ?? false) ? $e->getMessage() : null
                 ]);
                 exit;
             }
@@ -56,7 +56,7 @@ class Database
             $stmt->execute($params);
             return $stmt->fetchAll();
         } catch (PDOException $e) {
-            if ($_ENV['APP_DEBUG']) {
+            if ($_ENV['APP_DEBUG'] ?? false) {
                 throw $e;
             }
             return [];
@@ -71,7 +71,7 @@ class Database
             $result = $stmt->fetch();
             return $result ?: null;
         } catch (PDOException $e) {
-            if ($_ENV['APP_DEBUG']) {
+            if ($_ENV['APP_DEBUG'] ?? false) {
                 throw $e;
             }
             return null;
@@ -85,7 +85,7 @@ class Database
             $stmt->execute($params);
             return self::getInstance()->lastInsertId();
         } catch (PDOException $e) {
-            if ($_ENV['APP_DEBUG']) {
+            if ($_ENV['APP_DEBUG'] ?? false) {
                 throw $e;
             }
             return 0;
