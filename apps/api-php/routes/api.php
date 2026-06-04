@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$basePath = '/api';
+$basePath = dirname($_SERVER['SCRIPT_NAME']);
 
 $routes = [
     // Auth routes
