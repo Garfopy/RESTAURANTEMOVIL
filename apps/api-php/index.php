@@ -17,10 +17,14 @@ if ($_ENV['APP_DEBUG'] ?? false) {
 }
 
 // Cargar configuración
-require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/src/Config/Config.php';
 
 // Cargar autoloader de Composer
 require_once __DIR__ . '/vendor/autoload.php';
 
 // Cargar rutas
 require_once __DIR__ . '/routes/api.php';
+
+echo '<pre>';
+print_r($_ENV);
+exit;
