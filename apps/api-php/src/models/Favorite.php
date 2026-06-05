@@ -23,9 +23,9 @@ class Favorite
 
     public static function add(int $userId, int $productId): bool
     {
-        $sql = "INSERT IGNORE INTO mobile_favoritos (usuario_id, platillo_id, created_at) 
+        $sql = "INSERT INTO mobile_favoritos (usuario_id, platillo_id, created_at)
                 VALUES (:usuario_id, :platillo_id, NOW())";
-        
+
         return Database::rowCount($sql, [
             ':usuario_id' => $userId,
             ':platillo_id' => $productId
@@ -52,4 +52,37 @@ class Favorite
         
         return ($result['count'] ?? 0) > 0;
     }
+
+    public static function toggle(int $userId, int $productId): array
+{
+    $exists = self::isFavorite($userId, $productId);
+
+    if ($exists) {
+        self::remove($userId, $productId);
+
+        return [
+            'ok' => true,
+            'favorito' => false
+        ];
+    }
+
+    self::add($userId, $productId);
+
+    return [
+        'ok' => true,
+        'favorito' => true
+    ];
+}
+
+    // Métodos relacionados a direcciones (si decides incluirlos aquí)
+    public static function getAddressesByUser(int $userId): array
+    {
+        $sql = "SELECT id, usuario_id, alias, calle, numero, colonia, ciudad,
+                       estado_provincia, cp, lat, lng, instrucciones,
+                       es_principal, activo, created_at, updated_at
+                FROM mobile_direcciones WHERE usuario_id = :usuario_id AND activo = 1
+                ORDER BY es_principal DESC, created_at DESC";
+        return Database::query($sql, [':usuario_id' => $userId]);
+    }
+
 }

@@ -27,7 +27,6 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
 
   async function handlePickImage() {
-    // Solicitar opciones: Cámara o Galería
     Alert.alert(
       'Foto de perfil',
       '¿De dónde quieres obtener la imagen?',
@@ -72,10 +71,9 @@ export default function ProfileScreen() {
         type,
       } as any);
 
-      // Asumiendo que tu API tiene este endpoint para actualizar el perfil
       const response = await apiClient.post('/profile/avatar', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000, // Aumentamos a 60 segundos para permitir la subida de archivos
+        timeout: 60000,
       });
 
       if (response.data.foto_url && user) {
@@ -110,27 +108,28 @@ export default function ProfileScreen() {
         <Text style={styles.headerTitle}>Perfil</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {/* Avatar */}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Sección del Avatar Principal */}
         <View style={styles.avatarSection}>
-          <View style={styles.avatar}>
-            {user?.foto_url ? (
-              <Image source={{ uri: user.foto_url }} style={styles.avatarImg} />
-            ) : (
-              <Text style={styles.avatarLetter}>
-                {user?.nombre?.[0]?.toUpperCase() ?? '?'}
-              </Text>
-            )}
-            
+          <View style={styles.avatarContainer}>
+            <View style={styles.avatar}>
+              {user?.foto_url ? (
+                <Image source={{ uri: user.foto_url }} style={styles.avatarImg} cachePolicy="disk" />
+              ) : (
+                <Text style={styles.avatarLetter}>
+                  {user?.nombre?.[0]?.toUpperCase() ?? '?'}
+                </Text>
+              )}
+            </View>
             <TouchableOpacity 
               style={styles.editBadge} 
-              activeOpacity={0.8}
+              activeOpacity={0.9}
               onPress={handlePickImage}
               disabled={uploading}
             >
               {uploading 
-                ? <ActivityIndicator size="small" color={Colors.white} />
-                : <Ionicons name="camera" size={16} color={Colors.white} />
+                ? <ActivityIndicator size="small" color="#FFFFFF" />
+                : <Ionicons name="camera" size={16} color="#FFFFFF" />
               }
             </TouchableOpacity>
           </View>
@@ -138,43 +137,46 @@ export default function ProfileScreen() {
           <Text style={styles.email}>{user?.email ?? ''}</Text>
         </View>
 
-        {/* Opciones */}
+        {/* Bloques de Menú */}
         <View style={styles.menuContainer}>
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
-        <View style={styles.section}>
-          <MenuItem
-            icon="location-outline"
-            label="Mis direcciones"
-            color="#3B82F6"
-            onPress={() => router.push('/profile/addresses')}
-          />
-          <MenuItem
-            icon="bag-outline"
-            label="Historial de pedidos"
-            color="#10B981"
-            onPress={() => router.push('/(tabs)/orders')}
-          />
-          <MenuItem
-            icon="heart-outline"
-            label="Favoritos"
-            color="#EF4444"
-            onPress={() => router.push('/(tabs)/favorites')}
-          />
+          <View style={styles.section}>
+            <MenuItem
+              icon="location"
+              label="Mis direcciones"
+              color="#3B82F6"
+              onPress={() => router.push('/profile/addresses')}
+              showDivider
+            />
+            <MenuItem
+              icon="bag"
+              label="Historial de pedidos"
+              color="#10B981"
+              onPress={() => router.push('/(tabs)/orders')}
+              showDivider
+            />
+            <MenuItem
+              icon="heart"
+              label="Favoritos"
+              color="#EF4444"
+              onPress={() => router.push('/(tabs)/favorites')}
+            />
+          </View>
+
+          <Text style={styles.sectionTitle}>Ayuda y Soporte</Text>
+          <View style={styles.section}>
+            <MenuItem
+              icon="help-circle"
+              label="Centro de ayuda"
+              color="#8B5CF6"
+              onPress={() => Alert.alert('Ayuda', 'Próximamente...')}
+            />
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Ayuda y Soporte</Text>
-        <View style={styles.section}>
-          <MenuItem
-            icon="help-circle-outline"
-            label="Centro de ayuda"
-            color="#8B5CF6"
-            onPress={() => Alert.alert('Ayuda', 'Próximamente...')}
-          />
-        </View>
-        </View>
-
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={20} color={Colors.error} />
+        {/* Botón Cerrar Sesión Premium */}
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+          <Ionicons name="log-out" size={20} color={Colors.error || '#EF4444'} />
           <Text style={styles.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -182,92 +184,176 @@ export default function ProfileScreen() {
   );
 }
 
-function MenuItem({ icon, label, color, onPress }: { icon: string; label: string; color: string; onPress: () => void }) {
+// Subcomponente de Elemento de Menú Refactorizado
+function MenuItem({ 
+  icon, 
+  label, 
+  color, 
+  onPress,
+  showDivider = false 
+}: { 
+  icon: string; 
+  label: string; 
+  color: string; 
+  onPress: () => void;
+  showDivider?: boolean;
+}) {
   return (
-    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.7}>
-      <View style={[styles.iconBg, { backgroundColor: color + '15' }]}>
+    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.5}>
+      <View style={[styles.iconBg, { backgroundColor: `${color}12` }]}>
         <Ionicons name={icon as never} size={20} color={color} />
       </View>
-      <Text style={styles.menuLabel}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+      <View style={[styles.menuItemContent, showDivider && styles.bottomBorder]}>
+        <Text style={styles.menuLabel}>{label}</Text>
+        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" style={{ marginRight: 16 }} />
+      </View>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+  safe: { 
+    flex: 1, 
+    backgroundColor: Colors.background || '#F9FAFB' 
   },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: Colors.text, letterSpacing: -0.5 },
-  content: { paddingHorizontal: 20, paddingBottom: 120 },
-  avatarSection: { alignItems: 'center', paddingVertical: 20, gap: 4 },
+  header: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  headerTitle: { 
+    fontSize: 34, 
+    fontWeight: '800', 
+    color: Colors.text || '#111827', 
+    letterSpacing: -0.8,
+    lineHeight: 42,
+    paddingTop: 4,
+  },
+  content: { 
+    paddingHorizontal: 24, 
+    paddingBottom: 120 
+  },
+  avatarSection: { 
+    alignItems: 'center', 
+    paddingVertical: 24,
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: 16,
+    ...Shadows.md,
+  },
   avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: Colors.primary || '#111827',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
-    position: 'relative',
-    ...Shadows.md,
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    overflow: 'hidden',
   },
   avatarImg: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: '100%',
+    height: '100%',
   },
   editBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#374151',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    bottom: 2,
+    right: 2,
+    backgroundColor: '#111827',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: Colors.background,
+    borderColor: '#FFFFFF',
+    ...Shadows.sm,
   },
-  avatarLetter: { color: Colors.white, fontSize: 36, fontWeight: '800' },
-  nombre: { fontSize: 22, fontWeight: '800', color: Colors.text, letterSpacing: -0.5 },
-  email: { fontSize: 14, color: Colors.textMuted },
-  menuContainer: { gap: 16, marginTop: 20 },
+  avatarLetter: { 
+    color: '#FFFFFF', 
+    fontSize: 38, 
+    fontWeight: '800' 
+  },
+  nombre: { 
+    fontSize: 24, 
+    fontWeight: '800', 
+    color: Colors.text || '#111827', 
+    letterSpacing: -0.5,
+    marginBottom: 4
+  },
+  email: { 
+    fontSize: 14, 
+    fontWeight: '500',
+    color: '#6B7280' 
+  },
+  menuContainer: { 
+    gap: 20, 
+    marginTop: 12 
+  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: '#9CA3AF',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginLeft: 4,
+    letterSpacing: 1.2,
+    marginLeft: 8,
+    marginBottom: -8,
   },
   section: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+    ...Shadows.sm,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingLeft: 16,
   },
-  iconBg: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  menuLabel: { flex: 1, fontSize: 15, color: Colors.text, fontWeight: '500' },
+  menuItemContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  bottomBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  iconBg: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginRight: 14 
+  },
+  menuLabel: { 
+    flex: 1, 
+    fontSize: 16, 
+    color: Colors.text || '#111827', 
+    fontWeight: '600',
+    letterSpacing: -0.2
+  },
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 14,
-    marginTop: 40,
+    paddingVertical: 16,
+    marginTop: 36,
     backgroundColor: '#FEF2F2',
-    borderRadius: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
   },
-  logoutText: { fontSize: 15, fontWeight: '600', color: Colors.error },
+  logoutText: { 
+    fontSize: 15, 
+    fontWeight: '700', 
+    color: Colors.error || '#EF4444' 
+  },
 });

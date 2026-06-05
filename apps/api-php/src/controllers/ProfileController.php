@@ -84,6 +84,51 @@ class ProfileController
         Response::success(['orders' => $orders]);
     }
 
+    public function updateAvatar(): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if (!isset($_FILES['foto']) || $_FILES['foto']['error'] !== UPLOAD_ERR_OK) {
+            Response::error('No se recibió ninguna imagen o hubo un error al subirla', 400);
+        }
+
+        $file = $_FILES['foto'];
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+        if (!in_array($ext, $allowed)) {
+            Response::error('Formato de imagen no permitido. Use: jpg, jpeg, png, gif, webp', 400);
+        }
+
+        $uploadDir = __DIR__ . '/../../uploads/';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $filename = 'avatar-' . $user->id . '-' . time() . '.' . $ext;
+        $destPath = $uploadDir . $filename;
+
+        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+            Response::serverError('No se pudo guardar la imagen');
+        }
+
+        // Construir URL pública — se usa APP_URL como base
+        $baseUrl = rtrim($_ENV['APP_URL'] ?? 'https://idactivos.digital/api_restaurante', '/');
+        $fotoUrl = $baseUrl . '/uploads/' . $filename;
+
+        if (!User::update($user->id, ['foto_url' => $fotoUrl])) {
+            Response::serverError('No se pudo actualizar la foto de perfil');
+        }
+
+        // 🔥 IMPORTANTE: El frontend espera response.data.foto_url directamente,
+        // no response.data.data.foto_url. Por eso usamos json() directamente
+        // con el mismo formato que la vieja API Node.js.
+        Response::json([
+            'success' => true,
+            'foto_url' => $fotoUrl
+        ]);
+    }
+
     private function getOrderItems(int $orderId): array
     {
         $sql = "SELECT pi.id, pi.platillo_id, pl.nombre AS platillo_nombre,

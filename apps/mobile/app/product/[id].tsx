@@ -5,28 +5,43 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   SafeAreaView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+
 import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
 import { useCartStore } from '../../store/cart.store';
-import { useFavoritesStore } from '../../store/favorites.store';
+import { useFavorites } from '../../hooks/useFavorites'; // ✅ NUEVO
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
-import type { ModificadorSeleccionado, OpcionModificador } from '@amare/types';
+import type {
+  ModificadorSeleccionado,
+  OpcionModificador,
+} from '@amare/types';
 
 export default function ProductScreen() {
   const router = useRouter();
-  const { id, restauranteId } = useLocalSearchParams<{ id: string; restauranteId: string }>();
+  const { id, restauranteId } = useLocalSearchParams<{
+    id: string;
+    restauranteId: string;
+  }>();
 
-  const { data: platillo, isLoading } = useDish(Number(restauranteId), Number(id));
+  const { data: platillo, isLoading } = useDish(
+    Number(restauranteId),
+    Number(id)
+  );
+
   const addItem = useCartStore((s) => s.addItem);
-  const { isFavorite, toggle: toggleFav } = useFavoritesStore();
+
+  // ✅ FAVORITOS (UN SOLO SISTEMA)
+  const { data: favorites, toggle } = useFavorites();
+
+  const isFav = favorites?.some((f: any) => f.id === platillo?.id);
+
   const [cantidad, setCantidad] = useState(1);
   const [notas, setNotas] = useState('');
   const [modsSel, setModsSel] = useState<ModificadorSeleccionado[]>([]);
@@ -44,40 +59,67 @@ export default function ProductScreen() {
     );
   }
 
-  function toggleOpcion(modId: number, modNombre: string, opcion: OpcionModificador, tipo: 'radio' | 'checkbox') {
+  function toggleOpcion(
+    modId: number,
+    modNombre: string,
+    opcion: OpcionModificador,
+    tipo: 'radio' | 'checkbox'
+  ) {
     const nuevoItem: ModificadorSeleccionado = {
       modificador_id: modId,
       modificador_nombre: modNombre,
-      opciones: [{ opcion_id: opcion.id, opcion_nombre: opcion.nombre, precio_extra: opcion.precio_extra }],
+      opciones: [
+        {
+          opcion_id: opcion.id,
+          opcion_nombre: opcion.nombre,
+          precio_extra: opcion.precio_extra,
+        },
+      ],
     };
+
     setModsSel((prev) => {
       if (tipo === 'radio') {
-        return [...prev.filter((m) => m.modificador_id !== modId), nuevoItem];
+        return [
+          ...prev.filter((m) => m.modificador_id !== modId),
+          nuevoItem,
+        ];
       }
-      // checkbox
+
       const existing = prev.find((m) => m.modificador_id === modId);
+
       if (existing) {
-        const yaSelec = existing.opciones.some((o) => o.opcion_id === opcion.id);
+        const yaSelec = existing.opciones.some(
+          (o) => o.opcion_id === opcion.id
+        );
+
         const nuevasOpciones = yaSelec
           ? existing.opciones.filter((o) => o.opcion_id !== opcion.id)
-          : [...existing.opciones, { opcion_id: opcion.id, opcion_nombre: opcion.nombre, precio_extra: opcion.precio_extra }];
-        if (nuevasOpciones.length === 0) return prev.filter((m) => m.modificador_id !== modId);
+          : [
+              ...existing.opciones,
+              {
+                opcion_id: opcion.id,
+                opcion_nombre: opcion.nombre,
+                precio_extra: opcion.precio_extra,
+              },
+            ];
+
+        if (nuevasOpciones.length === 0)
+          return prev.filter((m) => m.modificador_id !== modId);
+
         return [
           ...prev.filter((m) => m.modificador_id !== modId),
           { ...existing, opciones: nuevasOpciones },
         ];
       }
+
       return [...prev, nuevoItem];
     });
   }
 
   function handleAddToCart() {
-    if (!platillo) return;
     addItem(platillo, cantidad, modsSel, notas.trim());
     router.back();
   }
-
-  const isFav = isFavorite(platillo.id);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -85,14 +127,26 @@ export default function ProductScreen() {
         {/* Imagen */}
         <View style={styles.imageContainer}>
           <Image
-            source={formatImageUrl(platillo.imagen) ?? require('../../assets/placeholder-food.jpg')}
+            source={
+              formatImageUrl(platillo.imagen) ??
+              require('../../assets/placeholder-food.jpg')
+            }
             style={styles.image}
             contentFit="cover"
           />
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
             <Ionicons name="arrow-back" size={22} color={Colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.favBtn} onPress={() => toggleFav(platillo.id)}>
+
+          {/* ❤️ FAVORITO (YA CORREGIDO) */}
+          <TouchableOpacity
+            style={styles.favBtn}
+            onPress={() => toggle(platillo.id)}
+          >
             <Ionicons
               name={isFav ? 'heart' : 'heart-outline'}
               size={22}
@@ -104,36 +158,79 @@ export default function ProductScreen() {
         {/* Info */}
         <View style={styles.info}>
           <Text style={styles.nombre}>{platillo.nombre}</Text>
+
           {platillo.descripcion && (
-            <Text style={styles.descripcion}>{platillo.descripcion}</Text>
+            <Text style={styles.descripcion}>
+              {platillo.descripcion}
+            </Text>
           )}
-          <Text style={styles.precio}>${platillo.precio.toFixed(2)}</Text>
+
+          <Text style={styles.precio}>
+            ${platillo.precio.toFixed(2)}
+          </Text>
 
           {/* Modificadores */}
           {platillo.modificadores?.map((mod) => (
             <View key={mod.id} style={styles.modGroup}>
               <Text style={styles.modTitle}>
                 {mod.nombre}
-                {mod.requerido && <Text style={styles.req}> *</Text>}
+                {mod.requerido && (
+                  <Text style={styles.req}> *</Text>
+                )}
               </Text>
+
               <Text style={styles.modSubtitle}>
-                {mod.tipo === 'radio' ? 'Elige una opción' : 'Selecciona las que quieras'}
+                {mod.tipo === 'radio'
+                  ? 'Elige una opción'
+                  : 'Selecciona las que quieras'}
               </Text>
+
               {mod.opciones.map((opcion) => {
-                const selMod = modsSel.find((m) => m.modificador_id === mod.id);
-                const isSelected = selMod?.opciones.some((o) => o.opcion_id === opcion.id) ?? false;
+                const selMod = modsSel.find(
+                  (m) => m.modificador_id === mod.id
+                );
+
+                const isSelected =
+                  selMod?.opciones.some(
+                    (o) => o.opcion_id === opcion.id
+                  ) ?? false;
+
                 return (
                   <TouchableOpacity
                     key={opcion.id}
                     style={styles.opcionRow}
-                    onPress={() => toggleOpcion(mod.id, mod.nombre, opcion, mod.tipo as 'radio' | 'checkbox')}
+                    onPress={() =>
+                      toggleOpcion(
+                        mod.id,
+                        mod.nombre,
+                        opcion,
+                        mod.tipo as 'radio' | 'checkbox'
+                      )
+                    }
                   >
-                    <View style={[styles.checkBox, isSelected && styles.checkBoxActive]}>
-                      {isSelected && <Ionicons name="checkmark" size={12} color={Colors.white} />}
+                    <View
+                      style={[
+                        styles.checkBox,
+                        isSelected && styles.checkBoxActive,
+                      ]}
+                    >
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark"
+                          size={12}
+                          color={Colors.white}
+                        />
+                      )}
                     </View>
-                    <Text style={styles.opcionNombre}>{opcion.nombre}</Text>
+
+                    <Text style={styles.opcionNombre}>
+                      {opcion.nombre}
+                    </Text>
+
                     {(opcion.precio_extra ?? 0) > 0 && (
-                      <Text style={styles.opcionPrecio}>+${opcion.precio_extra!.toFixed(2)}</Text>
+                      <Text style={styles.opcionPrecio}>
+                        +${opcion.precio_extra!.toFixed(2)}
+                      </Text>
                     )}
                   </TouchableOpacity>
                 );
@@ -143,22 +240,36 @@ export default function ProductScreen() {
         </View>
       </ScrollView>
 
-      {/* Footer CTA */}
+      {/* Footer */}
       <View style={styles.footer}>
         <View style={styles.qtyRow}>
           <TouchableOpacity
-            onPress={() => setCantidad((c) => Math.max(1, c - 1))}
+            onPress={() =>
+              setCantidad((c) => Math.max(1, c - 1))
+            }
             style={styles.qtyBtn}
           >
-            <Ionicons name="remove" size={18} color={Colors.text} />
+            <Ionicons
+              name="remove"
+              size={18}
+              color={Colors.text}
+            />
           </TouchableOpacity>
+
           <Text style={styles.qty}>{cantidad}</Text>
-          <TouchableOpacity onPress={() => setCantidad((c) => c + 1)} style={styles.qtyBtn}>
+
+          <TouchableOpacity
+            onPress={() => setCantidad((c) => c + 1)}
+            style={styles.qtyBtn}
+          >
             <Ionicons name="add" size={18} color={Colors.text} />
           </TouchableOpacity>
         </View>
+
         <Button
-          label={`Agregar · $${(platillo.precio * cantidad).toFixed(2)}`}
+          label={`Agregar · $${(
+            platillo.precio * cantidad
+          ).toFixed(2)}`}
           onPress={handleAddToCart}
           style={{ flex: 1 }}
           size="lg"

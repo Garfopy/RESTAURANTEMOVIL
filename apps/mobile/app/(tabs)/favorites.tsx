@@ -1,15 +1,30 @@
 import React, { useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, SafeAreaView } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  FlatList, 
+  SafeAreaView, 
+  Dimensions 
+} from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+
 import { apiClient } from '../../services/api';
 import { useFavoritesStore } from '../../store/favorites.store';
+import { useBranchStore } from '../../store/branch.store';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Colors, Spacing, Typography } from '../../theme';
 import type { Platillo } from '@amare/types';
-import { useBranchStore } from '../../store/branch.store';
+
+// Calculamos el ancho de la tarjeta para que respire perfectamente en la cuadrícula
+const { width } = Dimensions.get('window');
+const CARD_MARGIN = 16;
+const PADDING_HORIZONTAL = 24;
+const CARD_WIDTH = (width - PADDING_HORIZONTAL * 2 - CARD_MARGIN) / 2;
 
 export default function FavoritesScreen() {
   const router = useRouter();
@@ -24,14 +39,12 @@ export default function FavoritesScreen() {
     },
   });
 
-  // Forzar actualización cada vez que el usuario entra a la pestaña
   useFocusEffect(
     useCallback(() => {
       refetch();
     }, [refetch])
   );
 
-  // Sincronizar el store global cuando cambian los datos (reemplazo de onSuccess)
   useEffect(() => {
     if (favorites) {
       syncFromServer(favorites.map((p) => p.id));
@@ -40,15 +53,40 @@ export default function FavoritesScreen() {
 
   function handleDish(p: Platillo) {
     if (!restauranteId) return;
-    router.push({ pathname: '/product/[id]', params: { id: String(p.id), restauranteId: String(restauranteId) } });
+    router.push({ 
+      pathname: '/product/[id]', 
+      params: { id: String(p.id), restauranteId: String(restauranteId) } 
+    });
   }
 
+  // Renderizado del Header Premium
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <View style={styles.headerTitleRow}>
+        <Text style={styles.title}>Mis Favoritos</Text>
+        <Ionicons name="heart" size={32} color={Colors.primary || '#EF4444'} />
+      </View>
+      <Text style={styles.subtitle}>
+        Tus platillos guardados para pedir rápidamente.
+      </Text>
+    </View>
+  );
+
+  // Estado de carga con diseño de cuadrícula (Skeleton)
   if (isLoading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.header}><Text style={styles.title}>Favoritos</Text></View>
-        <View style={{ padding: Spacing.base, gap: 12 }}>
-          {[1, 2, 3].map((k) => <Skeleton key={k} height={80} borderRadius={12} />)}
+        {renderHeader()}
+        <View style={styles.skeletonGrid}>
+          {[1, 2, 3, 4, 5, 6].map((k) => (
+            <View key={k} style={{ width: CARD_WIDTH, marginBottom: 24 }}>
+              <Skeleton height={CARD_WIDTH} borderRadius={20} />
+              <View style={styles.skeletonTextWrap}>
+                <Skeleton height={16} borderRadius={6} width="85%" />
+                <Skeleton height={14} borderRadius={6} width="50%" />
+              </View>
+            </View>
+          ))}
         </View>
       </SafeAreaView>
     );
@@ -56,9 +94,8 @@ export default function FavoritesScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Favoritos</Text>
-      </View>
+      {renderHeader()}
+      
       {favorites && favorites.length > 0 ? (
         <FlatList
           data={favorites}
@@ -66,30 +103,86 @@ export default function FavoritesScreen() {
           numColumns={2}
           contentContainerStyle={styles.list}
           columnWrapperStyle={styles.row}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <ProductCard platillo={item} onPress={handleDish} width={160} />
+            <View style={{ width: CARD_WIDTH }}>
+              <ProductCard 
+                platillo={item} 
+                onPress={handleDish} 
+                width={CARD_WIDTH} 
+              />
+            </View>
           )}
         />
       ) : (
-        <EmptyState
-          icon="heart-outline"
-          title="Sin favoritos"
-          description="Marca platillos como favoritos para verlos aquí."
-        />
+        <View style={styles.emptyContainer}>
+          <EmptyState
+            icon="heart-outline"
+            title="Aún no tienes favoritos"
+            description="Explora nuestro menú y toca el corazón en los platillos que más te gusten para guardarlos aquí."
+          />
+        </View>
       )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+  safe: { 
+    flex: 1, 
+    backgroundColor: Colors.background || '#F9FAFB' 
   },
-  title: { ...Typography.h2, fontWeight: '700', color: Colors.text },
-  list: { paddingHorizontal: Spacing.base, paddingBottom: 100, paddingTop: Spacing.sm },
-  row: { justifyContent: 'space-between', marginBottom: Spacing.sm },
+  header: {
+    paddingHorizontal: PADDING_HORIZONTAL,
+    paddingTop: Spacing.xl || 32,
+    paddingBottom: Spacing.lg || 24,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  title: { 
+    ...Typography.h1, 
+    fontSize: 34,
+    fontWeight: '800', 
+    color: Colors.text || '#111827',
+    letterSpacing: -0.5,
+    lineHeight: 42,      // Le da suficiente altura a la línea para que entren los puntos y acentos
+    paddingTop: 4,       // Empuja el texto ligeramente hacia abajo dentro de su propia caja
+  },
+  subtitle: {
+    ...Typography.body,
+    fontSize: 16,
+    color: '#6B7280',
+    lineHeight: 22,
+  },
+  list: { 
+    paddingHorizontal: PADDING_HORIZONTAL, 
+    paddingBottom: 120, 
+    paddingTop: Spacing.sm 
+  },
+  row: { 
+    justifyContent: 'space-between', 
+    marginBottom: CARD_MARGIN * 1.5,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: PADDING_HORIZONTAL,
+    paddingTop: 16,
+  },
+  skeletonTextWrap: {
+    marginTop: 12,
+    gap: 8,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingBottom: 64, // Para compensar visualmente el tab bar
+  }
 });

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-$method = $_SERVER['REQUEST_METHOD'];
+$requestMethod = $_SERVER['REQUEST_METHOD'];
 $requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $basePath = dirname($_SERVER['SCRIPT_NAME']);
 
@@ -36,11 +36,18 @@ $routes = [
     ['GET', '/profile', ['Amare\Api\Controllers\ProfileController', 'show']],
     ['PUT', '/profile', ['Amare\Api\Controllers\ProfileController', 'update']],
     ['GET', '/profile/orders', ['Amare\Api\Controllers\ProfileController', 'orders']],
+    ['POST', '/profile/avatar', ['Amare\Api\Controllers\ProfileController', 'updateAvatar']],
+    
+    // Address routes
+    ['GET', '/profile/addresses', ['Amare\Api\Controllers\AddressController', 'index']],
+    ['POST', '/profile/addresses', ['Amare\Api\Controllers\AddressController', 'store']],
+    ['GET', '/profile/addresses/:id', ['Amare\Api\Controllers\AddressController', 'show']],
+    ['PUT', '/profile/addresses/:id', ['Amare\Api\Controllers\AddressController', 'update']],
+    ['DELETE', '/profile/addresses/:id', ['Amare\Api\Controllers\AddressController', 'destroy']],
     
     // Favorites routes
     ['GET', '/favorites', ['Amare\Api\Controllers\FavoritesController', 'index']],
-    ['POST', '/favorites/:product_id', ['Amare\Api\Controllers\FavoritesController', 'store']],
-    ['DELETE', '/favorites/:product_id', ['Amare\Api\Controllers\FavoritesController', 'destroy']],
+    ['POST', '/favorites/toggle', ['Amare\Api\Controllers\FavoritesController', 'toggle']],
     
     // Promotions routes
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],
@@ -62,7 +69,7 @@ $routeParams = [];
 foreach ($routes as $route) {
     [$routeMethod, $routePath, $handler] = $route;
     
-    if ($routeMethod !== $method) {
+    if ($routeMethod !== $requestMethod) {
         continue;
     }
     
@@ -86,7 +93,7 @@ foreach ($routes as $route) {
 if (!$matchedRoute) {
     http_response_code(404);
     echo json_encode([
-        'success' => false,
+        'ok' => false,
         'message' => 'Endpoint no encontrado'
     ]);
     exit;

@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../../services/api';
+import { apiClient, formatImageUrl } from '../../services/api';
 import { Colors, Spacing, Shadows } from '../../theme';
 import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -35,7 +35,7 @@ export default function OrderDetailScreen() {
     queryKey: ['order', id],
     queryFn: async () => {
       const res = await apiClient.get(`/orders/${id}`);
-      return res.data.data;
+      return res.data.data.order;
     },
   });
 
@@ -52,7 +52,7 @@ export default function OrderDetailScreen() {
     </SafeAreaView>
   );
 
-  const status = ESTADO_INFO[order?.estado] || ESTADO_INFO.pendiente;
+  const status = ESTADO_INFO[order?.estado ?? 'pendiente'];
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -63,7 +63,7 @@ export default function OrderDetailScreen() {
         <View>
           <Text style={styles.headerTitle}>{order?.folio}</Text>
           <Text style={styles.headerSubtitle}>
-            {new Date(order?.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
+            {new Date(order?.created_at ?? '').toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
           </Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: status.color + '15' }]}>
@@ -135,20 +135,27 @@ export default function OrderDetailScreen() {
         {/* PRODUCTOS */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Tu pedido</Text>
-          <Text style={styles.itemCount}>{order?.items?.length} items</Text>
+          <Text style={styles.itemCount}>{order?.items?.length} {order?.items?.length === 1 ? 'producto' : 'productos'}</Text>
         </View>
         <View style={styles.card}>
           {order?.items?.map((item: any, index: number) => (
             <View key={item.id} style={[styles.productRow, index !== 0 && styles.borderTop]}>
-              <Image 
-                source={item.platillo_imagen || 'https://via.placeholder.com/150'} 
-                style={styles.productImg}
-              />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.productName}>{item.platillo_nombre}</Text>
-                <Text style={styles.productQty}>Cantidad: {item.cantidad}</Text>
+              <View style={styles.imgWrapper}>
+                <Image 
+                  source={formatImageUrl(item.platillo_imagen) ?? require('../../assets/placeholder-food.jpg')} 
+                  style={styles.productImg}
+                  contentFit="cover"
+                  transition={200}
+                />
+                <View style={styles.qtyBadge}>
+                  <Text style={styles.qtyText}>{item.cantidad}</Text>
+                </View>
               </View>
-              <Text style={styles.productPrice}>${(item.precio_unit * item.cantidad).toFixed(2)}</Text>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.productName} numberOfLines={2}>{item.platillo_nombre}</Text>
+                <Text style={styles.productPrice}>${item.precio_unit.toFixed(2)} c/u</Text>
+              </View>
+              <Text style={styles.productSubtotal}>${(item.precio_unit * item.cantidad).toFixed(2)}</Text>
             </View>
           ))}
         </View>
@@ -260,12 +267,32 @@ const styles = StyleSheet.create({
   detailLabel: { fontSize: 12, color: '#9CA3AF', fontWeight: '600', textTransform: 'uppercase' },
   detailValue: { fontSize: 14, color: '#111827', fontWeight: '500', marginTop: 2 },
 
-  productRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  productRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
   borderTop: { borderTopWidth: 1, borderTopColor: '#F3F4F6' },
-  productImg: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#F3F4F6' },
-  productName: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  productQty: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  productPrice: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  imgWrapper: { position: 'relative' },
+  productImg: { width: 64, height: 64, borderRadius: 16, backgroundColor: '#F3F4F6' },
+  qtyBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: Colors.primary,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
+  qtyText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
+  productName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  productPrice: { fontSize: 13, color: '#6B7280' },
+  productSubtotal: { 
+    fontSize: 15, 
+    fontWeight: '800', 
+    color: '#111827',
+    marginLeft: 8,
+  },
 
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   summaryLabel: { fontSize: 14, color: '#6B7280' },

@@ -16,32 +16,52 @@ class FavoritesController
         $user = AuthMiddleware::authenticate();
         $favorites = Favorite::getByUser($user->id);
         
-        Response::success(['favorites' => $favorites]);
+        // La Express API devuelve array directamente en data, no { favorites: [...] }
+        Response::success($favorites);
     }
 
     public function store(int $productId): void
     {
         $user = AuthMiddleware::authenticate();
 
+        // Comportamiento toggle: si ya existe, lo elimina; si no, lo agrega
         if (Favorite::isFavorite($user->id, $productId)) {
-            Response::error('El producto ya está en favoritos', 409);
+            Favorite::remove($user->id, $productId);
+            Response::success(['favorito' => false], 'Eliminado de favoritos');
+        } else {
+            Favorite::add($user->id, $productId);
+            Response::success(['favorito' => true], 'Agregado a favoritos', 201);
         }
-
-        if (!Favorite::add($user->id, $productId)) {
-            Response::serverError('No se pudo agregar a favoritos');
-        }
-
-        Response::success(null, 'Agregado a favoritos', 201);
     }
 
     public function destroy(int $productId): void
     {
         $user = AuthMiddleware::authenticate();
 
-        if (!Favorite::remove($user->id, $productId)) {
-            Response::error('El producto no está en favoritos', 404);
-        }
+        Favorite::remove($user->id, $productId);
 
         Response::success(null, 'Eliminado de favoritos');
+    }
+
+    public function toggle()
+    {
+        $user = AuthMiddleware::authenticate();
+
+        $data = json_decode(file_get_contents("php://input"), true);
+        $productId = (int) ($data['product_id'] ?? 0);
+
+        if ($productId <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'ok' => false,
+                'message' => 'ID inválido'
+            ]);
+            return;
+        }
+
+        $result = Favorite::toggle($user->id, $productId);
+
+        header('Content-Type: application/json');
+        echo json_encode($result);
     }
 }

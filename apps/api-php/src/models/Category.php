@@ -10,13 +10,28 @@ class Category
 {
     public static function getAll(): array
     {
-        $sql = "SELECT * FROM rest_categorias_menu WHERE activo = 1 ORDER BY orden, nombre";
+        // 🔥 Replicando la query de Node.js que incluye total_platillos
+        $sql = "SELECT c.id, c.nombre, c.descripcion, c.imagen, c.orden, c.activo,
+                       COUNT(p.id) as total_platillos
+                FROM rest_categorias_menu c
+                LEFT JOIN rest_platillos p ON p.categoria_id = c.id
+                  AND p.disponible = 1 AND p.activo = 1
+                WHERE c.activo = 1
+                GROUP BY c.id
+                ORDER BY c.orden, c.nombre";
         return Database::query($sql);
     }
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT * FROM rest_categorias_menu WHERE id = :id AND activo = 1 LIMIT 1";
+        $sql = "SELECT c.id, c.nombre, c.descripcion, c.imagen, c.orden, c.activo,
+                       COUNT(p.id) as total_platillos
+                FROM rest_categorias_menu c
+                LEFT JOIN rest_platillos p ON p.categoria_id = c.id
+                  AND p.disponible = 1 AND p.activo = 1
+                WHERE c.id = :id AND c.activo = 1
+                GROUP BY c.id
+                LIMIT 1";
         return Database::queryOne($sql, [':id' => $id]);
     }
 

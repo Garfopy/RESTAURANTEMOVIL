@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, View, StyleSheet, Animated } from 'react-native';
+import { Platform, View, StyleSheet, Animated, Easing } from 'react-native';
 import React, { useRef, useEffect, memo } from 'react';
 import { Colors } from '../../theme';
 
@@ -14,28 +14,38 @@ const TABS: { name: string; title: string; icon: IoniconName; iconFocused: Ionic
   { name: 'profile',    title: 'Perfil',      icon: 'person-circle-outline',  iconFocused: 'person-circle' },
 ];
 
-// Memoizamos para evitar cálculos innecesarios durante la navegación
+// Componente optimizado para transiciones instantáneas sin bloquear el hilo de JS
 const TabIcon = memo(({ focused, color, icon, iconFocused }: { focused: boolean; color: string; icon: IoniconName; iconFocused: IoniconName }) => {
-  // Animación de escala para el efecto "Liquid"
-  const scaleAnim = useRef(new Animated.Value(focused ? 1.2 : 1)).current;
+  const scaleAnim = useRef(new Animated.Value(focused ? 1.12 : 1)).current;
+  const opacityAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.spring(scaleAnim, {
-      toValue: focused ? 1.2 : 1,
-      friction: 10, // Más rigidez para evitar rebotes largos
-      tension: 140, // Más velocidad de respuesta
-      useNativeDriver: true,
-    }).start();
+    // Usamos paralelas con Timing + Easing para una respuesta instantánea al tacto
+    Animated.parallel([
+      Animated.timing(scaleAnim, {
+        toValue: focused ? 1.12 : 1,
+        duration: 180,
+        easing: Easing.out(Easing.back(1.5)), // Genera un sutil rebote premium sin la carga del Spring
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: focused ? 1 : 0,
+        duration: 140,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      })
+    ]).start();
   }, [focused]);
 
   return (
     <View style={styles.iconContainer} pointerEvents="none">
-      {/* Cápsula de fondo activo (Efecto Liquid Pill) */}
-      {focused && <View style={[styles.activePill, { backgroundColor: color + '10' }]} />}
+      {/* Cápsula de fondo activo (Efecto Liquid Pill con opacidad animada) */}
+      <Animated.View style={[styles.activePill, { backgroundColor: `${color}10`, opacity: opacityAnim }]} />
+      
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
         <Ionicons
           name={focused ? iconFocused : icon}
-          size={24}
+          size={23}
           color={color}
         />
       </Animated.View>
@@ -46,49 +56,58 @@ const TabIcon = memo(({ focused, color, icon, iconFocused }: { focused: boolean;
 export default function TabsLayout() {
   return (
     <Tabs
-      sceneContainerStyle={{ backgroundColor: Colors.background }}
+      sceneContainerStyle={{ backgroundColor: Colors.background || '#F9FAFB' }}
       screenOptions={{
         headerShown: false,
         tabBarAllowFontScaling: false,
         tabBarShowLabel: true,
-        // Mejora el rendimiento al no renderizar todo el árbol si no es necesario
         lazy: true,
-        // Evita que las pantallas inactivas consuman recursos de GPU/CPU
         detachInactiveScreens: true,
+        // 👇 CONGELA LAS PANTALLAS EN SEGUNDO PLANO (Adiós al lag entre cambios) 👇
+        freezeOnBlur: true, 
 
         tabBarStyle: {
           position: 'absolute',
-          left: 16,
-          right: 16,
-          bottom: Platform.OS === 'ios' ? 24 : 12,
-
-          height: 77, // Aumentamos la altura para dar espacio al texto
-          borderRadius: 42,
-          backgroundColor: '#FFFFFF', // Sólido, nada de transparencias estilo iOS
+          left: 20,
+          right: 20,
+          bottom: Platform.OS === 'ios' ? 28 : 16,
+          height: 79,
+          borderRadius: 28,
+          backgroundColor: '#FFFFFF',
           borderWidth: 0,
           borderTopWidth: 0,
-
-          // Sombra más profunda y suave para efecto flotante
-          elevation: 10,
-          shadowColor: '#111827',
-          shadowOffset: {
-            width: 0,
-            height: 10,
-          },
-          shadowOpacity: 0.1,
-          shadowRadius: 12, // Reducimos para mejorar el performance de dibujado
+          paddingHorizontal: 8,
+          
+          // Sombras Pro de alta fidelidad difuminadas (Evita saltos bruscos)
+          ...Platform.select({
+            ios: {
+              shadowColor: '#111827',
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.06,
+              shadowRadius: 16,
+            },
+            android: {
+              elevation: 6,
+            }
+          })
         },
 
-        tabBarItemStyle: { paddingTop: 10, paddingBottom: 12 },
-        tabBarIconStyle: { marginBottom: 6 }, // Empuja un poco el texto hacia abajo
+        tabBarItemStyle: { 
+          paddingTop: 12, 
+          paddingBottom: 10 
+        },
+        tabBarIconStyle: { 
+          marginBottom: 4 
+        },
 
         tabBarActiveTintColor: Colors.primary || '#111827',
         tabBarInactiveTintColor: '#9CA3AF',
 
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '800',
-          marginTop: 0,
+          fontWeight: '700',
+          letterSpacing: -0.1,
+          marginTop: 2,
         },
       }}
     >
@@ -98,8 +117,15 @@ export default function TabsLayout() {
           name={tab.name}
           options={{
             title: tab.title,
-            tabBarLabel: tab.title, // Aseguramos que el label use el título del objeto TABS
-            tabBarIcon: (props) => <TabIcon {...props} icon={tab.icon} iconFocused={tab.iconFocused} />,
+            tabBarLabel: tab.title,
+            tabBarIcon: ({ focused, color }) => (
+              <TabIcon 
+                focused={focused} 
+                color={color} 
+                icon={tab.icon} 
+                iconFocused={tab.iconFocused} 
+              />
+            ),
           }}
         />
       ))}
@@ -111,13 +137,14 @@ const styles = StyleSheet.create({
   iconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 50,
+    width: 56,
     height: 32,
+    position: 'relative',
   },
   activePill: {
     position: 'absolute',
     width: '100%',
     height: '100%',
-    borderRadius: 16,
+    borderRadius: 12,
   },
 });

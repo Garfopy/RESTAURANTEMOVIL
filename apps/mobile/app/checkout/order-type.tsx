@@ -92,8 +92,8 @@ export default function OrderTypeScreen() {
   async function cargarDirecciones() {
     try {
       const res = await apiClient.get('/profile/addresses');
-      if (res.data.ok) {
-        setDireccionesGuardadas(res.data.data);
+      if (res.data.success || res.data.ok) {
+        setDireccionesGuardadas(Array.isArray(res.data.data) ? res.data.data : []);
         const principal = res.data.data.find((d: any) => d.es_principal) || res.data.data[0];
         if (principal) {
           setDireccionSeleccionada(principal);
@@ -181,12 +181,10 @@ export default function OrderTypeScreen() {
           { text: 'Cancelar', style: 'cancel' },
           {
             text: 'Guardar',
-            onPress: (nuevaDireccion) => {
+            onPress: (nuevaDireccion: string | undefined) => {
               if (nuevaDireccion && nuevaDireccion.trim() !== '') {
                 setUbicacionVisual(nuevaDireccion);
-                if (typeof actualizarDireccionUsuario === 'function') {
-                  actualizarDireccionUsuario(nuevaDireccion);
-                }
+                setAddressData((prev: any) => prev ? { ...prev, calle: nuevaDireccion, colonia: '' } : { calle: nuevaDireccion, colonia: '', ciudad: '', lat: 0, lng: 0, cp: '' });
               }
             },
           },
@@ -248,7 +246,7 @@ export default function OrderTypeScreen() {
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
-        restaurante_id: restauranteId!,
+        order_id: restauranteId!,
         amount: total,
         currency: 'mxn',
       });

@@ -16,11 +16,20 @@ class ValidationMiddleware
             $ruleArray = explode('|', $ruleSet);
             
             foreach ($ruleArray as $rule) {
-                if ($rule === 'required' && !isset($data[$field]) || (isset($data[$field]) && trim($data[$field]) === '')) {
-                    $errors[$field][] = "El campo {$field} es requerido";
-                    continue;
-                }
+                if ($rule === 'required') {
 
+                    if (!isset($data[$field])) {
+                        $errors[$field][] = "El campo {$field} es requerido";
+                        continue;
+                    }
+
+                    $value = $data[$field];
+
+                    if (is_string($value) && trim($value) === '') {
+                        $errors[$field][] = "El campo {$field} es requerido";
+                        continue;
+                    }
+                }
                 if (!isset($data[$field])) {
                     continue;
                 }

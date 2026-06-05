@@ -78,12 +78,15 @@ class Database
         }
     }
 
+    // El cambio está en este bloque:
     public static function execute(string $sql, array $params = []): int
     {
         try {
             $stmt = self::getInstance()->prepare($sql);
             $stmt->execute($params);
-            return self::getInstance()->lastInsertId();
+            
+            // 🛠️ Convertimos el string devuelto por lastInsertId() a entero (int)
+            return (int) self::getInstance()->lastInsertId();
         } catch (PDOException $e) {
             if ($_ENV['APP_DEBUG'] ?? false) {
                 throw $e;

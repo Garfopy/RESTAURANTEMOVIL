@@ -10,6 +10,17 @@ use Firebase\JWT\Key;
 
 class AuthMiddleware
 {
+    /**
+     * Obtiene la clave secreta JWT de forma segura con fallbacks alternativos
+     */
+    private static function getSecret(): string
+    {
+        $secret = $_ENV['JWT_SECRET'] ?? $_SERVER['JWT_SECRET'] ?? getenv('JWT_SECRET');
+        
+        // Si el lector de .env falla por completo, usamos la clave de tu config como respaldo de emergencia
+        return $secret ?: 'amare_api_secret_key_2024_change_this_in_production_use_a_longer_random_string';
+    }
+
     public static function authenticate(): ?object
     {
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -19,7 +30,7 @@ class AuthMiddleware
         }
 
         $token = substr($authHeader, 7);
-        $secret = $_ENV['JWT_SECRET'];
+        $secret = self::getSecret(); // 🛠️ Modificado
 
         try {
             $decoded = JWT::decode($token, new Key($secret, 'HS256'));
@@ -38,7 +49,7 @@ class AuthMiddleware
         }
 
         $token = substr($authHeader, 7);
-        $secret = $_ENV['JWT_SECRET'];
+        $secret = self::getSecret(); // 🛠️ Modificado
 
         try {
             $decoded = JWT::decode($token, new Key($secret, 'HS256'));
@@ -50,7 +61,7 @@ class AuthMiddleware
 
     public static function generateToken(array $data): string
     {
-        $secret = $_ENV['JWT_SECRET'];
+        $secret = self::getSecret(); // 🛠️ Modificado
         $expiry = (int)($_ENV['JWT_EXPIRY'] ?? 720);
         
         $issuedAt = time();

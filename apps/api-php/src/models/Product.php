@@ -8,7 +8,7 @@ use Amare\Api\Config\Database;
 
 class Product
 {
-    public static function getAll(?int $categoryId = null, ?int $branchId = null): array
+    public static function getAll(?int $categoryId = null, ?int $branchId = null, ?string $q = null): array
     {
         $sql = "SELECT p.id, p.restaurante_id, p.categoria_id,
                        c.nombre as categoria_nombre,
@@ -29,6 +29,12 @@ class Product
         if ($branchId !== null) {
             $sql .= " AND (p.restaurante_id IS NULL OR p.restaurante_id = :restaurante_id)";
             $params[':restaurante_id'] = $branchId;
+        }
+        
+        if ($q !== null && $q !== '') {
+            $sql .= " AND (p.nombre LIKE :q_nombre OR p.descripcion LIKE :q_desc)";
+            $params[':q_nombre'] = '%' . $q . '%';
+            $params[':q_desc'] = '%' . $q . '%';
         }
         
         $sql .= " ORDER BY p.nombre";

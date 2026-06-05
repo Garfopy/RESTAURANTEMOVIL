@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,14 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
+  Dimensions,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../../store/user.store';
 import { useBranchStore } from '../../store/branch.store';
-import { useCartStore } from '../../store/cart.store';
 import { useBranches } from '../../hooks/useBranches';
 import { useFeaturedDishes, useCategories } from '../../hooks/useMenu';
 import { Colors } from '../../theme';
@@ -22,18 +23,55 @@ import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
-import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
 import { CartButton } from '../../components/shared/CartButton';
 import { Skeleton } from '../../components/ui/Skeleton';
 import type { Platillo, Categoria } from '@amare/types';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const FEATURED_CARD_WIDTH = SCREEN_WIDTH * 0.75; 
+const FEATURED_GAP = 16;
+const FEATURED_SNAP_INTERVAL = FEATURED_CARD_WIDTH + FEATURED_GAP;
+const FEATURED_INSET = (SCREEN_WIDTH - FEATURED_CARD_WIDTH) / 2;
+
+const HOME_BANNERS = [
+  {
+    id: '1',
+    titulo: '¡2x1 en Pizzas!',
+    subtitulo: 'Aprovecha todos los martes y jueves en sucursal.',
+    imagen: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=800',
+    deepLink: '/promotions',
+  },
+  {
+    id: '2',
+    titulo: 'Envío Gratis',
+    subtitulo: 'En tu primer pedido mayor a $350 MXN.',
+    imagen: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRbwIYrgWuk2sbrX9QAJWIixayxHtlH2f9s8Q&s',
+    deepLink: '/(tabs)/index',
+  },
+  {
+    id: '3',
+    titulo: 'Nuevos Postres',
+    subtitulo: 'Descubre nuestra selección de repostería artesanal.',
+    imagen: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&w=800',
+    deepLink: '/(tabs)/index',
+  },
+];
 
 export default function HomeScreen() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const { seleccionada: branch } = useBranchStore();
-  const { tipoPedido, setTipoPedido } = useCartStore();
   const [search, setSearch] = useState('');
-  
+
+  // 🎞️ Animación para los indicadores (dots)
+  const scrollX = useRef(new Animated.Value(0)).current;
+
+  // 🔥 CRITICAL: Invocar este hook para que sincronice las sucursales desde el API
+  // al Zustand store. Sin esto, autoSeleccionarSiUnica() nunca se ejecuta y
+  // restauranteId queda undefined → las queries del menú nunca se habilitan.
+  useBranches();
+
   const restauranteId = branch?.id;
   const { data: categories, isLoading: loadingCats } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured } = useFeaturedDishes(restauranteId);
@@ -128,7 +166,7 @@ export default function HomeScreen() {
 
         {/* BANNERS */}
         <View style={styles.bannerSection}>
-          <BannerCarousel items={[]} />
+          <BannerCarousel items={HOME_BANNERS} />
         </View>
 
         {/* CATEGORÍAS */}
@@ -136,7 +174,7 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>Explorar menú</Text>
         </View>
         {loadingCats ? (
-          <View style={styles.horizontalList}>
+          <View style={[styles.horizontalList, { paddingHorizontal: 20 }]}>
             {[1, 2, 3].map((i) => <Skeleton key={i} width={140} height={100} borderRadius={20} style={{marginRight: 12}} />)}
           </View>
         ) : (
@@ -145,36 +183,77 @@ export default function HomeScreen() {
             data={categories}
             keyExtractor={(item) => item.id.toString()}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <CategoryCard categoria={item} onPress={handleCategory} />
-            )}
+            contentContainerStyle={[styles.horizontalList, { paddingHorizontal: 20 }]}
+            renderItem={({ item }) => <CategoryCard categoria={item} onPress={handleCategory} />}
+            // CategoryCard ya incluye un margen derecho interno por defecto en su componente
           />
         )}
 
         {/* DESTACADOS */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Los más pedidos </Text>
-          <TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => {
+              if (!restauranteId) return;
+              router.push({
+                pathname: '/category/[id]',
+                params: { 
+                  id: 'destacados', // O el ID específico que manejes para los destacados
+                  restauranteId: String(restauranteId),
+                  nombre: 'Los más pedidos'
+                }
+              });
+            }}
+          >
             <Text style={styles.seeAll}>Ver todo</Text>
           </TouchableOpacity>
         </View>
         
         {loadingFeatured ? (
-          <View style={styles.horizontalList}>
-            {[1, 2].map((i) => <Skeleton key={i} width={180} height={250} borderRadius={25} style={{marginRight: 15}} />)}
+          <View style={[styles.horizontalList, { paddingHorizontal: FEATURED_INSET }]}>
+            {[1, 2].map((i) => <Skeleton key={i} width={FEATURED_CARD_WIDTH} height={260} borderRadius={25} style={{marginRight: FEATURED_GAP}} />)}
           </View>
         ) : (
-          <FlatList
-            horizontal
-            data={featured}
-            keyExtractor={(item) => item.id.toString()}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <ProductCard platillo={item} onPress={handleDish} />
-            )}
-          />
+          <View>
+            <Animated.FlatList
+              horizontal
+              data={featured}
+              keyExtractor={(item) => item.id.toString()}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={[styles.horizontalList, { paddingHorizontal: FEATURED_INSET }]}
+              renderItem={({ item }) => <ProductCard platillo={item} onPress={handleDish} width={FEATURED_CARD_WIDTH} />}
+              ItemSeparatorComponent={() => <View style={{ width: FEATURED_GAP }} />}
+              snapToInterval={FEATURED_SNAP_INTERVAL}
+              snapToAlignment="center"
+              decelerationRate="fast"
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                { useNativeDriver: false }
+              )}
+              scrollEventThrottle={16}
+            />
+            
+            {/* 🔘 INDICADORES (DOTS) */}
+            <View style={styles.pagination}>
+              {featured?.map((_, i) => {
+                const inputRange = [(i - 1) * FEATURED_SNAP_INTERVAL, i * FEATURED_SNAP_INTERVAL, (i + 1) * FEATURED_SNAP_INTERVAL];
+                
+                const dotWidth = scrollX.interpolate({
+                  inputRange,
+                  outputRange: [8, 20, 8],
+                  extrapolate: 'clamp',
+                });
+                
+                const opacity = scrollX.interpolate({
+                  inputRange,
+                  outputRange: [0.3, 1, 0.3],
+                  extrapolate: 'clamp',
+                });
+
+                return <Animated.View key={i} style={[styles.dot, { width: dotWidth, opacity }]} />;
+              })}
+            </View>
+          </View>
         )}
 
         {/* Espacio final interno para empujar el contenido arriba del dock */}
@@ -195,13 +274,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 12,
     backgroundColor: '#FFF',
     
-    // 🌟 CORRECCIÓN MAESTRA: Asegura que el header reciba los clics en iOS/Android
-    // evitando bloqueos de capas absolutas transparentes
     zIndex: 50, 
-    elevation: 5, 
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
   },
   locationSelector: {
     flexDirection: 'row',
@@ -250,10 +332,11 @@ const styles = StyleSheet.create({
 
   welcomeSection: {
     paddingHorizontal: 20,
-    marginVertical: 15,
+    marginTop: 10,
+    marginBottom: 20,
   },
   greetingText: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '800',
     color: '#111827',
     letterSpacing: -0.5,
@@ -280,7 +363,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginTop: 30,
+    marginTop: 32,
     marginBottom: 15,
   },
   sectionTitle: {
@@ -295,6 +378,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   horizontalList: {
-    paddingLeft: 20,
+    paddingVertical: 10, // Importante: Da aire para que las sombras no se corten
+  },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 15,
+    gap: 6,
+  },
+  dot: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.primary,
   },
 });

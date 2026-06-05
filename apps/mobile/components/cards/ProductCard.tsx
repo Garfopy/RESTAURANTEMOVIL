@@ -5,14 +5,14 @@ import {
   Text,
   StyleSheet,
   View,
-  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Shadows, Typography } from '../../theme';
 import { formatImageUrl } from '../../services/api';
-import { useFavoritesStore } from '../../store/favorites.store';
 import type { Platillo } from '@amare/types';
+
+import { useFavorites } from '../../hooks/useFavorites';
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -22,19 +22,34 @@ interface ProductCardProps {
   width?: number;
 }
 
-export function ProductCard({ platillo, onPress, width = 180 }: ProductCardProps) {
+export function ProductCard({
+  platillo,
+  onPress,
+  width = 180,
+}: ProductCardProps) {
   const scale = useRef(new Animated.Value(1)).current;
-  // Seleccionamos directamente la propiedad del set para que React detecte el cambio
-  const isFavorite = useFavoritesStore((s) => s.ids.has(platillo.id));
+
+  // ✅ React Query source of truth
+  const { data: favorites = [], toggle } = useFavorites();
+
+  const isFavorite = favorites.some((p) => p.id === platillo.id);
 
   const animStyle = { transform: [{ scale }] };
 
   function handlePressIn() {
-    Animated.spring(scale, { toValue: 0.96, damping: 15, useNativeDriver: true } as any).start();
+    Animated.spring(scale, {
+      toValue: 0.96,
+      damping: 15,
+      useNativeDriver: true,
+    }).start();
   }
 
   function handlePressOut() {
-    Animated.spring(scale, { toValue: 1, damping: 12, useNativeDriver: true } as any).start();
+    Animated.spring(scale, {
+      toValue: 1,
+      damping: 12,
+      useNativeDriver: true,
+    }).start();
   }
 
   return (
@@ -46,36 +61,62 @@ export function ProductCard({ platillo, onPress, width = 180 }: ProductCardProps
       activeOpacity={1}
       style={[styles.card, { width }, animStyle]}
     >
+      {/* IMAGE */}
       <View style={styles.imageContainer}>
         <Image
-          source={formatImageUrl(platillo.imagen) ?? require('../../assets/placeholder-food.jpg')}
+          source={
+            formatImageUrl(platillo.imagen) ??
+            require('../../assets/placeholder-food.jpg')
+          }
           style={styles.image}
           contentFit="cover"
           transition={300}
         />
-        {/* Solo mostrar si disponible es explícitamente false */}
+
         {platillo.disponible === false && (
           <View style={styles.unavailableOverlay}>
             <Text style={styles.unavailableText}>No disponible</Text>
           </View>
         )}
-        {isFavorite && (
-          <View style={styles.favBadge}>
-            <Ionicons name="heart" size={12} color={Colors.error} />
-          </View>
-        )}
+
+        {/* ❤️ FAVORITO TOGGLE */}
+        <TouchableOpacity
+          style={[
+            styles.favBadge,
+            isFavorite && { backgroundColor: '#FFE4E6' },
+          ]}
+          onPress={() => toggle(platillo.id)}
+        >
+          <Ionicons
+            name={isFavorite ? 'heart' : 'heart-outline'}
+            size={14}
+            color={Colors.error}
+          />
+        </TouchableOpacity>
       </View>
+
+      {/* INFO */}
       <View style={styles.info}>
         <Text style={styles.nombre} numberOfLines={2}>
           {platillo.nombre}
         </Text>
+
         {platillo.tiempo_preparacion_min > 0 && (
           <View style={styles.time}>
-            <Ionicons name="time-outline" size={12} color={Colors.textMuted} />
-            <Text style={styles.timeText}>{platillo.tiempo_preparacion_min} min</Text>
+            <Ionicons
+              name="time-outline"
+              size={12}
+              color={Colors.textMuted}
+            />
+            <Text style={styles.timeText}>
+              {platillo.tiempo_preparacion_min} min
+            </Text>
           </View>
         )}
-        <Text style={styles.precio}>${platillo.precio.toFixed(2)}</Text>
+
+        <Text style={styles.precio}>
+          ${platillo.precio.toFixed(2)}
+        </Text>
       </View>
     </AnimatedTouchable>
   );
@@ -87,34 +128,54 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
     ...Shadows.card,
-    marginRight: Spacing.sm,
   },
-  imageContainer: { width: '100%', height: 130, position: 'relative' },
-  image: { width: '100%', height: '100%' },
+  imageContainer: {
+    width: '100%',
+    height: 130,
+    position: 'relative',
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+  },
   unavailableOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  unavailableText: { color: Colors.white, fontSize: 12, fontWeight: '600' },
+  unavailableText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   favBadge: {
     position: 'absolute',
     top: 8,
     right: 8,
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    padding: 4,
+    padding: 6,
   },
-  info: { padding: Spacing.sm },
+  info: {
+    padding: Spacing.sm,
+  },
   nombre: {
     ...Typography.bodySM,
     color: Colors.text,
     fontWeight: '600',
     lineHeight: 18,
   },
-  time: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
-  timeText: { fontSize: 11, color: Colors.textMuted },
+  time: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 4,
+  },
+  timeText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
   precio: {
     ...Typography.price,
     color: Colors.primary,

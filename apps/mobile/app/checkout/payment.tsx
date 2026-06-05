@@ -74,11 +74,15 @@ export default function PaymentScreen() {
         return;
       }
 
-    } catch (err) {
-      Alert.alert('Error', 'No se pudo completar el proceso. Intenta de nuevo.');
-    } finally {
-      setLoading(false);
-    }
+      } catch (err: any) {
+        // 1. Esto te lo mostrará en la pantalla del celular
+        Alert.alert('Error Real', err.message || JSON.stringify(err));
+        
+        // 2. Esto lo imprimirá en tu terminal de la computadora (donde corre Expo)
+        console.error("🔴 Error detallado en handlePay:", err);
+      } finally {
+        setLoading(false);
+      }
   }
 
   async function createOrderBackend(metodo_pago: string) {

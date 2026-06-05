@@ -50,55 +50,80 @@ class Order
         return $order;
     }
 
-    public static function create(array $data): int
-    {
-        $pdo = Database::getInstance();
-        
-        try {
-            $pdo->beginTransaction();
-            
-            $folio = 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
-            
-            $sql = "INSERT INTO rest_pedidos (restaurante_id, mobile_usuario_id, folio, estado, subtotal, total, tipo_pedido, notas, created_at) 
-                    VALUES (:restaurante_id, :mobile_usuario_id, :folio, 'pendiente', :subtotal, :total, :tipo_pedido, :notas, NOW())";
-            
-            $orderId = Database::execute($sql, [
-                ':restaurante_id' => $data['restaurante_id'],
-                ':mobile_usuario_id' => $data['user_id'],
-                ':folio' => $folio,
-                ':subtotal' => $data['subtotal'],
-                ':total' => $data['total'],
-                ':tipo_pedido' => $data['order_type'],
-                ':notas' => $data['notes'] ?? null
-            ]);
-            
-            if (!$orderId) {
-                $pdo->rollBack();
+        public static function create(array $data): int
+        {
+            $pdo = Database::getInstance();
+
+            try {
+                $pdo->beginTransaction();
+
+                $folio = 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
+
+                $sql = "INSERT INTO rest_pedidos 
+                    (restaurante_id, mobile_usuario_id, folio, estado, subtotal, total, tipo_pedido, notas, created_at) 
+                    VALUES 
+                    (:restaurante_id, :mobile_usuario_id, :folio, 'pendiente', :subtotal, :total, :tipo_pedido, :notas, NOW())";
+
+                $orderId = Database::execute($sql, [
+                    ':restaurante_id' => $data['restaurante_id'],
+                    ':mobile_usuario_id' => $data['user_id'],
+                    ':folio' => $folio,
+                    ':subtotal' => $data['subtotal'],
+                    ':total' => $data['total'],
+                    ':tipo_pedido' => $data['order_type'],
+                    ':notas' => $data['notes'] ?? null
+                ]);
+
+                if (!$orderId) {
+                    $pdo->rollBack();
+                    return 0;
+                }
+
+                // ✅ VALIDACIÓN BÁSICA
+                if (empty($data['items']) || !is_array($data['items'])) {
+                    $pdo->rollBack();
+                    return 0;
+                }
+
+                foreach ($data['items'] as $item) {
+
+                    // 🔒 soporte flexible (evita crashes por frontend viejo)
+                    $platilloId = $item['platillo_id'] ?? $item['product_id'] ?? null;
+                    $cantidad   = $item['cantidad'] ?? $item['quantity'] ?? null;
+                    $precio     = $item['precio_unit'] ?? $item['unit_price'] ?? null;
+
+                    if (!$platilloId || !$cantidad || !$precio) {
+                        continue; // evita romper la orden completa
+                    }
+
+                    $itemSql = "INSERT INTO rest_pedido_items 
+                        (pedido_id, platillo_id, cantidad, precio_unit, notas, estado) 
+                        VALUES 
+                        (:pedido_id, :platillo_id, :cantidad, :precio_unit, :notas, 'pendiente')";
+
+                    Database::execute($itemSql, [
+                        ':pedido_id' => $orderId,
+                        ':platillo_id' => $platilloId,
+                        ':cantidad' => $cantidad,
+                        ':precio_unit' => $precio,
+                        ':notas' => $item['notas'] ?? $item['options'] ?? null
+                    ]);
+                }
+
+                $pdo->commit();
+                return $orderId;
+
+            } catch (\Exception $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                // opcional: log del error
+                error_log($e->getMessage());
+
                 return 0;
             }
-            
-            foreach ($data['items'] as $item) {
-                $itemSql = "INSERT INTO rest_pedido_items (pedido_id, platillo_id, cantidad, precio_unit, notas, estado) 
-                           VALUES (:pedido_id, :platillo_id, :cantidad, :precio_unit, :notas, 'pendiente')";
-                
-                Database::execute($itemSql, [
-                    ':pedido_id' => $orderId,
-                    ':platillo_id' => $item['product_id'],
-                    ':cantidad' => $item['quantity'],
-                    ':precio_unit' => $item['unit_price'],
-                    ':notas' => $item['options'] ?? null
-                ]);
-            }
-            
-            $pdo->commit();
-            return $orderId;
-        } catch (\Exception $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            return 0;
         }
-    }
 
     private static function getOrderItems(int $orderId): array
     {

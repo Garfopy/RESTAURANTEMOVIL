@@ -8,65 +8,104 @@ use Amare\Api\Config\Database;
 
 class Promotion
 {
-    public static function getAll(): array
+    /**
+     * Obtener promociones. Si se pasa usuario_id, filtra por ese usuario.
+     * Si no, devuelve todas las activas (útil para futuro admin).
+     */
+    public static function getAll(?int $userId = null): array
     {
-        $sql = "SELECT valor FROM global_settings WHERE clave = 'mobile_promotions' LIMIT 1";
-        $settings = Database::queryOne($sql);
+        $sql = "SELECT id, usuario_id, titulo, descripcion, imagen, deep_link, code, activo, created_at
+                FROM mobile_promociones
+                WHERE activo = 1";
         
-        if (!$settings || !$settings['valor']) {
-            return [];
+        $params = [];
+
+        if ($userId !== null) {
+            $sql .= " AND usuario_id = :usuario_id";
+            $params[':usuario_id'] = $userId;
         }
-        
-        try {
-            $promotions = json_decode($settings['valor'], true);
-            return is_array($promotions) ? $promotions : [];
-        } catch (\Exception $e) {
-            return [];
-        }
+
+        $sql .= " ORDER BY created_at DESC";
+
+        return Database::query($sql, $params);
     }
 
     public static function findById(int $id): ?array
     {
-        $promotions = self::getAll();
+        $sql = "SELECT id, usuario_id, titulo, descripcion, imagen, deep_link, code, activo, created_at
+                FROM mobile_promociones
+                WHERE id = :id AND activo = 1
+                LIMIT 1";
         
-        foreach ($promotions as $promotion) {
-            if (isset($promotion['id']) && (int)$promotion['id'] === $id) {
-                return $promotion;
-            }
-        }
-        
-        return null;
+        return Database::queryOne($sql, [':id' => $id]);
+    }
+
+    public static function getByUser(int $userId): array
+    {
+        return self::getAll($userId);
     }
 
     public static function create(array $data): int
     {
-        // Las promociones se gestionan como JSON en global_settings
-        // Este método no está soportado en la API original
-        return 0;
+        $sql = "INSERT INTO mobile_promociones (usuario_id, titulo, descripcion, imagen, deep_link, code, activo, created_at)
+                VALUES (:usuario_id, :titulo, :descripcion, :imagen, :deep_link, :code, :activo, NOW())";
+        
+        return Database::execute($sql, [
+            ':usuario_id' => $data['usuario_id'],
+            ':titulo' => $data['titulo'],
+            ':descripcion' => $data['descripcion'] ?? null,
+            ':imagen' => $data['imagen'] ?? null,
+            ':deep_link' => $data['deep_link'] ?? null,
+            ':code' => $data['code'] ?? null,
+            ':activo' => $data['activo'] ?? 1,
+        ]);
     }
 
     public static function update(int $id, array $data): bool
     {
-        // Las promociones se gestionan como JSON en global_settings
-        return false;
+        $setClause = [];
+        $params = [':id' => $id];
+
+        foreach (['titulo', 'descripcion', 'imagen', 'deep_link', 'code', 'activo'] as $key) {
+            if (array_key_exists($key, $data)) {
+                $setClause[] = "{$key} = :{$key}";
+                $params[":{$key}"] = $data[$key];
+            }
+        }
+
+        if (empty($setClause)) {
+            return false;
+        }
+
+        $sql = "UPDATE mobile_promociones SET " . implode(', ', $setClause) . " WHERE id = :id";
+        return Database::rowCount($sql, $params) > 0;
     }
 
     public static function delete(int $id): bool
     {
-        // Las promociones se gestionan como JSON en global_settings
-        return false;
+        $sql = "DELETE FROM mobile_promociones WHERE id = :id";
+        return Database::rowCount($sql, [':id' => $id]) > 0;
     }
 
-    public static function validateCode(string $code): ?array
+    /**
+     * Validar un código promocional para un usuario específico.
+     */
+    public static function validateCode(string $code, ?int $userId = null): ?array
     {
-        $promotions = self::getAll();
+        $sql = "SELECT id, usuario_id, titulo, descripcion, imagen, deep_link, code, activo, created_at
+                FROM mobile_promociones
+                WHERE code = :code AND activo = 1";
         
-        foreach ($promotions as $promotion) {
-            if (isset($promotion['code']) && $promotion['code'] === $code) {
-                return $promotion;
-            }
+        $params = [':code' => $code];
+
+        if ($userId !== null) {
+            $sql .= " AND usuario_id = :usuario_id";
+            $params[':usuario_id'] = $userId;
         }
-        
-        return null;
+
+        $sql .= " LIMIT 1";
+
+        $result = Database::queryOne($sql, $params);
+        return $result ?: null;
     }
 }

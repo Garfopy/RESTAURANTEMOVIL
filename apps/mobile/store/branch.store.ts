@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Sucursal } from '@amare/types';
+import { apiClient } from '../services/api';
 
 interface BranchState {
   sucursales: Sucursal[];
@@ -30,21 +31,14 @@ export const useBranchStore = create<BranchState>((set, get) => ({
     }
   },
 
-  // 🔄 CONEXIÓN CORREGIDA CON TU BACKEND EXPRESS
   fetchSucursales: async () => {
     try {
       set({ loading: true });
       
-      // ⚠️ Cambia "192.168.X.X:3000" por tu IP local real y el puerto de tu Express
-      // Ej: 'http://192.168.1.45:3000/branches'
-      const response = await fetch('http://192.168.1.100:3001/branches'); 
+      // Usar el apiClient de axios que ya tiene la URL base de la PHP API
+      const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>('/branches');
       
-      if (!response.ok) throw new Error('Error al conectar con la API de sucursales');
-      
-      const resJson = await response.json();
-      
-      // 🌟 CORRECCIÓN: Extraemos "resJson.data" porque tu backend responde con { ok: true, data: [...] }
-      const listaSucursales = resJson.data || [];
+      const listaSucursales = data.data?.branches || [];
       
       set({ sucursales: listaSucursales });
       get().autoSeleccionarSiUnica();

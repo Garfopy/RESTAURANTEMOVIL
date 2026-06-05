@@ -2,4 +2,5 @@ packages:
   - 'apps/*'
   - 'packages/*'
 allowBuilds:
-  core-js: true
+  '@firebase/util': true
+  protobufjs: true
