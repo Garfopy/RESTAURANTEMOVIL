@@ -122,6 +122,30 @@ class Order
         return $orders;
     }
 
+    /**
+     * Actualiza el método de pago de un pedido.
+     */
+    public static function updatePaymentMethod(int $orderId, string $metodo, ?string $paymentIntentId = null): bool
+    {
+        $pdo = Database::getInstance();
+
+        $fields = ["metodo_pago = :metodo", "estado = :estado"];
+        $params = [
+            ':id' => $orderId,
+            ':metodo' => $metodo,
+            ':estado' => $metodo === 'cash' ? 'pendiente' : 'en_preparacion',
+        ];
+
+        if ($paymentIntentId !== null && self::columnExists('rest_pedidos', 'payment_intent_id')) {
+            $fields[] = "payment_intent_id = :payment_intent_id";
+            $params[':payment_intent_id'] = $paymentIntentId;
+        }
+
+        $sql = "UPDATE rest_pedidos SET " . implode(', ', $fields) . " WHERE id = :id";
+        $stmt = $pdo->prepare($sql);
+        return $stmt->execute($params);
+    }
+
     public static function findById(int $id, ?int $userId = null): ?array
     {
         $sql = "SELECT p.*, r.nombre AS restaurante_nombre

@@ -101,15 +101,18 @@ export async function createPaymentIntent(params: {
   };
 }
 
-export async function confirmPayment(_params: {
+export async function confirmPayment(params: {
   payment_intent_id: string;
   pedido_id: number;
   metodo: MetodoPago;
 }) {
-  return {
-    ok: true,
-    pedido_id: _params.pedido_id,
-    folio: '',
-    metodo_pago: _params.metodo
-  };
+  const { data } = await apiClient.post<{
+    success: boolean;
+    data: { ok: boolean; pedido_id: number; folio: string; metodo_pago: string }
+  }>(`/orders/${params.pedido_id}/confirm-payment`, {
+    payment_intent_id: params.payment_intent_id,
+    metodo: params.metodo,
+  });
+
+  return data.data;
 }

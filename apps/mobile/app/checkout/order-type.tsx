@@ -15,6 +15,8 @@ import MapView, { Marker, Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { apiClient } from '../../services/api';
+import { getRestaurantConfig } from '../../services/config.service';
+import type { RestaurantConfig } from '@amare/types';
 
 // Stores de la aplicación
 import { useCartStore } from '../../store/cart.store';
@@ -25,7 +27,7 @@ import { createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Shadows } from '../../theme';
 
-const ORDER_TYPES = [
+const ALL_ORDER_TYPES = [
   {
     id: 'delivery',
     title: 'A domicilio',
@@ -39,6 +41,13 @@ const ORDER_TYPES = [
     subtitle: 'Tú recoges en tienda',
     icon: 'bag-handle-outline',
     iconActive: 'bag-handle',
+  },
+  {
+    id: 'eat_in',
+    title: 'Comer aquí',
+    subtitle: 'En el restaurante',
+    icon: 'restaurant-outline',
+    iconActive: 'restaurant',
   },
 ];
 
@@ -66,9 +75,19 @@ export default function OrderTypeScreen() {
     longitudeDelta: number;
   } | null>(null);
 
+  // Configuración del restaurante (métodos de pago y tipos de entrega habilitados)
+  const [config, setConfig] = useState<RestaurantConfig | null>(null);
+  const [loadingConfig, setLoadingConfig] = useState(true);
+
+  // Filtrar tipos de entrega según configuración
+  const enabledOrderTypes = config
+    ? ALL_ORDER_TYPES.filter((t) => config.tipos_entrega.includes(t.id as never))
+    : ALL_ORDER_TYPES.filter((t) => t.id !== 'eat_in'); // Por defecto: delivery + pickup
+
   // Sincronizar y procesar la ubicación según el tipo de entrega seleccionado
   useEffect(() => {
     cargarDirecciones();
+    cargarConfiguracion();
   }, []);
 
   useEffect(() => {
@@ -86,8 +105,33 @@ export default function OrderTypeScreen() {
       const sucursalIdStr = String(restauranteId);
       const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
       setUbicacionVisual(sucursal?.direccion || sucursal?.descripcion || 'Sucursal Seleccionada');
+    } else if (tipoPedido === 'eat_in') {
+      // Comer en el restaurante
+      setShowMap(false);
+      const sucursalIdStr = String(restauranteId);
+      const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
+      setUbicacionVisual(sucursal?.nombre || 'Restaurante');
     }
   }, [tipoPedido, restauranteId, sucursales]);
+
+  async function cargarConfiguracion() {
+    if (!restauranteId) {
+      setLoadingConfig(false);
+      return;
+    }
+    try {
+      const cfg = await getRestaurantConfig(restauranteId);
+      setConfig(cfg);
+      // Si el tipo actual no está habilitado, resetear al primero disponible
+      if (tipoPedido && !cfg.tipos_entrega.includes(tipoPedido as never)) {
+        setTipoPedido(cfg.tipos_entrega[0] as never);
+      }
+    } catch (err) {
+      console.error('Error al cargar configuración del restaurante:', err);
+    } finally {
+      setLoadingConfig(false);
+    }
+  }
 
   async function cargarDirecciones() {
     try {
@@ -288,7 +332,7 @@ export default function OrderTypeScreen() {
 
         {/* CARDS SELECCIÓN */}
         <View style={styles.cardsContainer}>
-          {ORDER_TYPES.map((type) => {
+          {enabledOrderTypes.map((type) => {
             const isSelected = tipoPedido === type.id;
             return (
               <TouchableOpacity

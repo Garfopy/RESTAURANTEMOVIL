@@ -10,6 +10,7 @@ use Amare\Api\Middleware\ValidationMiddleware;
 use Stripe\Stripe;
 use Stripe\PaymentIntent;
 use Stripe\Webhook;
+use Amare\Api\Models\Order;
 
 class PaymentController
 {
@@ -92,13 +93,19 @@ class PaymentController
             switch ($event->type) {
                 case 'payment_intent.succeeded':
                     $paymentIntent = $event->data->object;
-                    // Actualizar estado del pedido a pagado
-                    // Aquí iría la lógica para actualizar la orden o estatus en DB
+                    $orderId = (int) ($paymentIntent->metadata['order_id'] ?? 0);
+                    if ($orderId > 0) {
+                        Order::updatePaymentMethod($orderId, 'card', $paymentIntent->id);
+                    }
                     break;
                     
                 case 'payment_intent.payment_failed':
                     $paymentIntent = $event->data->object;
-                    // Manejar fallo de pago
+                    $orderId = (int) ($paymentIntent->metadata['order_id'] ?? 0);
+                    if ($orderId > 0) {
+                        // Registrar el fallo sin cambiar estado
+                        error_log("Pago fallido para pedido #{$orderId}: {$paymentIntent->last_payment_error?->message}");
+                    }
                     break;
             }
 

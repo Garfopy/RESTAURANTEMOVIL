@@ -27,6 +27,7 @@ $routes = [
     ['GET', '/orders', ['Amare\Api\Controllers\OrderController', 'index']],
     ['GET', '/orders/:id', ['Amare\Api\Controllers\OrderController', 'show']],
     ['POST', '/orders', ['Amare\Api\Controllers\OrderController', 'store']],
+    ['POST', '/orders/:id/confirm-payment', ['Amare\Api\Controllers\OrderController', 'confirmPayment']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],
@@ -54,6 +55,10 @@ $routes = [
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
     ['POST', '/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'validateCode']],
     
+    // Config routes (configuración por restaurante)
+    ['GET', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'show']],
+    ['PUT', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'update']],
+
     // Store routes (tienda de productos físicos)
     ['GET', '/store/categories', ['Amare\Api\Controllers\StoreController', 'categories']],
     ['GET', '/store/products', ['Amare\Api\Controllers\StoreController', 'products']],

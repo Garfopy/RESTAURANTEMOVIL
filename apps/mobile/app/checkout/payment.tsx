@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,8 +14,10 @@ import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { confirmPayment, createOrder } from '../../services/orders.service';
+import { getRestaurantConfig } from '../../services/config.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
+import type { RestaurantConfig, MetodoPagoHabilitado } from '@amare/types';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash';
 
@@ -33,16 +35,53 @@ export default function PaymentScreen() {
   const { items, total, clear } = useCartStore();
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
+  const [config, setConfig] = useState<RestaurantConfig | null>(null);
+  const [loadingConfig, setLoadingConfig] = useState(true);
 
   const isIOS = Platform.OS === 'ios';
   const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
   const walletIcon = isIOS ? 'logo-apple' : 'logo-google';
+
+  // Métodos de pago habilitados según configuración
+  const enabledMethods = config?.metodos_pago ?? ['card', 'cash'];
+
+  // Cargar configuración al montar
+  useEffect(() => {
+    if (restauranteId) {
+      getRestaurantConfig(Number(restauranteId))
+        .then((cfg) => {
+          setConfig(cfg);
+          // Seleccionar el primer método disponible por defecto
+          if (cfg.metodos_pago.length > 0 && !cfg.metodos_pago.includes(selectedMethod as MetodoPagoHabilitado)) {
+            setSelectedMethod(mapMethodToPayment(cfg.metodos_pago[0]));
+          }
+        })
+        .catch((err) => console.error('Error al cargar configuración:', err))
+        .finally(() => setLoadingConfig(false));
+    } else {
+      setLoadingConfig(false);
+    }
+  }, [restauranteId]);
+
+  function mapMethodToPayment(m: MetodoPagoHabilitado): PaymentMethod {
+    if (m === 'apple_pay' || m === 'google_pay') return 'wallet';
+    return m as PaymentMethod;
+  }
+
+  function isMethodEnabled(method: PaymentMethod): boolean {
+    if (method === 'wallet') {
+      const walletKey = isIOS ? 'apple_pay' : 'google_pay';
+      return enabledMethods.includes(walletKey as MetodoPagoHabilitado);
+    }
+    return enabledMethods.includes(method as MetodoPagoHabilitado);
+  }
 
   async function handlePay() {
     setLoading(true);
     try {
       if (selectedMethod === 'cash') {
         const order = await createOrderBackend('cash');
+        await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId ?? '', metodo: 'cash' });
         clear();
         router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
         return;
@@ -62,27 +101,27 @@ export default function PaymentScreen() {
 
         const order = await createOrderBackend('card');
         await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId, metodo: 'card' });
-        
+
         clear();
         router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
         return;
       }
 
       if (selectedMethod === 'wallet') {
-        Alert.alert('En desarrollo', `La integración con ${walletName} está en proceso.`);
-        setLoading(false);
+        const walletMethod = isIOS ? 'apple_pay' : 'google_pay';
+        const order = await createOrderBackend(walletMethod);
+        // TODO: Integrar Apple Pay / Google Pay con Stripe o pasarela nativa
+        await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId ?? '', metodo: walletMethod });
+        clear();
+        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
         return;
       }
-
-      } catch (err: any) {
-        // 1. Esto te lo mostrará en la pantalla del celular
-        Alert.alert('Error Real', err.message || JSON.stringify(err));
-        
-        // 2. Esto lo imprimirá en tu terminal de la computadora (donde corre Expo)
-        console.error("🔴 Error detallado en handlePay:", err);
-      } finally {
-        setLoading(false);
-      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || JSON.stringify(err));
+      console.error('🔴 Error detallado en handlePay:', err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function createOrderBackend(metodo_pago: string) {

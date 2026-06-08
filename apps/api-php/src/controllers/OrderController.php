@@ -21,6 +21,37 @@ class OrderController
         Response::success(['orders' => $orders]);
     }
 
+    public function confirmPayment(int $id): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = ValidationMiddleware::getAllInput();
+
+        $order = Order::findById($id, $user->id);
+
+        if (!$order) {
+            Response::notFound('Pedido no encontrado');
+        }
+
+        $metodo = $input['metodo'] ?? 'card';
+        $allowed = ['card', 'cash', 'apple_pay', 'google_pay'];
+        if (!in_array($metodo, $allowed, true)) {
+            Response::validationError(['metodo' => ["Método de pago no válido: {$metodo}"]]);
+        }
+
+        $paymentIntentId = $input['payment_intent_id'] ?? null;
+
+        // Actualizar pedido con método de pago
+        Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
+
+        $order = Order::findById($id);
+        Response::success([
+            'ok' => true,
+            'pedido_id' => $order['id'],
+            'folio' => $order['folio'],
+            'metodo_pago' => $metodo,
+        ], 'Pago confirmado exitosamente');
+    }
+
     public function show(int $id): void
     {
         $user = AuthMiddleware::authenticate();
