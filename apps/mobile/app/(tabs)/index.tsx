@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,12 +10,16 @@ import {
   StatusBar,
   Dimensions,
   Animated,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useUserStore } from '../../store/user.store';
 import { useBranchStore } from '../../store/branch.store';
+import { useCartStore } from '../../store/cart.store';
 import { useBranches } from '../../hooks/useBranches';
 import { useFeaturedDishes, useCategories } from '../../hooks/useMenu';
 import { Colors } from '../../theme';
@@ -24,15 +28,17 @@ import { CategoryCard } from '../../components/cards/CategoryCard';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
 import { CartButton } from '../../components/shared/CartButton';
+import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
-import type { Platillo, Categoria } from '@amare/types';
+import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
+import type { Platillo, Categoria, TipoPedido } from '@amare/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const FEATURED_CARD_WIDTH = SCREEN_WIDTH * 0.75; 
-const FEATURED_GAP = 16;
+const FEATURED_CARD_WIDTH = SCREEN_WIDTH * 0.82; 
+const FEATURED_GAP = 12;
 const FEATURED_SNAP_INTERVAL = FEATURED_CARD_WIDTH + FEATURED_GAP;
-const FEATURED_INSET = (SCREEN_WIDTH - FEATURED_CARD_WIDTH) / 2;
+const FEATURED_INSET = 20; 
 
 const HOME_BANNERS = [
   {
@@ -62,6 +68,11 @@ export default function HomeScreen() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const { seleccionada: branch } = useBranchStore();
+  const { tipoPedido, setTipoPedido } = useCartStore();
+  
+  const [showTypeModal, setShowTypeModal] = useState(false);
+  const [availableTypes, setAvailableTypes] = useState<TipoPedido[]>(['delivery', 'pickup']);
+  const [detectingLocation, setDetectingLocation] = useState(false);
   const [search, setSearch] = useState('');
 
   // 🎞️ Animación para los indicadores (dots)
@@ -75,6 +86,57 @@ export default function HomeScreen() {
   const restauranteId = branch?.id;
   const { data: categories, isLoading: loadingCats } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured } = useFeaturedDishes(restauranteId);
+
+  // Lógica para detectar ubicación y mostrar modal inicial
+  useEffect(() => {
+    if (!tipoPedido && branch) {
+      checkLocationAndShowModal();
+    }
+  }, [tipoPedido, branch]);
+
+  async function checkLocationAndShowModal() {
+    setDetectingLocation(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setAvailableTypes(['delivery', 'pickup']);
+      } else {
+        const location = await Location.getCurrentPositionAsync({});
+        
+        if (branch?.lat && branch?.lng) {
+          const distance = calculateDistance(
+            location.coords.latitude,
+            location.coords.longitude,
+            Number(branch.lat),
+            Number(branch.lng)
+          );
+
+          // Si está a menos de 200 metros, permitimos "Comer aquí"
+          if (distance < 0.2) {
+            setAvailableTypes(['delivery', 'pickup', 'eat_in']);
+          } else {
+            setAvailableTypes(['delivery', 'pickup']);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error detectando ubicación:", error);
+    } finally {
+      setDetectingLocation(false);
+      setShowTypeModal(true);
+    }
+  }
+
+  function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+    const R = 6371; // Radio de la tierra en km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
 
   function handleSearch() {
     if (search.trim() && restauranteId) {
@@ -224,7 +286,7 @@ export default function HomeScreen() {
               renderItem={({ item }) => <ProductCard platillo={item} onPress={handleDish} width={FEATURED_CARD_WIDTH} />}
               ItemSeparatorComponent={() => <View style={{ width: FEATURED_GAP }} />}
               snapToInterval={FEATURED_SNAP_INTERVAL}
-              snapToAlignment="center"
+              snapToAlignment="start"
               decelerationRate="fast"
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { x: scrollX } } }],
@@ -260,8 +322,46 @@ export default function HomeScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* BOTÓN FLOTANTE DE TIENDA */}
+      <StoreFAB />
+
       {/* BOTÓN DEL CARRITO ORIGINAL */}
       <CartButton />
+
+      {/* MODAL DE SELECCIÓN INICIAL */}
+      <Modal visible={showTypeModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="restaurant" size={40} color={Colors.primary} style={{ marginBottom: 15 }} />
+            <Text style={styles.modalTitle}>¡Bienvenido a {branch?.nombre}!</Text>
+            <Text style={styles.modalSubtitle}>¿Cómo prefieres disfrutar tu comida hoy?</Text>
+            
+            {detectingLocation ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
+            ) : (
+              <View style={styles.selectorContainer}>
+                <OrderTypeSelector 
+                  value={tipoPedido as any} 
+                  onChange={(tipo) => {
+                    setTipoPedido(tipo);
+                    setShowTypeModal(false);
+                  }}
+                  available={availableTypes}
+                />
+              </View>
+            )}
+
+            {availableTypes.length === 2 && !detectingLocation && (
+              <View style={styles.infoBox}>
+                <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
+                <Text style={styles.infoText}>
+                  La opción "En mesa" solo está disponible si te encuentras en el restaurante.
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -391,5 +491,55 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: Colors.primary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFF',
+    borderRadius: 30,
+    padding: 25,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  selectorContainer: {
+    width: '100%',
+    marginVertical: 10,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 20,
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoText: {
+    fontSize: 12,
+    color: '#6B7280',
+    flex: 1,
   },
 });

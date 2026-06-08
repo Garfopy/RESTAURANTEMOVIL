@@ -96,7 +96,12 @@ export default function PaymentScreen() {
         notas: i.notas,
         modificadores: i.modificadores_seleccionados.map((m) => ({
           modificador_id: m.modificador_id,
-          opcion_ids: m.opciones.map((o) => o.opcion_id),
+          modificador_nombre: m.modificador_nombre,
+          opciones: m.opciones.map((o) => ({
+            opcion_id: o.opcion_id,
+            opcion_nombre: o.opcion_nombre,
+            precio_extra: o.precio_extra,
+          })),
         })),
       })),
       payment_intent_id: intentId || undefined,

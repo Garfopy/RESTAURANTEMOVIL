@@ -53,6 +53,11 @@ $routes = [
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
     ['POST', '/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'validateCode']],
+    
+    // Store routes (tienda de productos físicos)
+    ['GET', '/store/categories', ['Amare\Api\Controllers\StoreController', 'categories']],
+    ['GET', '/store/products', ['Amare\Api\Controllers\StoreController', 'products']],
+    ['GET', '/store/products/:id', ['Amare\Api\Controllers\StoreController', 'showProduct']],
 ];
 
 // Remove base path from request URI

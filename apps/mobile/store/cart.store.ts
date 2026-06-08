@@ -79,13 +79,17 @@ export const useCartStore = create<CartState>((set, get) => ({
       const { total, itemCount } = computeTotals(updated);
       set({ items: updated, restauranteId: platillo.restaurante_id, total, itemCount });
     } else {
+      const modExtraUnitario = mods.reduce(
+        (sum, mod) => sum + mod.opciones.reduce((s, o) => s + o.precio_extra, 0),
+        0
+      );
       const newItem: CarritoItem = {
         id: `${platillo.id}-${Date.now()}`,
         platillo,
         cantidad,
         modificadores_seleccionados: mods,
         notas,
-        precio_unitario: platillo.precio,
+        precio_unitario: platillo.precio + modExtraUnitario,
         subtotal: calcSubtotal(platillo, mods, cantidad),
       };
       const updated = [...items, newItem];

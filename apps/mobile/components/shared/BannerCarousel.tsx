@@ -1,13 +1,14 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
-  FlatList,
   View,
-  Image,
   StyleSheet,
   Dimensions,
   TouchableOpacity,
   Text,
+  Animated,
+  Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Colors, Spacing, BorderRadius } from '../../theme';
 
 export interface BannerItem {
@@ -26,8 +27,8 @@ interface BannerCarouselProps {
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const BANNER_HEIGHT = 180;
-const BANNER_WIDTH = SCREEN_WIDTH - Spacing.base * 2;
+const BANNER_HEIGHT = 190;
+const BANNER_WIDTH = SCREEN_WIDTH - 40; // Ajustado para márgenes laterales de 20
 
 export function BannerCarousel({
   items,
@@ -35,8 +36,9 @@ export function BannerCarousel({
   autoPlay = true,
   interval = 4000,
 }: BannerCarouselProps) {
-  const flatRef = useRef<FlatList<BannerItem>>(null);
+  const flatRef = useRef<Animated.FlatList<BannerItem>>(null);
   const currentIndex = useRef(0);
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!autoPlay || items.length <= 1) return;
@@ -54,16 +56,20 @@ export function BannerCarousel({
 
   return (
     <View>
-      <FlatList
+      <Animated.FlatList
         ref={flatRef}
         data={items}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
-        snapToInterval={BANNER_WIDTH + Spacing.sm}
+        snapToInterval={BANNER_WIDTH + 12} // BANNER_WIDTH + gap
         decelerationRate="fast"
-        contentContainerStyle={{ paddingHorizontal: Spacing.base }}
+        contentContainerStyle={{ paddingHorizontal: 20 }}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+          { useNativeDriver: false }
+        )}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => onPress?.(item)}
@@ -71,9 +77,10 @@ export function BannerCarousel({
             style={styles.banner}
           >
             <Image
-              source={{ uri: item.imagen }}
+              source={item.imagen}
               style={styles.image}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={300}
             />
             {(item.titulo || item.subtitulo) && (
               <View style={styles.overlay}>
@@ -84,6 +91,31 @@ export function BannerCarousel({
           </TouchableOpacity>
         )}
       />
+
+      {/* Indicadores (Dots) */}
+      <View style={styles.pagination}>
+        {items.map((_, i) => {
+          const inputRange = [
+            (i - 1) * (BANNER_WIDTH + 12),
+            i * (BANNER_WIDTH + 12),
+            (i + 1) * (BANNER_WIDTH + 12),
+          ];
+
+          const dotWidth = scrollX.interpolate({
+            inputRange,
+            outputRange: [6, 16, 6],
+            extrapolate: 'clamp',
+          });
+
+          const opacity = scrollX.interpolate({
+            inputRange,
+            outputRange: [0.3, 1, 0.3],
+            extrapolate: 'clamp',
+          });
+
+          return <Animated.View key={i} style={[styles.dot, { width: dotWidth, opacity }]} />;
+        })}
+      </View>
     </View>
   );
 }
@@ -94,7 +126,7 @@ const styles = StyleSheet.create({
     height: BANNER_HEIGHT,
     borderRadius: BorderRadius.xl,
     overflow: 'hidden',
-    marginRight: Spacing.sm,
+    marginRight: 12,
   },
   image: { width: '100%', height: '100%' },
   overlay: {
@@ -112,5 +144,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
     marginTop: 2,
+  },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 6,
+  },
+  dot: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
   },
 });

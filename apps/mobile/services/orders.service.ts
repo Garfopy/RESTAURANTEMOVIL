@@ -8,6 +8,8 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     quantity: item.cantidad ?? item.quantity ?? item.qty ?? 1,
     unit_price: item.precio_unit ?? item.unit_price ?? item.price ?? 0,
     options: item.notas ?? item.options ?? null,
+    modificadores: item.modificadores ?? [],
+    origen: item.origen ?? 'menu',
   }));
 
   const subtotal = calculateSubtotal(safeItems);
@@ -56,6 +58,19 @@ export async function getOrderById(id: number): Promise<Pedido> {
   }>(`/orders/${id}`);
 
   return data.data.order;
+}
+
+export async function getStoreOrders(): Promise<Pedido[]> {
+  const { data } = await apiClient.get<{
+    success: boolean;
+    data: { orders: Pedido[] }
+  }>('/orders', { params: { tipo: 'store' } });
+
+  return (data.data.orders || []).map(order => ({
+    ...order,
+    total: Number(order.total || 0),
+    subtotal: Number(order.subtotal || 0)
+  }));
 }
 
 export async function getOrderTracking(_id: number) {

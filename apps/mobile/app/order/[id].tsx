@@ -20,8 +20,8 @@ import { Skeleton } from '../../components/ui/Skeleton';
 
 const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }> = {
   pendiente: { label: 'Recibido', color: '#F59E0B', icon: 'time-outline' },
-  en_preparacion: { label: 'En Cocina', color: '#8B5CF6', icon: 'restaurant-outline' },
-  listo: { label: 'Listo', color: '#10B981', icon: 'checkmark-circle-outline' },
+  en_preparacion: { label: 'Preparando', color: '#8B5CF6', icon: 'restaurant-outline' },
+  listo: { label: 'Listo para recoger', color: '#10B981', icon: 'checkmark-circle-outline' },
   en_camino: { label: 'En Camino', color: '#3B82F6', icon: 'bicycle-outline' },
   entregado: { label: 'Entregado', color: '#10B981', icon: 'ribbon-outline' },
   cancelado: { label: 'Cancelado', color: '#EF4444', icon: 'close-circle-outline' },
@@ -138,26 +138,87 @@ export default function OrderDetailScreen() {
           <Text style={styles.itemCount}>{order?.items?.length} {order?.items?.length === 1 ? 'producto' : 'productos'}</Text>
         </View>
         <View style={styles.card}>
-          {order?.items?.map((item: any, index: number) => (
-            <View key={item.id} style={[styles.productRow, index !== 0 && styles.borderTop]}>
-              <View style={styles.imgWrapper}>
-                <Image 
-                  source={formatImageUrl(item.platillo_imagen) ?? require('../../assets/placeholder-food.jpg')} 
-                  style={styles.productImg}
-                  contentFit="cover"
-                  transition={200}
-                />
-                <View style={styles.qtyBadge}>
-                  <Text style={styles.qtyText}>{item.cantidad}</Text>
+          {order?.items?.map((item: any, index: number) => {
+            // Parsear extras: usar extras_json como fuente primaria, fallback a notas legacy
+            let notasCliente = '';
+            let extras: any[] = [];
+            let extrasTotal = 0;
+            
+            // Fuente primaria: extras_json (nuevo campo estructurado)
+            if (item.extras_json) {
+              try {
+                extras = JSON.parse(item.extras_json);
+                extrasTotal = extras.reduce(
+                  (sum: number, ext: any) =>
+                    sum + (ext.opciones || []).reduce((s: number, o: any) => s + (o.precio_extra || 0), 0),
+                  0
+                );
+              } catch { /* ignorar error de parseo */ }
+            }
+            
+            // Fallback: parsear campo notas legacy
+            try {
+              if (item.notas && item.notas.startsWith('{')) {
+                const parsed = JSON.parse(item.notas);
+                notasCliente = parsed.notas || '';
+                // Solo usar extras del legacy si no hay extras_json
+                if (!item.extras_json) {
+                  extras = parsed.extras || [];
+                  extrasTotal = extras.reduce(
+                    (sum: number, ext: any) =>
+                      sum + (ext.opciones || []).reduce((s: number, o: any) => s + (o.precio_extra || 0), 0),
+                    0
+                  );
+                }
+              } else {
+                notasCliente = item.notas || '';
+              }
+            } catch {
+              notasCliente = item.notas || '';
+            }
+            const precioConExtras = item.precio_unit;
+            const precioBase = item.precio_unit - extrasTotal;
+
+            return (
+              <View key={item.id} style={[styles.productRow, index !== 0 && styles.borderTop]}>
+                <View style={styles.imgWrapper}>
+                  <Image 
+                    source={formatImageUrl(item.platillo_imagen) ?? require('../../assets/placeholder-food.jpg')} 
+                    style={styles.productImg}
+                    contentFit="cover"
+                    transition={200}
+                  />
+                  <View style={styles.qtyBadge}>
+                    <Text style={styles.qtyText}>{item.cantidad}</Text>
+                  </View>
                 </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.productName} numberOfLines={2}>{item.platillo_nombre}</Text>
+                  {/* Desglose de precio */}
+                  <View style={styles.priceBreakdown}>
+                    <Text style={styles.productPrice}>Precio base: ${precioBase.toFixed(2)}</Text>
+                    {extras.map((ext: any) =>
+                      ext.opciones.map((opc: any) => (
+                        <Text key={`${ext.modificador_id}-${opc.opcion_id}`} style={styles.extraItem}>
+                          + {opc.opcion_nombre} (${opc.precio_extra.toFixed(2)})
+                        </Text>
+                      ))
+                    )}
+                    {extrasTotal > 0 && (
+                      <Text style={styles.unitPrice}>${precioConExtras.toFixed(2)} c/u</Text>
+                    )}
+                    {extrasTotal === 0 && (
+                      <Text style={styles.unitPrice}>${precioConExtras.toFixed(2)} c/u</Text>
+                    )}
+                  </View>
+                  {notasCliente !== '' && (
+                    <Text style={styles.notasText} numberOfLines={2}>📝 {notasCliente}</Text>
+                  )}
+                </View>
+                <Text style={styles.productSubtotal}>${(precioConExtras * item.cantidad).toFixed(2)}</Text>
               </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.productName} numberOfLines={2}>{item.platillo_nombre}</Text>
-                <Text style={styles.productPrice}>${item.precio_unit.toFixed(2)} c/u</Text>
-              </View>
-              <Text style={styles.productSubtotal}>${(item.precio_unit * item.cantidad).toFixed(2)}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* RESUMEN DE PAGO */}
@@ -286,7 +347,11 @@ const styles = StyleSheet.create({
   },
   qtyText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
   productName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  priceBreakdown: { marginTop: 2 },
   productPrice: { fontSize: 13, color: '#6B7280' },
+  extraItem: { fontSize: 12, color: '#8B5CF6', fontWeight: '500', marginLeft: 4, marginTop: 1 },
+  unitPrice: { fontSize: 12, color: '#374151', fontWeight: '700', marginTop: 2 },
+  notasText: { fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', marginTop: 4 },
   productSubtotal: { 
     fontSize: 15, 
     fontWeight: '800', 

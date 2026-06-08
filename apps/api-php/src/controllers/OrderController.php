@@ -14,7 +14,9 @@ class OrderController
     public function index(): void
     {
         $user = AuthMiddleware::authenticate();
-        $orders = Order::getByUser($user->id);
+        $input = ValidationMiddleware::getAllInput();
+        $tipo = $input['tipo'] ?? null;
+        $orders = Order::getByUser($user->id, $tipo);
         
         Response::success(['orders' => $orders]);
     }
@@ -62,19 +64,37 @@ class OrderController
                 'platillo_id' => $item['product_id'] ?? $item['platillo_id'],
                 'cantidad' => $item['quantity'] ?? $item['cantidad'],
                 'precio_unit' => $item['unit_price'] ?? $item['precio_unit'],
-                'notas' => $item['options'] ?? $item['notas'] ?? null
+                'notas' => $item['options'] ?? $item['notas'] ?? null,
+                'modificadores' => $item['modificadores'] ?? [],
+                'origen' => $item['origen'] ?? 'menu'
             ];
         }
 
-        $orderId = Order::create([
-            'restaurante_id' => $input['restaurante_id'],
-            'user_id' => $user->id,
-            'order_type' => $input['tipo_pedido'],
-            'subtotal' => $input['subtotal'],
-            'total' => $input['total'],
-            'notes' => $input['notas'] ?? null,
-            'items' => $items
-        ]);
+        try {
+            $orderId = Order::create([
+                'restaurante_id' => $input['restaurante_id'],
+                'user_id' => $user->id,
+                'order_type' => $input['tipo_pedido'],
+                'subtotal' => $input['subtotal'],
+                'total' => $input['total'],
+                'notes' => $input['notas'] ?? null,
+                'items' => $items
+            ]);
+        } catch (\RuntimeException $e) {
+            // Error de stock insuficiente (u otro error de negocio)
+            $message = $e->getMessage();
+            // Si el mensaje contiene "Stock insuficiente", devolver 409 Conflict
+            if (str_contains($message, 'Stock insuficiente')) {
+                http_response_code(409);
+                echo json_encode([
+                    'ok' => false,
+                    'message' => $message,
+                    'code' => 'STOCK_INSUFFICIENT'
+                ]);
+                exit;
+            }
+            Response::serverError($message);
+        }
 
         if (!$orderId) {
             Response::serverError('No se pudo crear el pedido');

@@ -11,16 +11,20 @@ export type EstadoPedido =
 export interface PedidoItem {
   id: number;
   platillo_id: number;
+  origen?: 'menu' | 'store';
   platillo_nombre: string;
   platillo_imagen: string | null;
   cantidad: number;
   precio_unit: number;
   subtotal: number;
   notas: string | null;
+  extras_json: string | null;
   exclusiones: string | null;
   extras: string | null;
   estado: EstadoPedido;
 }
+
+export type TipoOrigenPedido = 'menu' | 'store' | 'mixto';
 
 export interface Pedido {
   id: number;
@@ -28,6 +32,7 @@ export interface Pedido {
   restaurante_nombre: string;
   folio: string;
   tipo_pedido: TipoPedido;
+  tipo_origen: TipoOrigenPedido;
   estado: EstadoPedido;
   subtotal: number;
   descuento: number;
@@ -35,6 +40,7 @@ export interface Pedido {
   total: number;
   mesa_id: number | null;
   mesa_nombre: string | null;
+  direccion_id: number | null;
   direccion_entrega: string | null;
   notas: string | null;
   items: PedidoItem[];
@@ -59,7 +65,12 @@ export interface CreateOrderPayload {
     cantidad: number;
     modificadores: {
       modificador_id: number;
-      opcion_ids: number[];
+      modificador_nombre: string;
+      opciones: {
+        opcion_id: number;
+        opcion_nombre: string;
+        precio_extra: number;
+      }[];
     }[];
     notas?: string;
     precio_unit: number;

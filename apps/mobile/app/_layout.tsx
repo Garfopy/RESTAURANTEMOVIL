@@ -104,6 +104,8 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
               <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
               <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
               <Stack.Screen name="checkout/order-type" />
               <Stack.Screen name="checkout/payment" />
