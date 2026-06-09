@@ -49,13 +49,14 @@ class PromotionsController
     }
 
     /**
-     * POST /promotions/validate
-     * Valida un codigo promocional para el usuario autenticado.
-     * Body: { "code": "PROMO123" }
+     * POST /admin/promotions/validate
+     * Valida un codigo promocional (SOLO para admin desde panel web).
+     * Útil para verificar que un código sea válido antes de asignarlo.
+     * Body: { "code": "PROMO123", "usuario_id": 123 }
      */
-    public function validateCode(): void
+    public function adminValidateCode(): void
     {
-        $user = AuthMiddleware::authenticate();
+        AuthMiddleware::requireAdmin();
 
         $input = ValidationMiddleware::getAllInput();
 
@@ -69,10 +70,11 @@ class PromotionsController
             Response::validationError($errors);
         }
 
-        $promotion = Promotion::validateCode($input['code'], (int)$user->id);
+        $userId = isset($input['usuario_id']) ? (int)$input['usuario_id'] : null;
+        $promotion = Promotion::validateCode($input['code'], $userId);
 
         if (!$promotion) {
-            Response::error('Codigo de promocion invalido o expirado', 404);
+            Response::error('Codigo de promocion invalido, expirado o no asignado a este usuario', 404);
         }
 
         Response::success(['promotion' => $promotion]);
@@ -118,13 +120,14 @@ class PromotionsController
     /**
      * POST /admin/promotions
      * Crea una nueva promocion para un usuario especifico.
+     * SOLO accesible desde panel web (requiere rol=admin).
      *
      * Body requerido:  usuario_id, titulo
      * Body opcional:   descripcion, imagen, deep_link, code, activo, expires_at
      */
     public function adminStore(): void
     {
-        AuthMiddleware::requireAdmin();
+        $user = AuthMiddleware::requireAdmin();
 
         $input = ValidationMiddleware::getAllInput();
 
@@ -139,12 +142,7 @@ class PromotionsController
             Response::validationError($errors);
         }
 
-        // Verificar que el codigo no este duplicado si se proporciona
-        if (!empty($input['code']) && Promotion::codeExists($input['code'])) {
-            Response::validationError(['code' => ['Este codigo ya esta en uso. Por favor elige otro.']]);
-        }
-
-        // Validar formato de expires_at si se proporciona
+        // Validar que expires_at sea fecha futura (si se proporciona)
         if (!empty($input['expires_at'])) {
             $dt = \DateTime::createFromFormat('Y-m-d H:i:s', $input['expires_at'])
                ?: \DateTime::createFromFormat('Y-m-d', $input['expires_at']);
@@ -152,6 +150,16 @@ class PromotionsController
             if (!$dt) {
                 Response::validationError(['expires_at' => ['Formato de fecha invalido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS']]);
             }
+
+            // Validar que no sea fecha pasada
+            if (!Promotion::isValidFutureDate($input['expires_at'])) {
+                Response::validationError(['expires_at' => ['La fecha de expiración no puede ser en el pasado.']]);
+            }
+        }
+
+        // Verificar que el codigo no este duplicado si se proporciona
+        if (!empty($input['code']) && Promotion::codeExists($input['code'])) {
+            Response::validationError(['code' => ['Este codigo ya esta en uso. Por favor elige otro.']]);
         }
 
         $newId = Promotion::create([
@@ -163,7 +171,7 @@ class PromotionsController
             'code'        => !empty($input['code']) ? strtoupper(trim($input['code'])) : null,
             'activo'      => isset($input['activo']) ? (int)$input['activo'] : 1,
             'expires_at'  => !empty($input['expires_at']) ? $input['expires_at'] : null,
-        ]);
+        ], (int)$user->id);
 
         $promotion = Promotion::findById($newId);
 
@@ -173,16 +181,22 @@ class PromotionsController
     /**
      * PUT /admin/promotions/:id
      * Actualiza una promocion existente.
+     * SOLO accesible desde panel web (requiere rol=admin).
      * Body: cualquier combinacion de campos editables.
      */
     public function adminUpdate(int $id): void
     {
-        AuthMiddleware::requireAdmin();
+        $user = AuthMiddleware::requireAdmin();
 
         $promotion = Promotion::findById($id);
 
         if (!$promotion) {
             Response::notFound('Promocion no encontrada');
+        }
+
+        // Validar permisos: verificar si el admin puede editar esta promo
+        if (!Promotion::canEdit($id, (int)$user->id)) {
+            Response::error('No tienes permiso para editar esta promocion', 403);
         }
 
         $input = ValidationMiddleware::getAllInput();
@@ -204,6 +218,11 @@ class PromotionsController
             if (!$dt) {
                 Response::validationError(['expires_at' => ['Formato de fecha invalido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS']]);
             }
+
+            // Validar que no sea fecha pasada
+            if (!Promotion::isValidFutureDate($input['expires_at'])) {
+                Response::validationError(['expires_at' => ['La fecha de expiración no puede ser en el pasado.']]);
+            }
         }
 
         // Normalizar codigo a mayusculas si se proporciona
@@ -211,7 +230,7 @@ class PromotionsController
             $input['code'] = strtoupper(trim($input['code']));
         }
 
-        Promotion::update($id, $input);
+        Promotion::update($id, $input, (int)$user->id);
 
         $updated = Promotion::findById($id);
 
@@ -221,15 +240,21 @@ class PromotionsController
     /**
      * DELETE /admin/promotions/:id
      * Elimina permanentemente una promocion (hard delete).
+     * SOLO accesible desde panel web (requiere rol=admin).
      */
     public function adminDestroy(int $id): void
     {
-        AuthMiddleware::requireAdmin();
+        $user = AuthMiddleware::requireAdmin();
 
         $promotion = Promotion::findById($id);
 
         if (!$promotion) {
             Response::notFound('Promocion no encontrada');
+        }
+
+        // Validar permisos: verificar si el admin puede editar esta promo
+        if (!Promotion::canEdit($id, (int)$user->id)) {
+            Response::error('No tienes permiso para eliminar esta promocion', 403);
         }
 
         $deleted = Promotion::delete($id);
@@ -244,10 +269,11 @@ class PromotionsController
     /**
      * PUT /admin/promotions/:id/deactivate
      * Desactiva (soft-delete) una promocion sin eliminarla.
+     * SOLO accesible desde panel web (requiere rol=admin).
      */
     public function adminDeactivate(int $id): void
     {
-        AuthMiddleware::requireAdmin();
+        $user = AuthMiddleware::requireAdmin();
 
         $promotion = Promotion::findById($id);
 
@@ -259,7 +285,12 @@ class PromotionsController
             Response::error('La promocion ya esta desactivada', 422);
         }
 
-        Promotion::deactivate($id);
+        // Validar permisos: verificar si el admin puede editar esta promo
+        if (!Promotion::canEdit($id, (int)$user->id)) {
+            Response::error('No tienes permiso para desactivar esta promocion', 403);
+        }
+
+        Promotion::deactivate($id, (int)$user->id);
 
         $updated = Promotion::findById($id);
 

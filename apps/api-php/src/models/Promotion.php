@@ -131,15 +131,16 @@ class Promotion
     }
 
     /**
-     * Crear una nueva promoción (lo usa el admin para asignarla a un usuario).
+     * Crear una nueva promoción (SOLO desde admin web).
+     * Requiere created_by (ID del admin que la crea).
      * Retorna el ID insertado.
      */
-    public static function create(array $data): int
+    public static function create(array $data, int $createdBy): int
     {
         $sql = "INSERT INTO mobile_promociones
-                    (usuario_id, titulo, descripcion, imagen, deep_link, code, activo, expires_at, created_at)
+                    (usuario_id, titulo, descripcion, imagen, deep_link, code, activo, expires_at, created_at, created_by)
                 VALUES
-                    (:usuario_id, :titulo, :descripcion, :imagen, :deep_link, :code, :activo, :expires_at, NOW())";
+                    (:usuario_id, :titulo, :descripcion, :imagen, :deep_link, :code, :activo, :expires_at, NOW(), :created_by)";
 
         return Database::execute($sql, [
             ':usuario_id'  => $data['usuario_id'],
@@ -150,16 +151,18 @@ class Promotion
             ':code'        => $data['code'] ?? null,
             ':activo'      => $data['activo'] ?? 1,
             ':expires_at'  => $data['expires_at'] ?? null,
+            ':created_by'  => $createdBy,
         ]);
     }
 
     /**
-     * Actualizar una promoción existente (admin).
+     * Actualizar una promoción existente (SOLO admin).
+     * Registra quién hizo la actualización (updated_by) y cuándo (updated_at).
      */
-    public static function update(int $id, array $data): bool
+    public static function update(int $id, array $data, int $updatedBy): bool
     {
         $setClause = [];
-        $params = [':id' => $id];
+        $params = [':id' => $id, ':updated_by' => $updatedBy];
 
         $allowed = ['titulo', 'descripcion', 'imagen', 'deep_link', 'code', 'activo', 'expires_at', 'usuario_id'];
 
@@ -173,6 +176,10 @@ class Promotion
         if (empty($setClause)) {
             return false;
         }
+
+        // Siempre agregar updated_at y updated_by
+        $setClause[] = "updated_at = NOW()";
+        $setClause[] = "updated_by = :updated_by";
 
         $sql = "UPDATE mobile_promociones SET " . implode(', ', $setClause) . " WHERE id = :id";
         return Database::rowCount($sql, $params) > 0;
@@ -189,11 +196,14 @@ class Promotion
 
     /**
      * Desactivar (soft-delete) una promoción.
+     * Registra quién la desactivó.
      */
-    public static function deactivate(int $id): bool
+    public static function deactivate(int $id, int $deactivatedBy): bool
     {
-        $sql = "UPDATE mobile_promociones SET activo = 0 WHERE id = :id";
-        return Database::rowCount($sql, [':id' => $id]) > 0;
+        $sql = "UPDATE mobile_promociones 
+                SET activo = 0, updated_at = NOW(), updated_by = :updated_by 
+                WHERE id = :id";
+        return Database::rowCount($sql, [':id' => $id, ':updated_by' => $deactivatedBy]) > 0;
     }
 
     /**
@@ -235,5 +245,51 @@ class Promotion
 
         $result = Database::queryOne($sql, $params);
         return (int)($result['cnt'] ?? 0) > 0;
+    }
+
+    /**
+     * Verificar si un admin puede editar una promoción.
+     * Solo el admin que la creó (o un super-admin) puede editarla.
+     * 
+     * Actualmente: cualquier admin puede editar cualquier promo
+     * Si necesitas restringir por creador, descomentar la lógica.
+     */
+    public static function canEdit(int $promotionId, int $adminId): bool
+    {
+        // OPCIÓN 1: Cualquier admin puede editar (comentada actualmente)
+        // return true;
+        
+        // OPCIÓN 2: Solo el admin creador puede editar (descomenta si lo necesitas)
+        $sql = "SELECT created_by FROM mobile_promociones WHERE id = :id LIMIT 1";
+        $result = Database::queryOne($sql, [':id' => $promotionId]);
+        
+        if (!$result) {
+            return false; // Promoción no existe
+        }
+
+        // Por ahora: cualquier admin puede editar (retorna true)
+        // Si quieres que solo el creador edite, usa: return (int)$result['created_by'] === $adminId;
+        return true;
+    }
+
+    /**
+     * Validar que una fecha no sea pasada.
+     * Retorna true si la fecha es válida (presente o futura), false si es pasada.
+     */
+    public static function isValidFutureDate(?string $dateString): bool
+    {
+        if (empty($dateString)) {
+            return true; // Si no hay fecha, es válido (puede ser NULL)
+        }
+
+        try {
+            $date = new \DateTime($dateString);
+            $now = new \DateTime();
+            $now->setTime(0, 0, 0); // Resetear a medianoche para comparar solo fechas
+
+            return $date >= $now;
+        } catch (\Exception $e) {
+            return false; // Formato inválido
+        }
     }
 }

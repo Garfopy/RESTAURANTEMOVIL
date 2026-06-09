@@ -55,14 +55,14 @@ $routes = [
     ['GET', '/favorites', ['Amare\Api\Controllers\FavoritesController', 'index']],
     ['POST', '/favorites/toggle', ['Amare\Api\Controllers\FavoritesController', 'toggle']],
     
-    // Promotions routes (app movil)
+    // Promotions routes (app movil - SOLO LECTURA)
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
-    ['POST', '/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'validateCode']],
 
     // Admin - Promotions routes (panel web, requiere rol=admin)
     ['GET', '/admin/promotions', ['Amare\Api\Controllers\PromotionsController', 'adminIndex']],
     ['POST', '/admin/promotions', ['Amare\Api\Controllers\PromotionsController', 'adminStore']],
+    ['POST', '/admin/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'adminValidateCode']],
     ['GET', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
     ['PUT', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'adminUpdate']],
     ['DELETE', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'adminDestroy']],
