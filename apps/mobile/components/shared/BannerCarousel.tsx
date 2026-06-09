@@ -75,6 +75,10 @@ export function BannerCarousel({
             onPress={() => onPress?.(item)}
             activeOpacity={0.95}
             style={styles.banner}
+            accessibilityLabel={item.titulo || 'Promoción'}
+            accessibilityRole="button"
+            accessibilityHint={item.subtitulo || 'Toca para ver más detalles'}
+            testID={`banner-${item.id}`}
           >
             <Image
               source={item.imagen}

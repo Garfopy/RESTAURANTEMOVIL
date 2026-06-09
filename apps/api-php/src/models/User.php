@@ -31,9 +31,55 @@ class User
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT id, nombre, email, telefono, foto_url, google_id, activo, created_at, updated_at 
+        $sql = "SELECT id, nombre, email, rol, telefono, foto_url, google_id, activo, created_at, updated_at 
                 FROM mobile_usuarios WHERE id = :id LIMIT 1";
         return Database::queryOne($sql, [':id' => $id]);
+    }
+
+    /**
+     * Listar todos los usuarios (para panel de administrador).
+     * Solo devuelve campos seguros (sin password_hash).
+     */
+    public static function getAll(int $limit = 100, int $offset = 0, ?string $search = null): array
+    {
+        $params = [];
+        $where = 'WHERE activo = 1';
+
+        if ($search !== null && $search !== '') {
+            $where .= ' AND (nombre LIKE :search OR email LIKE :search2)';
+            $params[':search']  = '%' . $search . '%';
+            $params[':search2'] = '%' . $search . '%';
+        }
+
+        $sql = "SELECT id, nombre, email, rol, telefono, foto_url, activo, created_at
+                FROM mobile_usuarios
+                {$where}
+                ORDER BY nombre ASC
+                LIMIT :limit OFFSET :offset";
+
+        $params[':limit']  = $limit;
+        $params[':offset'] = $offset;
+
+        return Database::query($sql, $params);
+    }
+
+    /**
+     * Contar usuarios activos (para paginación en admin).
+     */
+    public static function countAll(?string $search = null): int
+    {
+        $params = [];
+        $where = 'WHERE activo = 1';
+
+        if ($search !== null && $search !== '') {
+            $where .= ' AND (nombre LIKE :search OR email LIKE :search2)';
+            $params[':search']  = '%' . $search . '%';
+            $params[':search2'] = '%' . $search . '%';
+        }
+
+        $sql = "SELECT COUNT(*) as total FROM mobile_usuarios {$where}";
+        $result = Database::queryOne($sql, $params);
+        return (int)($result['total'] ?? 0);
     }
 
     public static function findByGoogleId(string $googleId): ?array

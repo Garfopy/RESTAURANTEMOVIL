@@ -25,7 +25,15 @@ export function CartButton() {
 
   return (
     <Animated.View style={[styles.container, animStyle]}>
-      <TouchableOpacity style={styles.button} onPress={handlePress} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={handlePress}
+        activeOpacity={0.8}
+        accessibilityLabel={`Ver pedido: ${itemCount} artículos, $${total.toFixed(2)}`}
+        accessibilityRole="button"
+        accessibilityHint="Navega a tu carrito de compras"
+        testID="cart-button"
+      >
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{itemCount}</Text>
         </View>

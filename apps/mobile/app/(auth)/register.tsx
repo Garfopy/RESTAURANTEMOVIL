@@ -2,52 +2,114 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ScrollView,
   TouchableOpacity,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { register } from '../../services/auth.service';
 import { useUserStore } from '../../store/user.store';
 import { Button } from '../../components/ui/Button';
+import { FormField } from '../../components/ui/FormField';
+import { useToast } from '../../context/ToastContext';
+import { mapErrorToFriendly, validateEmail, validatePassword, validateName } from '../../services/error.service';
 import { Colors, Spacing } from '../../theme';
+
+// Definición local de colores para estilo Claro Premium
+const PremiumColors = {
+  bg: '#FFFFFF',
+  text: '#1A1A1A',
+  textSecondary: '#666666',
+  border: '#E5E5E5',
+  inputBg: '#F9F9F9',
+  primary: '#000000',
+  white: '#FFFFFF',
+  error: '#DC2626',
+};
 
 export default function RegisterScreen() {
   const router = useRouter();
   const loginStore = useUserStore((s) => s.login);
+  const toast = useToast();
 
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // <-- Estado para el ojito
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Estados de validación
+  const [nombreError, setNombreError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [focusedInput, setFocusedInput] = useState<'nombre' | 'email' | 'password' | null>(null);
+
+  // Validar nombre en tiempo real
+  const handleNombreChange = (value: string) => {
+    setNombre(value);
+    if (value.trim()) {
+      const error = validateName(value);
+      setNombreError(error);
+    } else {
+      setNombreError(null);
+    }
+  };
+
+  // Validar email en tiempo real
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    if (value.trim()) {
+      const error = validateEmail(value);
+      setEmailError(error);
+    } else {
+      setEmailError(null);
+    }
+  };
+
+  // Validar contraseña en tiempo real
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    if (value.trim()) {
+      const error = validatePassword(value);
+      setPasswordError(error);
+    } else {
+      setPasswordError(null);
+    }
+  };
+
   async function handleRegister() {
-    if (!nombre || !email || !password) {
-      Alert.alert('Campos requeridos', 'Por favor completa todos los campos.');
+    // Validar campos antes de enviar
+    const nombreErr = validateName(nombre);
+    const emailErr = validateEmail(email);
+    const passwordErr = validatePassword(password);
+
+    setNombreError(nombreErr);
+    setEmailError(emailErr);
+    setPasswordError(passwordErr);
+
+    if (nombreErr || emailErr || passwordErr) {
+      toast.error('Por favor, corrige los errores en el formulario');
       return;
     }
-    if (password.length < 8) {
-      Alert.alert('Contraseña débil', 'Usa al menos 8 caracteres.');
-      return;
-    }
+
     setLoading(true);
     try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
       const sesion = await register({
         nombre: nombre.trim(),
         email: email.trim().toLowerCase(),
         password,
       });
       await loginStore(sesion);
+      toast.success('¡Cuenta creada exitosamente!');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'No se pudo crear la cuenta.';
-      Alert.alert('Error', msg);
+      const friendlyError = mapErrorToFriendly(err);
+      toast.error(friendlyError.message, { icon: friendlyError.icon });
     } finally {
       setLoading(false);
     }
@@ -55,6 +117,7 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
@@ -64,69 +127,77 @@ export default function RegisterScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Botón de regreso con estilo de "círculo" moderno */}
-          <TouchableOpacity style={styles.back} onPress={() => router.back()}>
-            <View style={styles.iconButton}>
-              <Ionicons name="arrow-back" size={22} color="#111827" />
-            </View>
+          {/* Botón de regreso */}
+          <TouchableOpacity
+            style={styles.back}
+            onPress={() => router.back()}
+            accessibilityLabel="Volver atrás"
+            accessibilityRole="button"
+            testID="back-btn"
+          >
+            <Ionicons name="chevron-back" size={24} color={PremiumColors.text} />
           </TouchableOpacity>
 
+          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Crear cuenta</Text>
             <Text style={styles.subtitle}>Regístrate para empezar a ordenar</Text>
           </View>
 
+          {/* Formulario */}
           <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Nombre completo</Text>
-              <TextInput
-                style={styles.input}
-                value={nombre}
-                onChangeText={setNombre}
-                autoCapitalize="words"
-                placeholderTextColor="#9CA3AF"
-                placeholder="Tu nombre"
-              />
-            </View>
+            {/* Nombre */}
+            <FormField
+              label="Nombre completo"
+              value={nombre}
+              onChangeText={handleNombreChange}
+              onBlur={() => setFocusedInput(null)}
+              onFocus={() => setFocusedInput('nombre')}
+              placeholder="Tu nombre"
+              error={nombreError}
+              autoCapitalize="words"
+              icon="person-outline"
+              testID="name-input"
+              accessibilityLabel="Nombre completo"
+              accessibilityHint="Ingresa tu nombre completo"
+            />
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Correo electrónico</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                placeholderTextColor="#9CA3AF"
-                placeholder="correo@ejemplo.com"
-              />
-            </View>
+            {/* Email */}
+            <FormField
+              label="Correo electrónico"
+              value={email}
+              onChangeText={handleEmailChange}
+              onBlur={() => setFocusedInput(null)}
+              onFocus={() => setFocusedInput('email')}
+              placeholder="correo@ejemplo.com"
+              error={emailError}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              icon="mail-outline"
+              testID="email-input"
+              accessibilityLabel="Correo electrónico"
+              accessibilityHint="Ingresa una dirección de correo válida"
+            />
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Contraseña</Text>
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={styles.inputPassword}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword} // <-- Lógica de ocultar/mostrar
-                  placeholderTextColor="#9CA3AF"
-                  placeholder="Mínimo 8 caracteres"
-                />
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                    size={22}
-                    color="#6B7280"
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
+            {/* Contraseña */}
+            <FormField
+              label="Contraseña"
+              value={password}
+              onChangeText={handlePasswordChange}
+              onBlur={() => setFocusedInput(null)}
+              onFocus={() => setFocusedInput('password')}
+              placeholder="••••••••"
+              error={passwordError}
+              secureTextEntry={!showPassword}
+              onToggleSecure={() => setShowPassword((v) => !v)}
+              icon="lock-closed-outline"
+              testID="password-input"
+              accessibilityLabel="Contraseña"
+              accessibilityHint="Ingresa una contraseña de al menos 8 caracteres"
+            />
 
+            {/* Botón de Registro */}
             <Button
               label="Crear cuenta"
               onPress={handleRegister}
@@ -134,11 +205,18 @@ export default function RegisterScreen() {
               fullWidth
               size="lg"
               style={styles.submitButton}
+              textStyle={styles.submitButtonText}
+              accessibilityLabel="Crear cuenta"
+              testID="register-btn"
             />
 
+            {/* Link a Login */}
             <TouchableOpacity
               style={styles.loginLink}
               onPress={() => router.replace('/(auth)/email-login')}
+              accessibilityLabel="Ir a iniciar sesión"
+              accessibilityRole="link"
+              testID="login-link"
             >
               <Text style={styles.loginText}>
                 ¿Ya tienes cuenta?{' '}
@@ -155,103 +233,69 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#FFFFFF', // Fondo totalmente blanco
+    backgroundColor: PremiumColors.bg,
   },
   container: {
     flexGrow: 1,
-    paddingHorizontal: Spacing['2xl'] || 24,
-    paddingTop: Spacing.base || 16,
-    paddingBottom: Spacing['3xl'] || 40,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
   },
   back: {
-    marginBottom: Spacing.xl || 32,
-    alignSelf: 'flex-start',
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F3F4F6',
+    width: 40,
+    height: 40,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: 20,
   },
   header: {
-    marginBottom: Spacing.xl || 32,
+    marginBottom: 40,
   },
   title: {
-    fontFamily: 'PlayfairDisplay_700Bold', // Mantiene tu tipografía elegante
+    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif-condensed',
+    fontWeight: '700',
     fontSize: 34,
-    fontWeight: '800',
-    color: '#111827', // Texto oscuro casi negro
+    color: PremiumColors.text,
+    letterSpacing: 0.5,
     marginBottom: 8,
-    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 16,
-    color: '#6B7280', // Gris elegante
+    color: PremiumColors.textSecondary,
+    fontWeight: '400',
+    letterSpacing: 0.1,
   },
   form: {
-    gap: Spacing.base || 16,
-  },
-  inputGroup: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: '#F9FAFB', // Fondo ligeramente gris
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#111827',
-    borderWidth: 1,
-    borderColor: '#E5E7EB', // Borde sutil
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  inputPassword: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#111827',
-  },
-  eyeIcon: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
+    gap: 24,
   },
   submitButton: {
-    marginTop: Spacing.sm || 8,
-    shadowColor: '#000',
+    marginTop: 16,
+    backgroundColor: PremiumColors.primary,
+    height: 56,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: PremiumColors.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3, // Sombra suave en el botón para darle profundidad
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  submitButtonText: {
+    color: PremiumColors.white,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   loginLink: {
     alignItems: 'center',
-    marginTop: Spacing.lg || 24,
+    marginTop: 24,
   },
   loginText: {
-    color: '#6B7280',
+    color: PremiumColors.textSecondary,
     fontSize: 15,
   },
   loginBold: {
-    color: Colors.accent || '#111827', // Usa tu color acento o un negro fuerte
+    color: PremiumColors.primary,
     fontWeight: '700',
   },
 });

@@ -30,7 +30,7 @@ class AuthMiddleware
         }
 
         $token = substr($authHeader, 7);
-        $secret = self::getSecret(); // 🛠️ Modificado
+        $secret = self::getSecret();
 
         try {
             $decoded = JWT::decode($token, new Key($secret, 'HS256'));
@@ -38,6 +38,21 @@ class AuthMiddleware
         } catch (\Exception $e) {
             Response::unauthorized('Token inválido o expirado');
         }
+    }
+
+    /**
+     * Autentica y verifica que el usuario sea administrador.
+     * Devuelve el objeto del usuario o termina con 403 si no es admin.
+     */
+    public static function requireAdmin(): object
+    {
+        $user = self::authenticate();
+
+        if (!$user || ($user->rol ?? 'user') !== 'admin') {
+            Response::error('Acceso denegado. Se requieren permisos de administrador.', 403);
+        }
+
+        return $user;
     }
 
     public static function optional(): ?object

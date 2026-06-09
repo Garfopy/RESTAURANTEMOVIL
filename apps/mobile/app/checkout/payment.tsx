@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
@@ -21,8 +22,47 @@ import type { RestaurantConfig, MetodoPagoHabilitado } from '@amare/types';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash';
 
+interface PaymentMethodDef {
+  id: PaymentMethod;
+  label: string;
+  icon: string;
+  iconActive: string;
+}
+
+const isIOS = Platform.OS === 'ios';
+const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
+const walletIcon = isIOS ? 'logo-apple' : 'logo-google';
+
+const ALL_PAYMENT_METHODS: PaymentMethodDef[] = [
+  {
+    id: 'card',
+    label: 'Tarjeta',
+    icon: 'card-outline',
+    iconActive: 'card',
+  },
+  {
+    id: 'wallet',
+    label: walletName,
+    icon: walletIcon,
+    iconActive: walletIcon,
+  },
+  {
+    id: 'cash',
+    label: 'Efectivo',
+    icon: 'cash-outline',
+    iconActive: 'cash',
+  },
+];
+
+/** Convierte un MetodoPagoHabilitado de la BD al id de PaymentMethod de la UI */
+function dbMethodToUI(m: MetodoPagoHabilitado): PaymentMethod {
+  if (m === 'apple_pay' || m === 'google_pay') return 'wallet';
+  return m as PaymentMethod;
+}
+
 export default function PaymentScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
   const { clientSecret, intentId, restauranteId, tipoPedido } =
     useLocalSearchParams<{
@@ -38,12 +78,15 @@ export default function PaymentScreen() {
   const [config, setConfig] = useState<RestaurantConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
 
-  const isIOS = Platform.OS === 'ios';
-  const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
-  const walletIcon = isIOS ? 'logo-apple' : 'logo-google';
+  // Métodos habilitados según la BD, mapeados a los IDs de la UI (deduplicado por si apple_pay y google_pay comparten 'wallet')
+  const enabledMethodIds: PaymentMethod[] = config
+    ? [...new Set(config.metodos_pago.map(dbMethodToUI))]
+    : ['card', 'cash'];
 
-  // Métodos de pago habilitados según configuración
-  const enabledMethods = config?.metodos_pago ?? ['card', 'cash'];
+  // Solo mostramos los métodos que están habilitados
+  const enabledMethods = ALL_PAYMENT_METHODS.filter((m) =>
+    enabledMethodIds.includes(m.id)
+  );
 
   // Cargar configuración al montar
   useEffect(() => {
@@ -51,9 +94,10 @@ export default function PaymentScreen() {
       getRestaurantConfig(Number(restauranteId))
         .then((cfg) => {
           setConfig(cfg);
-          // Seleccionar el primer método disponible por defecto
-          if (cfg.metodos_pago.length > 0 && !cfg.metodos_pago.includes(selectedMethod as MetodoPagoHabilitado)) {
-            setSelectedMethod(mapMethodToPayment(cfg.metodos_pago[0]));
+          // Seleccionar el primer método disponible si el actual no está habilitado
+          const ids = [...new Set(cfg.metodos_pago.map(dbMethodToUI))];
+          if (!ids.includes(selectedMethod)) {
+            setSelectedMethod(ids[0] ?? 'cash');
           }
         })
         .catch((err) => console.error('Error al cargar configuración:', err))
@@ -63,17 +107,21 @@ export default function PaymentScreen() {
     }
   }, [restauranteId]);
 
-  function mapMethodToPayment(m: MetodoPagoHabilitado): PaymentMethod {
-    if (m === 'apple_pay' || m === 'google_pay') return 'wallet';
-    return m as PaymentMethod;
-  }
+  // Cálculo dinámico del ancho de cada card según cuántas hay
+  function getCardWidth() {
+    const count = enabledMethods.length;
+    const containerPadding = Spacing.base * 2;
+    const gap = 10;
+    const available = width - containerPadding;
 
-  function isMethodEnabled(method: PaymentMethod): boolean {
-    if (method === 'wallet') {
-      const walletKey = isIOS ? 'apple_pay' : 'google_pay';
-      return enabledMethods.includes(walletKey as MetodoPagoHabilitado);
+    if (count === 1) {
+      return Math.min(available * 0.55, 200);
     }
-    return enabledMethods.includes(method as MetodoPagoHabilitado);
+    if (count === 2) {
+      return (available - gap) / 2;
+    }
+    // 3 métodos
+    return (available - gap * 2) / 3;
   }
 
   async function handlePay() {
@@ -148,10 +196,18 @@ export default function PaymentScreen() {
     });
   }
 
+  const cardWidth = getCardWidth();
+  const count = enabledMethods.length;
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          accessibilityLabel="Volver atrás"
+          accessibilityRole="button"
+          testID="back-btn"
+        >
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Método de Pago</Text>
@@ -161,71 +217,41 @@ export default function PaymentScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.sectionLabel}>Selecciona cómo quieres pagar</Text>
 
-        {/* --- CONTENEDOR HORIZONTAL --- */}
-        <View style={styles.methodsContainer}>
-          
-          {/* Tarjeta */}
-          <TouchableOpacity
-            style={[
-              styles.methodCard,
-              selectedMethod === 'card' && styles.methodCardActive,
-            ]}
-            onPress={() => setSelectedMethod('card')}
-          >
-            <Ionicons
-              name="card-outline"
-              size={26}
-              color={selectedMethod === 'card' ? Colors.primary : Colors.textMuted}
-            />
-            <Text 
-              numberOfLines={2}
-              style={[styles.methodText, selectedMethod === 'card' && styles.methodTextActive]}
-            >
-              Tarjeta
-            </Text>
-          </TouchableOpacity>
-
-          {/* Wallet (Apple/Google Pay) */}
-          <TouchableOpacity
-            style={[
-              styles.methodCard,
-              selectedMethod === 'wallet' && styles.methodCardActive,
-            ]}
-            onPress={() => setSelectedMethod('wallet')}
-          >
-            <Ionicons
-              name={walletIcon}
-              size={26}
-              color={selectedMethod === 'wallet' ? Colors.primary : Colors.textMuted}
-            />
-            <Text 
-              numberOfLines={2}
-              style={[styles.methodText, selectedMethod === 'wallet' && styles.methodTextActive]}
-            >
-              {walletName}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Efectivo */}
-          <TouchableOpacity
-            style={[
-              styles.methodCard,
-              selectedMethod === 'cash' && styles.methodCardActive,
-            ]}
-            onPress={() => setSelectedMethod('cash')}
-          >
-            <Ionicons
-              name="cash-outline"
-              size={26}
-              color={selectedMethod === 'cash' ? Colors.primary : Colors.textMuted}
-            />
-            <Text 
-              numberOfLines={2}
-              style={[styles.methodText, selectedMethod === 'cash' && styles.methodTextActive]}
-            >
-              Efectivo en caja
-            </Text>
-          </TouchableOpacity>
+        {/* --- CONTENEDOR DE MÉTODOS DINÁMICO --- */}
+        <View style={[
+          styles.methodsContainer,
+          count === 1 && styles.methodsContainerCentered,
+        ]}>
+          {enabledMethods.map((method) => {
+            const isSelected = selectedMethod === method.id;
+            return (
+              <TouchableOpacity
+                key={method.id}
+                style={[
+                  styles.methodCard,
+                  { width: cardWidth, aspectRatio: count === 1 ? 1.2 : 1 },
+                  isSelected && styles.methodCardActive,
+                ]}
+                onPress={() => setSelectedMethod(method.id)}
+                accessibilityLabel={`Pagar con ${method.label}`}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                testID={`payment-method-${method.id}`}
+              >
+                <Ionicons
+                  name={(isSelected ? method.iconActive : method.icon) as never}
+                  size={count === 1 ? 32 : 26}
+                  color={isSelected ? Colors.primary : Colors.textMuted}
+                />
+                <Text
+                  numberOfLines={2}
+                  style={[styles.methodText, isSelected && styles.methodTextActive]}
+                >
+                  {method.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* --- FORMULARIO DE TARJETA --- */}
@@ -263,6 +289,8 @@ export default function PaymentScreen() {
           fullWidth
           size="lg"
           loading={loading}
+          accessibilityLabel={selectedMethod === 'cash' ? `Confirmar pedido por $${total.toFixed(2)} en efectivo` : `Pagar $${total.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`}
+          testID="payment-confirm-btn"
         />
       </View>
     </SafeAreaView>
@@ -283,33 +311,33 @@ const styles = StyleSheet.create({
   headerTitle: { ...Typography.h3, fontWeight: '700', color: Colors.text },
   content: { padding: Spacing.base, paddingBottom: 120, gap: Spacing.xl },
   sectionLabel: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 4 },
-  
-  // NUEVOS ESTILOS PARA LAS CARDS CUADRADAS EN FILA
-  methodsContainer: { 
-    flexDirection: 'row', 
-    gap: 10, // Espaciado fino entre las tres columnas
+
+  methodsContainer: {
+    flexDirection: 'row',
+    gap: 10,
     justifyContent: 'space-between',
     width: '100%',
   },
+  methodsContainerCentered: {
+    justifyContent: 'center',
+  },
   methodCard: {
-    flex: 1,                 // Distribuye el espacio equitativamente (33% aproximado cada una)
-    aspectRatio: 1,          // Magia pura: las obliga a mantenerse perfectamente cuadradas
-    flexDirection: 'column', // Ícono arriba, texto abajo
+    flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.surface,
     padding: 8,
-    borderRadius: 16,        // Bordes un poco más curvos para un look más moderno
+    borderRadius: 16,
     borderWidth: 2,
-    borderColor: '#E5E7EB',  // Borde por defecto sutil
+    borderColor: '#E5E7EB',
     ...Shadows.sm,
   },
   methodCardActive: {
     borderColor: Colors.primary,
-    backgroundColor: `${Colors.primary}08`, // Leve tinte del color primario de fondo
+    backgroundColor: `${Colors.primary}08`,
   },
   methodText: {
-    fontSize: 12,            // Ajustado para que el texto largo quepa en pantallas chicas
+    fontSize: 12,
     fontWeight: '600',
     color: Colors.textMuted,
     textAlign: 'center',

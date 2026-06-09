@@ -26,7 +26,14 @@ export function EmptyState({
       <Text style={styles.title}>{title}</Text>
       {description && <Text style={styles.description}>{description}</Text>}
       {actionLabel && onAction && (
-        <TouchableOpacity style={styles.button} onPress={onAction} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={onAction}
+          activeOpacity={0.8}
+          accessibilityLabel={actionLabel}
+          accessibilityRole="button"
+          testID="empty-state-action-btn"
+        >
           <Text style={styles.buttonText}>{actionLabel}</Text>
         </TouchableOpacity>
       )}

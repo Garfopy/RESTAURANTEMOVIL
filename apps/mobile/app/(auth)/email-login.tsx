@@ -2,24 +2,22 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ScrollView,
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-// Asumiendo que estos imports existen, si no, ajusta las rutas
 import { loginWithEmail } from '../../services/auth.service';
 import { useUserStore } from '../../store/user.store';
 import { Button } from '../../components/ui/Button';
-// Importamos Colors y Spacing, pero definiremos unos locales para el estilo claro premium
-// si tu tema actual no los tiene.
+import { FormField } from '../../components/ui/FormField';
+import { useToast } from '../../context/ToastContext';
+import { mapErrorToFriendly, validateEmail, validatePassword } from '../../services/error.service';
 import { Colors, Spacing } from '../../theme';
 
 // Definición local de colores para estilo Claro Premium (puedes mover esto a tu theme.ts)
@@ -37,29 +35,79 @@ const PremiumColors = {
 export default function EmailLoginScreen() {
   const router = useRouter();
   const login = useUserStore((s) => s.login);
+  const toast = useToast();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  // Estado para manejar el foco y cambiar el estilo del input
+  
+  // Estados de error/validación
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [focusedInput, setFocusedInput] = useState<'email' | 'password' | null>(null);
 
+  // Validar email en tiempo real (on-change)
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    if (value.trim()) {
+      const error = validateEmail(value);
+      setEmailError(error);
+    } else {
+      setEmailError(null);
+    }
+  };
+
+  // Validar contraseña en tiempo real
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    if (value.trim()) {
+      const error = validatePassword(value);
+      setPasswordError(error);
+    } else {
+      setPasswordError(null);
+    }
+  };
+
+  // Validar al perder el foco
+  const handleEmailBlur = () => {
+    setFocusedInput(null);
+    if (email.trim()) {
+      const error = validateEmail(email);
+      setEmailError(error);
+    }
+  };
+
+  const handlePasswordBlur = () => {
+    setFocusedInput(null);
+    if (password.trim()) {
+      const error = validatePassword(password);
+      setPasswordError(error);
+    }
+  };
+
   async function handleLogin() {
-    if (!email || !password) {
-      Alert.alert('Campos requeridos', 'Por favor, ingresa tu correo y contraseña.');
+    // Validar campos antes de enviar
+    const emailErr = validateEmail(email);
+    const passwordErr = validatePassword(password);
+
+    setEmailError(emailErr);
+    setPasswordError(passwordErr);
+
+    if (emailErr || passwordErr) {
+      toast.error('Por favor, corrige los errores en el formulario');
       return;
     }
+
     setLoading(true);
     try {
-      // Pequeño delay para mejorar UX de carga
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
       const sesion = await loginWithEmail({ email: email.trim().toLowerCase(), password });
       await login(sesion);
-      // router.replace('/home'); // Generalmente navegas después del login exitoso
+      // router.replace('/home');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Credenciales incorrectas.';
-      Alert.alert('Error al iniciar sesión', msg);
+      const friendlyError = mapErrorToFriendly(err);
+      toast.error(friendlyError.message, { icon: friendlyError.icon });
     } finally {
       setLoading(false);
     }
@@ -79,7 +127,13 @@ export default function EmailLoginScreen() {
         >
           {/* Header con botón atrás */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => router.back()}
+              accessibilityLabel="Volver atrás"
+              accessibilityRole="button"
+              testID="back-btn"
+            >
               <Ionicons name="chevron-back" size={24} color={PremiumColors.text} />
             </TouchableOpacity>
           </View>
@@ -93,82 +147,76 @@ export default function EmailLoginScreen() {
           {/* Formulario */}
           <View style={styles.form}>
             {/* Input Email */}
-            <View style={styles.inputWrapper}>
-              <Text style={styles.label}>Correo electrónico</Text>
-              <View style={[
-                styles.inputContainer,
-                focusedInput === 'email' && styles.inputContainerFocused
-              ]}>
-                <Ionicons name="mail-outline" size={20} color={focusedInput === 'email' ? PremiumColors.primary : PremiumColors.textSecondary} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  placeholderTextColor="#A3A3A3"
-                  placeholder="ejemplo@correo.com"
-                  onFocus={() => setFocusedInput('email')}
-                  onBlur={() => setFocusedInput(null)}
-                />
-              </View>
-            </View>
+            <FormField
+              label="Correo electrónico"
+              value={email}
+              onChangeText={handleEmailChange}
+              onBlur={handleEmailBlur}
+              onFocus={() => setFocusedInput('email')}
+              placeholder="ejemplo@correo.com"
+              error={emailError}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              icon="mail-outline"
+              testID="email-input"
+              accessibilityLabel="Correo electrónico"
+              accessibilityHint="Ingresa tu dirección de correo electrónico"
+            />
 
             {/* Input Password */}
-            <View style={styles.inputWrapper}>
+            <View style={{ gap: 8 }}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>Contraseña</Text>
-                <TouchableOpacity onPress={() => {/* Navegar a recuperar */}}>
+                <TouchableOpacity
+                  onPress={() => {/* Navegar a recuperar */}}
+                  accessibilityLabel="¿Olvidaste tu contraseña?"
+                  accessibilityRole="link"
+                  testID="forgot-password-link"
+                >
                   <Text style={styles.forgotPassword}>¿Olvidaste tu contraseña?</Text>
                 </TouchableOpacity>
               </View>
-              <View style={[
-                styles.inputContainer,
-                focusedInput === 'password' && styles.inputContainerFocused
-              ]}>
-                <Ionicons name="lock-closed-outline" size={20} color={focusedInput === 'password' ? PremiumColors.primary : PremiumColors.textSecondary} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, styles.passwordInput]}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPass}
-                  autoComplete="password"
-                  placeholderTextColor="#A3A3A3"
-                  placeholder="••••••••"
-                  onFocus={() => setFocusedInput('password')}
-                  onBlur={() => setFocusedInput(null)}
-                />
-                <TouchableOpacity
-                  style={styles.eyeBtn}
-                  onPress={() => setShowPass((v) => !v)}
-                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
-                >
-                  <Ionicons
-                    name={showPass ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={PremiumColors.textSecondary}
-                  />
-                </TouchableOpacity>
-              </View>
+              <FormField
+                label=""
+                value={password}
+                onChangeText={handlePasswordChange}
+                onBlur={handlePasswordBlur}
+                onFocus={() => setFocusedInput('password')}
+                placeholder="••••••••"
+                error={passwordError}
+                secureTextEntry={!showPass}
+                autoComplete="password"
+                icon="lock-closed-outline"
+                onToggleSecure={() => setShowPass((v) => !v)}
+                testID="password-input"
+                accessibilityLabel="Contraseña"
+                accessibilityHint="Ingresa tu contraseña"
+              />
             </View>
 
-            {/* Botón de Acción - Asumiendo que tu componente Button acepta estas props */}
+            {/* Botón de Acción */}
             <Button
               label="Iniciar sesión"
               onPress={handleLogin}
               loading={loading}
               fullWidth
               size="lg"
-              // Sobreescribimos estilos para que sea Premium (Negro sólido)
               style={styles.signInButton}
               textStyle={styles.signInButtonText}
+              accessibilityLabel="Iniciar sesión"
+              testID="login-btn"
             />
 
             {/* Footer opcional */}
             <View style={styles.footer}>
               <Text style={styles.footerText}>¿No tienes una cuenta?</Text>
-              <TouchableOpacity onPress={() => router.push('/register')}>
+              <TouchableOpacity
+                onPress={() => router.push('/register')}
+                accessibilityLabel="Ir a registro"
+                accessibilityRole="link"
+                testID="signup-link"
+              >
                 <Text style={styles.signUpLink}> Regístrate</Text>
               </TouchableOpacity>
             </View>

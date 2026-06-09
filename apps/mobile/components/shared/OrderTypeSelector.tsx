@@ -35,6 +35,11 @@ export function OrderTypeSelector({
             onPress={() => onChange(opt.tipo)}
             activeOpacity={0.8}
             style={[styles.chip, active && styles.chipActive]}
+            accessibilityLabel={`Seleccionar ${opt.label.toLowerCase()}`}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active }}
+            accessibilityHint={opt.desc}
+            testID={`order-type-${opt.tipo}`}
           >
             <Ionicons
               name={opt.icon}

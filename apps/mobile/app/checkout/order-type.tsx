@@ -9,6 +9,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import MapView, { Marker, Region } from 'react-native-maps';
@@ -53,6 +54,7 @@ const ALL_ORDER_TYPES = [
 
 export default function OrderTypeScreen() {
   const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
   const { items, total, tipoPedido, setTipoPedido, restauranteId } = useCartStore();
   const { sucursales } = useBranchStore();
   
@@ -83,6 +85,41 @@ export default function OrderTypeScreen() {
   const enabledOrderTypes = config
     ? ALL_ORDER_TYPES.filter((t) => config.tipos_entrega.includes(t.id as never))
     : ALL_ORDER_TYPES.filter((t) => t.id !== 'eat_in'); // Por defecto: delivery + pickup
+
+  // Calcular dimensiones dinámicas de cards según cantidad
+  function getCardDimensions() {
+    const count = enabledOrderTypes.length;
+    const containerPadding = (Spacing.base || 16) * 2;
+    const gap = 16;
+    const availableWidth = screenWidth - containerPadding;
+
+    if (count === 1) {
+      return {
+        width: Math.min(availableWidth * 0.55, 200),
+        aspectRatio: 1.1,
+        iconSize: 36,
+        cardPadding: 16,
+        justifyContent: 'center' as const,
+      };
+    }
+    if (count === 2) {
+      return {
+        width: (availableWidth - gap) / 2,
+        aspectRatio: 0.9,
+        iconSize: 32,
+        cardPadding: 14,
+        justifyContent: 'space-between' as const,
+      };
+    }
+    // 3 métodos
+    return {
+      width: (availableWidth - gap * 2) / 3,
+      aspectRatio: 0.8,
+      iconSize: 28,
+      cardPadding: 12,
+      justifyContent: 'space-between' as const,
+    };
+  }
 
   // Sincronizar y procesar la ubicación según el tipo de entrega seleccionado
   useEffect(() => {
@@ -248,25 +285,79 @@ export default function OrderTypeScreen() {
     }
   }
 
-  async function guardarNuevaDireccion() {
-    if (!addressData) return null;
-    try {
-      const res = await apiClient.post('/profile/addresses', {
-        alias: 'Ubicación actual',
-        calle: addressData.calle,
-        colonia: addressData.colonia,
-        ciudad: addressData.ciudad,
-        lat: addressData.lat,
-        lng: addressData.lng,
-        cp: addressData.cp,
-        es_principal: direccionesGuardadas.length === 0
-      });
-      return res.data.data;
-    } catch (err) {
-      console.error('Error al guardar dirección:', err);
-      return null;
-    }
+  async function promptToSaveAddress(): Promise<string | null> {
+    return new Promise((resolve) => {
+      Alert.alert(
+        '¿Guardar esta dirección?',
+        'Podrás usarla en futuros pedidos a domicilio',
+        [
+          {
+            text: 'No guardar',
+            onPress: () => resolve(null),
+            style: 'cancel',
+          },
+          {
+            text: 'Guardar',
+            onPress: async () => {
+              // Mostrar opciones de alias
+              Alert.alert(
+                'Tipo de dirección',
+                'Elige cómo quieres llamar esta dirección',
+                [
+                  {
+                    text: 'Casa',
+                    onPress: () => saveAddressWithAlias('Casa'),
+                  },
+                  {
+                    text: 'Trabajo',
+                    onPress: () => saveAddressWithAlias('Trabajo'),
+                  },
+                  {
+                    text: 'Otro',
+                    onPress: () => {
+                      // Por ahora, usar "Otro"
+                      saveAddressWithAlias('Otro');
+                    },
+                  },
+                  {
+                    text: 'Cancelar',
+                    style: 'cancel',
+                    onPress: () => resolve(null),
+                  },
+                ]
+              );
+            },
+          },
+        ]
+      );
+
+      async function saveAddressWithAlias(alias: string) {
+        if (!addressData) {
+          resolve(null);
+          return;
+        }
+        try {
+          const res = await apiClient.post('/profile/addresses', {
+            alias,
+            calle: addressData.calle,
+            colonia: addressData.colonia,
+            ciudad: addressData.ciudad,
+            lat: addressData.lat,
+            lng: addressData.lng,
+            cp: addressData.cp,
+            es_principal: direccionesGuardadas.length === 0,
+          });
+          resolve(res.data.data?.id || null);
+        } catch (err) {
+          console.error('Error al guardar dirección:', err);
+          resolve(null);
+        }
+      }
+    });
   }
+
+  const cardDims = getCardDimensions();
+  const count = enabledOrderTypes.length;
 
   async function handleContinue() {
     if (!tipoPedido) {
@@ -283,10 +374,9 @@ export default function OrderTypeScreen() {
     try {
       let finalAddressId = direccionSeleccionada?.id;
       
-      // Si el usuario movió el mapa y no seleccionó una guardada, la guardamos ahora
+      // Si el usuario movió el mapa y no seleccionó una guardada, preguntar si la quiere guardar
       if (tipoPedido === 'delivery' && !direccionSeleccionada && addressData) {
-        const nueva = await guardarNuevaDireccion();
-        finalAddressId = nueva?.id;
+        finalAddressId = await promptToSaveAddress();
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
@@ -302,8 +392,8 @@ export default function OrderTypeScreen() {
           intentId,
           restauranteId: String(restauranteId),
           tipoPedido,
-          direccionId: finalAddressId,
-          direccionEntrega: ubicacionVisual, // Enviamos la dirección procesada al checkout
+          direccionId: finalAddressId ? String(finalAddressId) : '',
+          direccionEntrega: ubicacionVisual,
         },
       });
     } catch (err) {
@@ -317,7 +407,13 @@ export default function OrderTypeScreen() {
     <SafeAreaView style={styles.safe}>
       {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+          accessibilityLabel="Volver atrás"
+          accessibilityRole="button"
+          testID="back-btn"
+        >
           <Ionicons name="arrow-back" size={22} color={Colors.text || '#111827'} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Método de Entrega</Text>
@@ -331,20 +427,41 @@ export default function OrderTypeScreen() {
         </View>
 
         {/* CARDS SELECCIÓN */}
-        <View style={styles.cardsContainer}>
+        <View style={[styles.cardsContainer, count === 1 && styles.cardsContainerCentered]}>
           {enabledOrderTypes.map((type) => {
             const isSelected = tipoPedido === type.id;
+            const iconWrapperSize = cardDims.iconSize * 1.7; // ~61px para 1 card, ~54px para 2-3
             return (
               <TouchableOpacity
                 key={type.id}
                 activeOpacity={0.8}
-                style={[styles.squareCard, isSelected && styles.squareCardActive]}
-                onPress={() => setTipoPedido(type.id as never)}
-              >
-                <View style={[styles.iconWrapper, isSelected && styles.iconWrapperActive]}>
+                style={[
+                  styles.squareCard,
+                  {
+                    width: cardDims.width,
+                    aspectRatio: cardDims.aspectRatio,
+                    padding: cardDims.cardPadding,
+                  },
+                  isSelected && styles.squareCardActive,
+                ]}
+                onPress={() => setTipoPedido(type.id as never)}                accessibilityLabel={`Seleccionar ${type.title}`}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                testID={`order-type-${type.id}`}              >
+                <View
+                  style={[
+                    styles.iconWrapper,
+                    {
+                      width: iconWrapperSize,
+                      height: iconWrapperSize,
+                      borderRadius: iconWrapperSize / 2,
+                    },
+                    isSelected && styles.iconWrapperActive,
+                  ]}
+                >
                   <Ionicons
                     name={(isSelected ? type.iconActive : type.icon) as never}
-                    size={32}
+                    size={cardDims.iconSize}
                     color={isSelected ? (Colors.primary || '#111827') : '#6B7280'}
                   />
                 </View>
@@ -373,6 +490,10 @@ export default function OrderTypeScreen() {
                         setUbicacionVisual(`${dir.calle}, ${dir.colonia}`);
                         setShowMap(false);
                       }}
+                      accessibilityLabel={`Seleccionar dirección: ${dir.alias}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: direccionSeleccionada?.id === dir.id }}
+                      testID={`address-chip-${dir.id}`}
                     >
                       <Ionicons name="home-outline" size={14} color={direccionSeleccionada?.id === dir.id ? '#FFF' : '#6B7280'} />
                       <Text style={[styles.addressChipText, direccionSeleccionada?.id === dir.id && { color: '#FFF' }]}>{dir.alias}</Text>
@@ -385,6 +506,9 @@ export default function OrderTypeScreen() {
                       setShowMap(true);
                       obtenerUbicacionGPS();
                     }}
+                    accessibilityLabel="Agregar nueva dirección"
+                    accessibilityRole="button"
+                    testID="add-address-btn"
                   >
                     <Ionicons name="add" size={16} color={Colors.primary} />
                     <Text style={{ color: Colors.primary, fontWeight: '600' }}>Nueva</Text>
@@ -440,6 +564,10 @@ export default function OrderTypeScreen() {
                       style={styles.changeButton} 
                       onPress={handleCambiarUbicacion}
                       activeOpacity={0.7}
+                      accessibilityLabel="Cambiar dirección de entrega"
+                      accessibilityRole="button"
+                      accessibilityHint="Permite editar o seleccionar una dirección diferente"
+                      testID="change-address-btn"
                     >
                       <Text style={styles.changeButtonText}>Cambiar dirección</Text>
                       <Ionicons name="create-outline" size={16} color={Colors.primary || '#111827'} />
@@ -482,6 +610,9 @@ export default function OrderTypeScreen() {
           loading={loading}
           disabled={!tipoPedido || loadingLocation}
           style={styles.actionButton}
+          accessibilityLabel="Continuar al pago"
+          accessibilityHint="Proceder al método de pago"
+          testID="checkout-continue-btn"
         />
       </View>
     </SafeAreaView>
@@ -535,12 +666,12 @@ const styles = StyleSheet.create({
     gap: 16,
     width: '100%',
   },
+  cardsContainerCentered: {
+    justifyContent: 'center',
+  },
   squareCard: {
-    flex: 1,
-    aspectRatio: 0.95,
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 16,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -557,13 +688,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
   },
   iconWrapper: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   iconWrapperActive: {
     backgroundColor: '#F3F4F6',

@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { apiClient } from '../../services/api';
+import { apiClient, formatImageUrl } from '../../services/api';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
@@ -42,7 +42,7 @@ export default function PromotionsScreen() {
     .filter((p) => p.imagen)
     .map((p) => ({
       id: p.id,
-      imagen: p.imagen!,
+      imagen: formatImageUrl(p.imagen!),
       titulo: p.titulo,
       subtitulo: p.descripcion,
       deepLink: p.deepLink,
@@ -73,7 +73,7 @@ export default function PromotionsScreen() {
           <Ionicons name="gift-outline" size={24} color={Colors.primary} style={{ marginRight: 8 }} />
           <Text style={styles.title}>Promociones</Text>
         </View>
-        <Text style={styles.subtitle}>Aprovecha los beneficios exclusivos de hoy</Text>
+        <Text style={styles.subtitle}>Aprovecha los beneficios que Amare tiene para ti</Text>
       </View>
 
       {promos && promos.length > 0 ? (
@@ -106,14 +106,14 @@ export default function PromotionsScreen() {
                 onPress={() => handlePromoPress(item.deepLink)}
                 activeOpacity={item.deepLink ? 0.9 : 1}
               >
-                {hasImage && (
-                  <Image
-                    source={{ uri: item.imagen }}
-                    style={styles.cardImage}
-                    contentFit="cover"
-                    transition={250}
-                  />
-                )}
+              {hasImage && (
+                <Image
+                  source={formatImageUrl(item.imagen)} // <-- Aplicamos el formateador aquí
+                  style={styles.cardImage}
+                  contentFit="cover"
+                  transition={250}
+                />
+              )}
                 
                 <View style={styles.cardBody}>
                   <View style={styles.badgeRow}>
@@ -161,7 +161,7 @@ function PromotionsSkeleton() {
       <View style={{ paddingHorizontal: Spacing.base, gap: Spacing.md }}>
         <View style={[styles.skeletonLine, { width: '100%', height: 160, borderRadius: 16 }]} />
         {[1, 2, 3].map((i) => (
-          <View key={i} style={[styles.card, { height: 110, backgroundColor: '#EFEFEF', borderOpacity: 0 }]} />
+          <View key={i} style={[styles.card, { height: 110, backgroundColor: '#EFEFEF', borderWidth: 0 }]} />
         ))}
       </View>
     </SafeAreaView>

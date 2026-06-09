@@ -23,6 +23,11 @@ interface ButtonProps {
   fullWidth?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  // Accessibility (WCAG AA compliance)
+  accessibilityLabel?: string;
+  accessibilityRole?: 'button' | 'link' | 'menuitem';
+  accessibilityHint?: string;
+  testID?: string;
 }
 
 export function Button({
@@ -35,6 +40,10 @@ export function Button({
   fullWidth = false,
   style,
   textStyle,
+  accessibilityLabel,
+  accessibilityRole = 'button',
+  accessibilityHint,
+  testID,
 }: ButtonProps) {
   async function handlePress() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -46,6 +55,10 @@ export function Button({
       onPress={handlePress}
       disabled={disabled || loading}
       activeOpacity={0.8}
+      accessibilityLabel={accessibilityLabel || label}
+      accessibilityRole={accessibilityRole}
+      accessibilityHint={accessibilityHint}
+      testID={testID}
       style={[
         styles.base,
         styles[variant],

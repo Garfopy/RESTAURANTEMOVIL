@@ -46,7 +46,8 @@ class AuthController
         $token = AuthMiddleware::generateToken([
             'id' => $user['id'],
             'email' => $user['email'],
-            'nombre' => $user['nombre']
+            'nombre' => $user['nombre'],
+            'rol' => $user['rol'] ?? 'user'
         ]);
 
         unset($user['password_hash']);
@@ -80,7 +81,8 @@ class AuthController
         $token = AuthMiddleware::generateToken([
             'id' => $user['id'],
             'email' => $user['email'],
-            'nombre' => $user['nombre']
+            'nombre' => $user['nombre'],
+            'rol' => $user['rol'] ?? 'user'
         ]);
 
         unset($user['password_hash']);
@@ -132,7 +134,8 @@ class AuthController
             $token = AuthMiddleware::generateToken([
                 'id' => $user['id'],
                 'email' => $user['email'],
-                'nombre' => $user['nombre']
+                'nombre' => $user['nombre'],
+                'rol' => $user['rol'] ?? 'user'
             ]);
 
             unset($user['password_hash']);

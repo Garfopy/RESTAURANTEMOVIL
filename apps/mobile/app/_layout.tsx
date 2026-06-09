@@ -20,6 +20,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { getMe } from '../services/auth.service';
+import { ToastProvider } from '../context/ToastContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -97,21 +98,23 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
-          <AuthGuard>
-            <StatusBar style="auto" />
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
-              <Stack.Screen name="checkout/order-type" />
-              <Stack.Screen name="checkout/payment" />
-              <Stack.Screen name="order/[id]" />
-            </Stack>
-          </AuthGuard>
+          <ToastProvider>
+            <AuthGuard>
+              <StatusBar style="auto" />
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(auth)" />
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="checkout/order-type" />
+                <Stack.Screen name="checkout/payment" />
+                <Stack.Screen name="order/[id]" />
+              </Stack>
+            </AuthGuard>
+          </ToastProvider>
         </StripeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

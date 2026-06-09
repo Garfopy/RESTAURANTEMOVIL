@@ -36,11 +36,17 @@ export function SearchBar({
         returnKeyType="search"
         onSubmitEditing={onSubmit}
         clearButtonMode="never"
+        accessibilityLabel="Búsqueda"
+        testID="search-input"
+        accessibilityHint="Busca productos por nombre"
       />
       {value.length > 0 && (
         <TouchableOpacity
           onPress={() => { onChangeText(''); onClear?.(); }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Limpiar búsqueda"
+          accessibilityRole="button"
+          testID="search-clear-btn"
         >
           <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
         </TouchableOpacity>

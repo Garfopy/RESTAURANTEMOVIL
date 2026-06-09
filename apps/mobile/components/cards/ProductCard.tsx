@@ -60,6 +60,10 @@ export function ProductCard({
       delayPressIn={100}
       activeOpacity={1}
       style={[styles.card, { width }, animStyle]}
+      accessibilityLabel={`${platillo.nombre}, $${platillo.precio.toFixed(2)}`}
+      accessibilityRole="button"
+      accessibilityHint={platillo.disponible === false ? "No disponible" : "Ver detalles del producto"}
+      testID={`product-card-${platillo.id}`}
     >
       {/* IMAGE */}
       <View style={styles.imageContainer}>
@@ -86,6 +90,9 @@ export function ProductCard({
             isFavorite && { backgroundColor: '#FFE4E6' },
           ]}
           onPress={() => toggle(platillo.id)}
+          accessibilityLabel={isFavorite ? "Eliminar de favoritos" : "Agregar a favoritos"}
+          accessibilityRole="button"
+          testID={`favorite-btn-${platillo.id}`}
         >
           <Ionicons
             name={isFavorite ? 'heart' : 'heart-outline'}

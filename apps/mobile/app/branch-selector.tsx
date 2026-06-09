@@ -31,9 +31,12 @@ export default function BranchSelectorScreen() {
     <SafeAreaView style={styles.container}>
       {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)')}
           style={styles.closeButton}
+          accessibilityLabel="Cerrar"
+          accessibilityRole="button"
+          testID="close-btn"
         >
           <Ionicons name="close" size={24} color={Colors?.text || '#111827'} />
         </TouchableOpacity>
@@ -71,6 +74,11 @@ export default function BranchSelectorScreen() {
                 style={[styles.item, isSelected && styles.itemSelected]}
                 onPress={() => handleSelect(item)}
                 activeOpacity={0.7}
+                accessibilityLabel={`Seleccionar sucursal ${item.nombre}`}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                accessibilityHint={item.descripcion || 'Sucursal'}
+                testID={`branch-${item.id}`}
               >
                 <View style={styles.itemContent}>
                   <Ionicons

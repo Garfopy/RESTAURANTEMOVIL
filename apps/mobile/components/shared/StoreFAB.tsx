@@ -22,6 +22,10 @@ export function StoreFAB() {
         style={styles.button}
         onPress={handlePress}
         activeOpacity={0.85}
+        accessibilityLabel="Ir a tienda"
+        accessibilityRole="button"
+        accessibilityHint="Navega a la tienda principal"
+        testID="store-fab"
       >
         <Ionicons name="storefront-outline" size={24} color="#FFF" />
         <Text style={styles.label}>Tienda</Text>

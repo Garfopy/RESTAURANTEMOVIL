@@ -23,6 +23,10 @@ export function CategoryCard({ categoria, onPress, width = 140, height = 100 }: 
       delayPressIn={100}
       activeOpacity={0.85}
       style={[styles.card, { width, height }]}
+      accessibilityLabel={`${categoria.nombre}`}
+      accessibilityRole="button"
+      accessibilityHint={`${categoria.total_platillos ?? 0} platillos disponibles`}
+      testID={`category-card-${categoria.id}`}
     >
       <Image
         source={formatImageUrl(categoria.imagen) || require('../../assets/placeholder-food.jpg')}

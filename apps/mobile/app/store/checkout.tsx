@@ -167,24 +167,74 @@ export default function StoreCheckoutScreen() {
     actualizarDireccionTexto(region.latitude, region.longitude);
   }
 
-  async function guardarNuevaDireccion() {
-    if (!addressData) return null;
-    try {
-      const res = await apiClient.post('/profile/addresses', {
-        alias: 'Mi ubicación',
-        calle: addressData.calle,
-        colonia: addressData.colonia,
-        ciudad: addressData.ciudad,
-        lat: addressData.lat,
-        lng: addressData.lng,
-        cp: addressData.cp,
-        es_principal: direccionesGuardadas.length === 0,
-      });
-      return res.data.data;
-    } catch (err) {
-      console.error('Error al guardar dirección:', err);
-      return null;
-    }
+  async function promptToSaveAddress(): Promise<string | null> {
+    return new Promise((resolve) => {
+      Alert.alert(
+        '¿Guardar esta dirección?',
+        'Podrás usarla en futuros pedidos a domicilio',
+        [
+          {
+            text: 'No guardar',
+            onPress: () => resolve(null),
+            style: 'cancel',
+          },
+          {
+            text: 'Guardar',
+            onPress: async () => {
+              // Mostrar opciones de alias
+              Alert.alert(
+                'Tipo de dirección',
+                'Elige cómo quieres llamar esta dirección',
+                [
+                  {
+                    text: 'Casa',
+                    onPress: () => saveAddressWithAlias('Casa'),
+                  },
+                  {
+                    text: 'Trabajo',
+                    onPress: () => saveAddressWithAlias('Trabajo'),
+                  },
+                  {
+                    text: 'Otro',
+                    onPress: () => {
+                      saveAddressWithAlias('Otro');
+                    },
+                  },
+                  {
+                    text: 'Cancelar',
+                    style: 'cancel',
+                    onPress: () => resolve(null),
+                  },
+                ]
+              );
+            },
+          },
+        ]
+      );
+
+      async function saveAddressWithAlias(alias: string) {
+        if (!addressData) {
+          resolve(null);
+          return;
+        }
+        try {
+          const res = await apiClient.post('/profile/addresses', {
+            alias,
+            calle: addressData.calle,
+            colonia: addressData.colonia,
+            ciudad: addressData.ciudad,
+            lat: addressData.lat,
+            lng: addressData.lng,
+            cp: addressData.cp,
+            es_principal: direccionesGuardadas.length === 0,
+          });
+          resolve(res.data.data?.id || null);
+        } catch (err) {
+          console.error('Error al guardar dirección:', err);
+          resolve(null);
+        }
+      }
+    });
   }
 
   async function handleContinue() {
@@ -198,12 +248,11 @@ export default function StoreCheckoutScreen() {
       let finalAddressId = direccionSeleccionada?.id;
 
       if (!direccionSeleccionada && addressData) {
-        const nueva = await guardarNuevaDireccion();
-        finalAddressId = nueva?.id;
+        finalAddressId = await promptToSaveAddress();
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
-        order_id: Number(params.productId), // temp, will be replaced by real order
+        order_id: Number(params.productId),
         amount: total,
         currency: 'mxn',
       });
@@ -219,7 +268,7 @@ export default function StoreCheckoutScreen() {
           productPrice: params.productPrice,
           quantity: params.quantity,
           tipo_pedido: tipoPedido,
-          direccionId: String(finalAddressId ?? ''),
+          direccionId: finalAddressId ? String(finalAddressId) : '',
           direccionEntrega: ubicacionVisual,
           total: String(total),
         },

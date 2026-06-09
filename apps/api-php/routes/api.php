@@ -16,6 +16,11 @@ $routes = [
     
     // Branches routes
     ['GET', '/branches', ['Amare\Api\Controllers\BranchController', 'index']],
+
+    // Config routes (configuración por restaurante) - DEBEN ir antes de /branches/:id
+    ['GET', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'show']],
+    ['PUT', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'update']],
+
     ['GET', '/branches/:id', ['Amare\Api\Controllers\BranchController', 'show']],
     
     // Menu routes
@@ -50,15 +55,22 @@ $routes = [
     ['GET', '/favorites', ['Amare\Api\Controllers\FavoritesController', 'index']],
     ['POST', '/favorites/toggle', ['Amare\Api\Controllers\FavoritesController', 'toggle']],
     
-    // Promotions routes
+    // Promotions routes (app movil)
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
     ['POST', '/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'validateCode']],
-    
-    // Config routes (configuración por restaurante)
-    ['GET', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'show']],
-    ['PUT', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'update']],
 
+    // Admin - Promotions routes (panel web, requiere rol=admin)
+    ['GET', '/admin/promotions', ['Amare\Api\Controllers\PromotionsController', 'adminIndex']],
+    ['POST', '/admin/promotions', ['Amare\Api\Controllers\PromotionsController', 'adminStore']],
+    ['GET', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
+    ['PUT', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'adminUpdate']],
+    ['DELETE', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'adminDestroy']],
+    ['PUT', '/admin/promotions/:id/deactivate', ['Amare\Api\Controllers\PromotionsController', 'adminDeactivate']],
+
+    // Admin - Users routes (panel web, requiere rol=admin)
+    ['GET', '/admin/users', ['Amare\Api\Controllers\AdminController', 'users']],
+    
     // Store routes (tienda de productos físicos)
     ['GET', '/store/categories', ['Amare\Api\Controllers\StoreController', 'categories']],
     ['GET', '/store/products', ['Amare\Api\Controllers\StoreController', 'products']],
@@ -117,7 +129,7 @@ if (is_array($handler)) {
     $method = $handler[1];
     
     if (!empty($routeParams)) {
-        call_user_func_array([$controller, $method], $routeParams);
+        call_user_func_array([$controller, $method], array_values($routeParams));
     } else {
         $controller->$method();
     }
