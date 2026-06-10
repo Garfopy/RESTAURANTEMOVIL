@@ -125,59 +125,142 @@ class PromotionsController
      * Body requerido:  usuario_id, titulo
      * Body opcional:   descripcion, imagen, deep_link, code, activo, expires_at
      */
-    public function adminStore(): void
-    {
-        $user = AuthMiddleware::requireAdmin();
+  public function adminStore(): void
+{
+    $user = AuthMiddleware::requireAdmin();
 
-        $input = ValidationMiddleware::getAllInput();
+    $input = ValidationMiddleware::getAllInput();
 
-        $rules = [
-            'usuario_id' => 'required|integer',
-            'titulo'     => 'required|max:255',
-        ];
+    $rules = [
+        'usuario_id' => 'required|integer',
+        'titulo'     => 'required|max:255',
+    ];
 
-        $errors = ValidationMiddleware::validate($rules, $input);
+    $errors = ValidationMiddleware::validate($rules, $input);
 
-        if (!empty($errors)) {
-            Response::validationError($errors);
-        }
-
-        // Validar que expires_at sea fecha futura (si se proporciona)
-        if (!empty($input['expires_at'])) {
-            $dt = \DateTime::createFromFormat('Y-m-d H:i:s', $input['expires_at'])
-               ?: \DateTime::createFromFormat('Y-m-d', $input['expires_at']);
-
-            if (!$dt) {
-                Response::validationError(['expires_at' => ['Formato de fecha invalido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS']]);
-            }
-
-            // Validar que no sea fecha pasada
-            if (!Promotion::isValidFutureDate($input['expires_at'])) {
-                Response::validationError(['expires_at' => ['La fecha de expiración no puede ser en el pasado.']]);
-            }
-        }
-
-        // Verificar que el codigo no este duplicado si se proporciona
-        if (!empty($input['code']) && Promotion::codeExists($input['code'])) {
-            Response::validationError(['code' => ['Este codigo ya esta en uso. Por favor elige otro.']]);
-        }
-
-        $newId = Promotion::create([
-            'usuario_id'  => (int)$input['usuario_id'],
-            'titulo'      => trim($input['titulo']),
-            'descripcion' => $input['descripcion'] ?? null,
-            'imagen'      => $input['imagen'] ?? null,
-            'deep_link'   => $input['deep_link'] ?? null,
-            'code'        => !empty($input['code']) ? strtoupper(trim($input['code'])) : null,
-            'activo'      => isset($input['activo']) ? (int)$input['activo'] : 1,
-            'expires_at'  => !empty($input['expires_at']) ? $input['expires_at'] : null,
-        ], (int)$user->id);
-
-        $promotion = Promotion::findById($newId);
-
-        Response::success(['promotion' => $promotion], 'Promocion creada exitosamente', 201);
+    if (!empty($errors)) {
+        Response::validationError($errors);
     }
 
+    // Validar expires_at
+    if (!empty($input['expires_at'])) {
+
+        $dt = \DateTime::createFromFormat('Y-m-d H:i:s', $input['expires_at'])
+           ?: \DateTime::createFromFormat('Y-m-d', $input['expires_at']);
+
+        if (!$dt) {
+            Response::validationError([
+                'expires_at' => [
+                    'Formato de fecha invalido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS'
+                ]
+            ]);
+        }
+
+        if (!Promotion::isValidFutureDate($input['expires_at'])) {
+            Response::validationError([
+                'expires_at' => [
+                    'La fecha de expiración no puede ser en el pasado.'
+                ]
+            ]);
+        }
+    }
+
+    // Validar código duplicado
+    if (!empty($input['code']) && Promotion::codeExists($input['code'])) {
+        Response::validationError([
+            'code' => [
+                'Este codigo ya esta en uso. Por favor elige otro.'
+            ]
+        ]);
+    }
+
+    // Obtener ID del admin autenticado
+    $adminId = (int)($user->id ?? $user->sub ?? 0);
+
+    if ($adminId <= 0) {
+        Response::error('No se pudo identificar al administrador autenticado.', 401);
+    }
+
+    error_log('===== FILES =====');
+    error_log(print_r($_FILES, true));
+    error_log('===== FILES =====');
+
+    $imagenUrl = null;
+
+if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
+
+    $file = $_FILES['imagen'];
+
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+    $permitidas = ['jpg', 'jpeg', 'png', 'webp'];
+
+    if (!in_array($ext, $permitidas, true)) {
+        Response::validationError([
+            'imagen' => ['Formato de imagen no permitido']
+        ]);
+    }
+
+    error_log('========== PROMO DEBUG ==========');
+    error_log('DIR ACTUAL: ' . __DIR__);
+    error_log('BASE DIR: ' . dirname(__DIR__, 3));
+
+    $folder = dirname(__DIR__, 2) . '/uploads/promos/';
+
+    error_log('FOLDER: ' . $folder);
+    error_log('EXISTS: ' . (is_dir($folder) ? 'SI' : 'NO'));
+    error_log('WRITABLE: ' . (is_writable($folder) ? 'SI' : 'NO'));
+    error_log('========== PROMO DEBUG ==========');
+
+
+    if (!is_dir($folder)) {
+        mkdir($folder, 0775, true);
+    }
+
+    $filename = 'promo_' . time() . '_' . uniqid() . '.' . $ext;
+
+    $result = move_uploaded_file(
+        $file['tmp_name'],
+        $folder . $filename
+    );
+
+    error_log('MOVE RESULT: ' . ($result ? 'OK' : 'ERROR'));
+
+    if (!$result) {
+        error_log('LAST ERROR: ' . print_r(error_get_last(), true));
+        Response::error('No se pudo guardar la imagen', 500);
+    }
+
+    error_log('ARCHIVO GUARDADO: ' . $folder . $filename);
+
+    $imagenUrl = 'uploads/promos/' . $filename;
+}
+
+    $newId = Promotion::create([
+        'usuario_id'  => (int)$input['usuario_id'],
+        'titulo'      => trim($input['titulo']),
+        'descripcion' => $input['descripcion'] ?? null,
+        'imagen' => $imagenUrl,
+        'deep_link'   => $input['deep_link'] ?? null,
+        'code'        => !empty($input['code'])
+                            ? strtoupper(trim($input['code']))
+                            : null,
+        'activo'      => isset($input['activo'])
+                            ? (int)$input['activo']
+                            : 1,
+        'expires_at'  => !empty($input['expires_at'])
+                            ? $input['expires_at']
+                            : null,
+    ], $adminId);
+
+    $promotion = Promotion::findById($newId);
+
+    Response::success(
+        ['promotion' => $promotion],
+        'Promocion creada exitosamente',
+        201
+    );
+}
     /**
      * PUT /admin/promotions/:id
      * Actualiza una promocion existente.
@@ -296,4 +379,47 @@ class PromotionsController
 
         Response::success(['promotion' => $updated], 'Promocion desactivada exitosamente');
     }
+
+    public function uploadImage(): void
+{
+    AuthMiddleware::requireAdmin();
+
+    if (!isset($_FILES['image'])) {
+        Response::error('No se recibió ninguna imagen', 400);
+    }
+
+    $file = $_FILES['image'];
+
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        Response::error('Error al subir archivo', 400);
+    }
+
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+    $permitidas = ['jpg', 'jpeg', 'png', 'webp'];
+
+    if (!in_array($ext, $permitidas, true)) {
+        Response::error('Formato no permitido', 422);
+    }
+
+    $folder = __DIR__ . '/../../uploads/promotions/';
+
+    if (!is_dir($folder)) {
+        mkdir($folder, 0775, true);
+    }
+
+    $filename = 'promo_' . time() . '_' . uniqid() . '.' . $ext;
+
+    move_uploaded_file(
+        $file['tmp_name'],
+        $folder . $filename
+    );
+
+    $url = ($_ENV['APP_URL'] ?? 'https://tu-dominio.com')
+        . '/uploads/promotions/' . $filename;
+
+    Response::success([
+        'url' => $url
+    ]);
+}
 }

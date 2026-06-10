@@ -108,15 +108,30 @@ class ValidationMiddleware
     public static function getAllInput(): array
     {
         $method = $_SERVER['REQUEST_METHOD'];
-        
+
         if ($method === 'GET') {
             return $_GET;
         }
-        
-        if ($method === 'POST' || $method === 'PUT' || $method === 'DELETE') {
-            return array_merge($_POST, (array)json_decode(file_get_contents('php://input'), true));
+
+        $input = $_POST;
+
+        // Solo intentar leer JSON si no es multipart/form-data
+        $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+
+        if (strpos($contentType, 'application/json') !== false) {
+
+            $json = json_decode(file_get_contents('php://input'), true);
+
+            if (is_array($json)) {
+                $input = array_merge($input, $json);
+            }
         }
 
-        return [];
+        // Adjuntar archivos
+        if (!empty($_FILES)) {
+            $input['_files'] = $_FILES;
+        }
+
+        return $input;
     }
 }

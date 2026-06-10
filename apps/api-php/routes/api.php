@@ -60,6 +60,7 @@ $routes = [
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
 
     // Admin - Promotions routes (panel web, requiere rol=admin)
+    ['POST', '/admin/promotions/upload', ['Amare\Api\Controllers\PromotionsController', 'uploadImage']],
     ['GET', '/admin/promotions', ['Amare\Api\Controllers\PromotionsController', 'adminIndex']],
     ['POST', '/admin/promotions', ['Amare\Api\Controllers\PromotionsController', 'adminStore']],
     ['POST', '/admin/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'adminValidateCode']],
