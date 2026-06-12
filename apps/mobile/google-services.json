@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "859009059542",
+    "project_id": "amarerestaurante-ff7f7",
+    "storage_bucket": "amarerestaurante-ff7f7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:859009059542:android:85f1fa64429281b2381777",
+        "android_client_info": {
+          "package_name": "com.amare.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQFMbmW4iM5wfyWClBwpYg_MzzI0dXYko"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

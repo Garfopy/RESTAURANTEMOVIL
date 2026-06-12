@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Amare",
+    "slug": "amare",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "amare",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A1A2E"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.amare.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Amare necesita tu ubicación para encontrar la sucursal más cercana.",
+        "NSLocationAlwaysUsageDescription": "Amare necesita tu ubicación para el seguimiento de entregas.",
+        "NSCameraUsageDescription": "Amare necesita la cámara para foto de perfil."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A1A2E"
+      },
+      "package": "com.amare.app",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Amare necesita tu ubicación para encontrar sucursales cercanas."
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.amare.app",
+          "enableGooglePay": true
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

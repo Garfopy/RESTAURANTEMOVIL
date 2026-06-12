@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Dependencias de Backend (Node.js / PHP)
 node_modules/
 npm-debug.log*
@@ -18,3 +19,12 @@ Thumbs.db
 # Entorno de Python
 venv/
 __pycache__/
+=======
+node_modules/
+dist/
+.env
+.expo/
+*.log
+.turbo/
+.DS_Store
+>>>>>>> origin/migracion-api

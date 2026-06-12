@@ -1,0 +1,21 @@
+{
+  "name": "amare-app",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@11.5.1",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "api:dev": "pnpm --filter api dev",
+    "mobile:start": "pnpm --filter mobile start"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
