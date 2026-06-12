@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import React, { useRef, useEffect, memo } from 'react';
 import { Colors } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -85,10 +86,12 @@ const TabIcon = memo(
 );
 
 export default function TabsLayout() {
+  const theme = useThemeColors();
+
   return (
     <Tabs
       sceneContainerStyle={{
-        backgroundColor: Colors.background || '#F9FAFB',
+        backgroundColor: theme.background || '#F9FAFB',
       }}
       screenOptions={{
         headerShown: false,
@@ -132,10 +135,8 @@ export default function TabsLayout() {
           alignItems: 'center',
         },
 
-        // --- CAMBIO CLAVE AQUÍ PARA QUE LOS ICONOS SE VEAN MÁS NEGROS ---
-        tabBarActiveTintColor: '#000000',   // Negro puro para el icono seleccionado
+        tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: '#1F2937', // Gris muy oscuro (casi negro) para los no seleccionados
-        // -------------------------------------------------------------
       }}
     >
       {TABS.map((tab) => (

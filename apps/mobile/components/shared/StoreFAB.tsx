@@ -3,9 +3,11 @@ import { Animated, TouchableOpacity, StyleSheet, Platform, Text, View } from 're
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Colors } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 
 export function StoreFAB() {
   const router = useRouter();
+  const theme = useThemeColors();
   const scale = useRef(new Animated.Value(1)).current;
 
   function handlePress() {
@@ -19,7 +21,7 @@ export function StoreFAB() {
   return (
     <Animated.View style={[styles.container, { transform: [{ scale }] }]}>
       <TouchableOpacity
-        style={styles.button}
+        style={[styles.button, { backgroundColor: theme.primary }]}
         onPress={handlePress}
         activeOpacity={0.85}
         accessibilityLabel="Ir a tienda"

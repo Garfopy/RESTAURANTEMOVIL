@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, BorderRadius } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'accent';
 type Size = 'sm' | 'md' | 'lg';
@@ -45,6 +46,8 @@ export function Button({
   accessibilityHint,
   testID,
 }: ButtonProps) {
+  const theme = useThemeColors();
+
   async function handlePress() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
@@ -61,7 +64,7 @@ export function Button({
       testID={testID}
       style={[
         styles.base,
-        styles[variant],
+        getVariantStyle(variant, theme),
         styles[size],
         fullWidth && styles.fullWidth,
         (disabled || loading) && styles.disabled,
@@ -71,10 +74,10 @@ export function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'ghost' ? Colors.primary : Colors.white}
+          color={variant === 'ghost' ? theme.primary : getLoadingColor(variant, theme)}
         />
       ) : (
-        <Text style={[styles.label, styles[`label_${variant}`], styles[`label_${size}`], textStyle]}>
+        <Text style={[styles.label, getLabelStyle(variant, theme), styles[`label_${size}`], textStyle]}>
           {label}
         </Text>
       )}
@@ -113,3 +116,34 @@ const styles = StyleSheet.create({
   label_md:        { fontSize: 15 },
   label_lg:        { fontSize: 17 },
 });
+
+function getVariantStyle(variant: Variant, theme: typeof Colors): ViewStyle {
+  switch (variant) {
+    case 'primary':
+      return { backgroundColor: theme.button };
+    case 'accent':
+      return { backgroundColor: theme.accent };
+    case 'ghost':
+      return { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: theme.primary };
+    case 'secondary':
+    default:
+      return { backgroundColor: theme.border };
+  }
+}
+
+function getLabelStyle(variant: Variant, theme: typeof Colors): TextStyle {
+  switch (variant) {
+    case 'ghost':
+      return { color: theme.primary };
+    case 'secondary':
+      return { color: theme.text };
+    case 'primary':
+    case 'accent':
+    default:
+      return { color: variant === 'primary' ? theme.buttonText : theme.white };
+  }
+}
+
+function getLoadingColor(variant: Variant, theme: typeof Colors): string {
+  return variant === 'primary' ? theme.buttonText : theme.white;
+}

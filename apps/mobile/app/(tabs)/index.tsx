@@ -27,7 +27,6 @@ import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
-import { CartButton } from '../../components/shared/CartButton';
 import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
@@ -324,9 +323,6 @@ export default function HomeScreen() {
 
       {/* BOTÓN FLOTANTE DE TIENDA */}
       <StoreFAB />
-
-      {/* BOTÓN DEL CARRITO ORIGINAL */}
-      <CartButton />
 
       {/* MODAL DE SELECCIÓN INICIAL */}
       <Modal visible={showTypeModal} transparent animationType="fade">

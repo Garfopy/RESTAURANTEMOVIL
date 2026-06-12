@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, Typography } from '../../theme';
 import { formatImageUrl } from '../../services/api';
+import { useThemeColors } from '../../store/theme.store';
 // Nota: Asegúrate de que el tipo `Categoria` en `@amare/types`
 // tenga una propiedad `imagen?: string;` para que esto funcione correctamente.
 // El backend debe proveer la URL de la imagen en este campo.
@@ -17,6 +18,8 @@ interface CategoryCardProps {
 }
 
 export function CategoryCard({ categoria, onPress, width = 140, height = 100 }: CategoryCardProps) {
+  const theme = useThemeColors();
+
   return (
     <TouchableOpacity
       onPress={() => onPress(categoria)}
@@ -36,7 +39,7 @@ export function CategoryCard({ categoria, onPress, width = 140, height = 100 }: 
         placeholder={{ blurhash: 'L38Wx:0000_300~q_3Rj00-;%M_3' }}
       />
       <LinearGradient
-        colors={['transparent', 'rgba(26,26,46,0.85)']}
+        colors={['transparent', `${theme.primary}D9`]}
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.labelContainer}>

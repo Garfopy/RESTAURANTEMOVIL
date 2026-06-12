@@ -18,6 +18,7 @@ $routes = [
     ['GET', '/branches', ['Amare\Api\Controllers\BranchController', 'index']],
 
     // Config routes (configuración por restaurante) - DEBEN ir antes de /branches/:id
+    ['GET', '/settings/theme', ['Amare\Api\Controllers\SettingsController', 'theme']],
     ['GET', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'show']],
     ['PUT', '/branches/:id/config', ['Amare\Api\Controllers\ConfigController', 'update']],
 

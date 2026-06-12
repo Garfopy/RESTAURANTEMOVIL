@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 
 interface EmptyStateProps {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -18,6 +19,8 @@ export function EmptyState({
   actionLabel,
   onAction,
 }: EmptyStateProps) {
+  const theme = useThemeColors();
+
   return (
     <View style={styles.container}>
       <View style={styles.iconContainer}>
@@ -27,14 +30,14 @@ export function EmptyState({
       {description && <Text style={styles.description}>{description}</Text>}
       {actionLabel && onAction && (
         <TouchableOpacity
-          style={styles.button}
+          style={[styles.button, { backgroundColor: theme.button }]}
           onPress={onAction}
           activeOpacity={0.8}
           accessibilityLabel={actionLabel}
           accessibilityRole="button"
           testID="empty-state-action-btn"
         >
-          <Text style={styles.buttonText}>{actionLabel}</Text>
+          <Text style={[styles.buttonText, { color: theme.buttonText }]}>{actionLabel}</Text>
         </TouchableOpacity>
       )}
     </View>

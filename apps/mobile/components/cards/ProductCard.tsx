@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Shadows, Typography } from '../../theme';
 import { formatImageUrl } from '../../services/api';
 import type { Platillo } from '@amare/types';
+import { useThemeColors } from '../../store/theme.store';
 
 import { useFavorites } from '../../hooks/useFavorites';
 
@@ -28,11 +29,12 @@ export function ProductCard({
   width = 180,
 }: ProductCardProps) {
   const scale = useRef(new Animated.Value(1)).current;
+  const theme = useThemeColors();
 
   // ✅ React Query source of truth
   const { data: favorites = [], toggle } = useFavorites();
 
-  const isFavorite = favorites.some((p) => p.id === platillo.id);
+  const isFavorite = favorites.some((p: Platillo) => p.id === platillo.id);
 
   const animStyle = { transform: [{ scale }] };
 
@@ -121,7 +123,7 @@ export function ProductCard({
           </View>
         )}
 
-        <Text style={styles.precio}>
+        <Text style={[styles.precio, { color: theme.primary }]}>
           ${platillo.precio.toFixed(2)}
         </Text>
       </View>

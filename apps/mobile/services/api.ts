@@ -4,6 +4,7 @@ import { useUserStore } from '../store/user.store';
 
 // Ensure URL ends with /
 const normalizedBaseURL = API_BASE_URL.endsWith('/') ? API_BASE_URL : API_BASE_URL + '/';
+const publicBaseURL = normalizedBaseURL.replace(/\/api_restaurante\/?$/, '/');
 
 export const apiClient = axios.create({
   baseURL: normalizedBaseURL,
@@ -73,13 +74,25 @@ export function getApiError(error: unknown): string {
 
 /**
  * Convierte una ruta relativa de la base de datos en una URL absoluta para el móvil
- * La nueva PHP API guarda imágenes en 'uploads/imagen.jpg'
+ * Las rutas public/... viven fuera de la carpeta de la API, en el dominio público.
  */
 export function formatImageUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
   if (path.startsWith('http')) return path;
-  
-  // Limpiamos 'public/' por si el backend aún no ha corrido la migración 007 de base de datos
-  const cleanPath = path.replace(/^public\//, '').replace(/^\//, '');
+
+  const cleanPath = path.replace(/^\//, '');
+  if (cleanPath.startsWith('public/')) {
+    return `${publicBaseURL}${cleanPath}`;
+  }
+
+  if (
+    cleanPath.startsWith('uploads/promos/') ||
+    cleanPath.startsWith('uploads/promotions/') ||
+    cleanPath.startsWith('uploads/promociones/')
+  ) {
+    const filename = cleanPath.split('/').pop();
+    return filename ? `${publicBaseURL}public/uploads/promociones/${filename}` : undefined;
+  }
+
   return `${normalizedBaseURL}${cleanPath}`;
 }

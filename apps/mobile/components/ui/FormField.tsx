@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, TextInput, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 
 interface FormFieldProps {
   label: string;
@@ -43,6 +44,7 @@ export function FormField({
   accessibilityHint,
 }: FormFieldProps) {
   const [isFocused, setIsFocused] = useState(false);
+  const theme = useThemeColors();
 
   const hasError = !!error;
 
@@ -52,7 +54,7 @@ export function FormField({
       <View
         style={[
           styles.inputWrapper,
-          isFocused && styles.inputWrapperFocused,
+          isFocused && { borderColor: theme.primary, backgroundColor: '#FAFAFA' },
           hasError && styles.inputWrapperError,
         ]}
       >
@@ -60,7 +62,7 @@ export function FormField({
           <Ionicons
             name={icon as any}
             size={20}
-            color={hasError ? Colors.error || '#DC2626' : isFocused ? Colors.primary : Colors.textMuted}
+            color={hasError ? Colors.error || '#DC2626' : isFocused ? theme.primary : Colors.textMuted}
             style={styles.icon}
           />
         )}

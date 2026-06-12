@@ -12,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useDishes } from '../../hooks/useMenu';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
-import { CartButton } from '../../components/shared/CartButton';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Colors, Spacing, Typography } from '../../theme';
@@ -92,8 +91,6 @@ export default function CategoryScreen() {
           onAction={query ? () => setQuery('') : undefined}
         />
       )}
-
-      <CartButton />
     </SafeAreaView>
   );
 }

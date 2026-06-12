@@ -1,5 +1,5 @@
 import '../global.css';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -16,11 +16,14 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StripeProvider } from '@stripe/stripe-react-native';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { getMe } from '../services/auth.service';
 import { ToastProvider } from '../context/ToastContext';
+import { GlobalCartButton } from '../components/shared/GlobalCartButton';
+import { useThemeStore } from '../store/theme.store';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -58,6 +61,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   const { hydrateFromStorage, setUser, logout } = useUserStore();
+  const hydrateTheme = useThemeStore((s) => s.hydrateTheme);
+  const [appReady, setAppReady] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -69,7 +74,12 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    if (!fontsLoaded) return;
+
+    let cancelled = false;
+
     async function init() {
+      await hydrateTheme();
       await hydrateFromStorage();
       await hydrateCart();
 
@@ -85,14 +95,19 @@ export default function RootLayout() {
         }
       }
 
-      if (fontsLoaded) {
+      if (!cancelled) {
+        setAppReady(true);
         await SplashScreen.hideAsync();
       }
     }
     init();
-  }, [fontsLoaded]);
 
-  if (!fontsLoaded) return null;
+    return () => {
+      cancelled = true;
+    };
+  }, [fontsLoaded, hydrateFromStorage, hydrateTheme, logout, setUser]);
+
+  if (!fontsLoaded || !appReady) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -101,18 +116,21 @@ export default function RootLayout() {
           <ToastProvider>
             <AuthGuard>
               <StatusBar style="auto" />
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="checkout/order-type" />
-                <Stack.Screen name="checkout/payment" />
-                <Stack.Screen name="order/[id]" />
-              </Stack>
+              <View style={{ flex: 1 }}>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="(auth)" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="checkout/order-type" />
+                  <Stack.Screen name="checkout/payment" />
+                  <Stack.Screen name="order/[id]" />
+                </Stack>
+                <GlobalCartButton />
+              </View>
             </AuthGuard>
           </ToastProvider>
         </StripeProvider>

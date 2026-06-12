@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 import type { TipoPedido } from '@amare/types';
 
 const OPTIONS: { tipo: TipoPedido; label: string; icon: keyof typeof Ionicons.glyphMap; desc: string }[] = [
@@ -21,6 +22,8 @@ export function OrderTypeSelector({
   onChange,
   available = ['pickup', 'delivery', 'eat_in'],
 }: OrderTypeSelectorProps) {
+  const theme = useThemeColors();
+
   return (
     <ScrollView
       horizontal
@@ -34,7 +37,10 @@ export function OrderTypeSelector({
             key={opt.tipo}
             onPress={() => onChange(opt.tipo)}
             activeOpacity={0.8}
-            style={[styles.chip, active && styles.chipActive]}
+            style={[
+              styles.chip,
+              active && { backgroundColor: theme.primary, borderColor: theme.primary },
+            ]}
             accessibilityLabel={`Seleccionar ${opt.label.toLowerCase()}`}
             accessibilityRole="radio"
             accessibilityState={{ selected: active }}
@@ -44,7 +50,7 @@ export function OrderTypeSelector({
             <Ionicons
               name={opt.icon}
               size={18}
-              color={active ? Colors.white : Colors.primary}
+              color={active ? Colors.white : theme.primary}
             />
             <View>
               <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
@@ -74,10 +80,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: Colors.surface,
     minWidth: 120,
-  },
-  chipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
   },
   chipLabel: {
     fontSize: 13,

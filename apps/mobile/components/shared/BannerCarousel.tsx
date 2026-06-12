@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Colors, Spacing, BorderRadius } from '../../theme';
+import { useThemeColors } from '../../store/theme.store';
 
 export interface BannerItem {
   id: string;
@@ -36,6 +37,7 @@ export function BannerCarousel({
   autoPlay = true,
   interval = 4000,
 }: BannerCarouselProps) {
+  const theme = useThemeColors();
   const flatRef = useRef<Animated.FlatList<BannerItem>>(null);
   const currentIndex = useRef(0);
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -117,7 +119,12 @@ export function BannerCarousel({
             extrapolate: 'clamp',
           });
 
-          return <Animated.View key={i} style={[styles.dot, { width: dotWidth, opacity }]} />;
+          return (
+            <Animated.View
+              key={i}
+              style={[styles.dot, { width: dotWidth, opacity, backgroundColor: theme.primary }]}
+            />
+          );
         })}
       </View>
     </View>

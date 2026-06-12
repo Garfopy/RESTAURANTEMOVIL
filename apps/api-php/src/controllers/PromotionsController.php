@@ -11,6 +11,9 @@ use Amare\Api\Models\Promotion;
 
 class PromotionsController
 {
+    private const PROMOTION_UPLOAD_DIR = '/public/uploads/promociones/';
+    private const PROMOTION_DB_PATH = 'public/uploads/promociones/';
+
     // =========================================================================
     // ENDPOINTS PUBLICOS / APP MOVIL
     // =========================================================================
@@ -205,7 +208,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
     error_log('DIR ACTUAL: ' . __DIR__);
     error_log('BASE DIR: ' . dirname(__DIR__, 3));
 
-    $folder = dirname(__DIR__, 2) . '/uploads/promos/';
+    $folder = dirname(__DIR__, 3) . self::PROMOTION_UPLOAD_DIR;
 
     error_log('FOLDER: ' . $folder);
     error_log('EXISTS: ' . (is_dir($folder) ? 'SI' : 'NO'));
@@ -233,7 +236,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
     error_log('ARCHIVO GUARDADO: ' . $folder . $filename);
 
-    $imagenUrl = 'uploads/promos/' . $filename;
+    $imagenUrl = self::PROMOTION_DB_PATH . $filename;
 }
 
     $newId = Promotion::create([
@@ -402,7 +405,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         Response::error('Formato no permitido', 422);
     }
 
-    $folder = __DIR__ . '/../../uploads/promotions/';
+    $folder = dirname(__DIR__, 3) . self::PROMOTION_UPLOAD_DIR;
 
     if (!is_dir($folder)) {
         mkdir($folder, 0775, true);
@@ -410,16 +413,25 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
     $filename = 'promo_' . time() . '_' . uniqid() . '.' . $ext;
 
-    move_uploaded_file(
+    $result = move_uploaded_file(
         $file['tmp_name'],
         $folder . $filename
     );
 
-    $url = ($_ENV['APP_URL'] ?? 'https://tu-dominio.com')
-        . '/uploads/promotions/' . $filename;
+    if (!$result) {
+        Response::error('No se pudo guardar la imagen', 500);
+    }
+
+    $path = self::PROMOTION_DB_PATH . $filename;
+    $publicBaseUrl = preg_replace(
+        '#/api_restaurante/?$#',
+        '',
+        rtrim($_ENV['APP_URL'] ?? 'https://amarerestaurant.club/api_restaurante', '/')
+    );
 
     Response::success([
-        'url' => $url
+        'path' => $path,
+        'url' => $publicBaseUrl . '/' . $path
     ]);
 }
 }
