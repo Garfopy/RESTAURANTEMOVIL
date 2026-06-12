@@ -15,3 +15,6 @@ build/
 .env
 .DS_Store
 Thumbs.db
+# Entorno de Python
+venv/
+__pycache__/
