@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,14 +12,18 @@ import {
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '../store/cart.store';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { OrderTypeSelector } from '../components/shared/OrderTypeSelector';
 import { Colors, Spacing, Typography, Shadows } from '../theme';
 import { formatImageUrl } from '../services/api';
+import { getDishById } from '../services/menu.service';
 import type { CarritoItem } from '@amare/types';
 import { useThemeColors } from '../store/theme.store';
+
+const PLACEHOLDER_FOOD = require('../assets/placeholder-food.jpg');
 
 export default function CartScreen() {
   const router = useRouter();
@@ -127,13 +131,61 @@ function CartItemRow({
   onRemove: (id: string) => void;
   onQty: (id: string, qty: number) => void;
 }) {
+  const [storedImageFailed, setStoredImageFailed] = useState(false);
+  const [freshImageFailed, setFreshImageFailed] = useState(false);
+
+  const storedImageUrl = useMemo(
+    () => formatImageUrl(item.platillo.imagen),
+    [item.platillo.imagen]
+  );
+
+  const shouldFetchFreshImage = !storedImageUrl || storedImageFailed;
+  const { data: freshPlatillo } = useQuery({
+    queryKey: ['cart-item-image', item.platillo.restaurante_id, item.platillo.id],
+    queryFn: () => getDishById(item.platillo.restaurante_id, item.platillo.id),
+    enabled: shouldFetchFreshImage && Boolean(item.platillo.id),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const freshImageUrl = useMemo(
+    () => formatImageUrl(freshPlatillo?.imagen),
+    [freshPlatillo?.imagen]
+  );
+
+  const imageKind = !storedImageFailed && storedImageUrl
+    ? 'stored'
+    : !freshImageFailed && freshImageUrl
+      ? 'fresh'
+      : 'placeholder';
+
+  const imageSource =
+    imageKind === 'stored'
+      ? { uri: storedImageUrl }
+      : imageKind === 'fresh'
+        ? { uri: freshImageUrl }
+        : PLACEHOLDER_FOOD;
+
+  useEffect(() => {
+    setStoredImageFailed(false);
+    setFreshImageFailed(false);
+  }, [item.id, item.platillo.imagen]);
+
+  function handleImageError() {
+    if (imageKind === 'stored') {
+      setStoredImageFailed(true);
+    } else if (imageKind === 'fresh') {
+      setFreshImageFailed(true);
+    }
+  }
+
   return (
     <View style={styles.itemRow}>
       <Image
-        source={formatImageUrl(item.platillo.imagen) ?? require('../assets/placeholder-food.jpg')}
+        source={imageSource}
         style={styles.itemImg}
         contentFit="cover"
         transition={200}
+        onError={handleImageError}
       />
       
       <View style={styles.itemInfo}>

@@ -48,44 +48,6 @@ export default function LoginScreen() {
         {/* Botones */}
 <Animated.View style={[styles.buttons, btnsStyle]}>
 
-  {/* Apple */}
-  <TouchableOpacity
-    style={styles.googleBtn}
-    onPress={() => router.push('/(auth)/apple-auth')}
-    activeOpacity={0.88}
-  >
-    <Ionicons
-      name="logo-apple"
-      size={20}
-      color={Colors.text}
-    />
-    <Text style={styles.googleLabel}>
-      Continuar con Apple
-    </Text>
-  </TouchableOpacity>
-
-  {/* Google */}
-  <TouchableOpacity
-    style={styles.googleBtn}
-    onPress={() => router.push('/(auth)/google-auth')}
-    activeOpacity={0.88}
-  >
-    <Ionicons
-      name="logo-google"
-      size={20}
-      color={Colors.text}
-    />
-    <Text style={styles.googleLabel}>
-      Continuar con Google
-    </Text>
-  </TouchableOpacity>
-
-  <View style={styles.divider}>
-    <View style={styles.dividerLine} />
-    <Text style={styles.dividerText}>o</Text>
-    <View style={styles.dividerLine} />
-  </View>
-
   <TouchableOpacity
     style={styles.emailBtn}
     onPress={() => router.push('/(auth)/email-login')}
