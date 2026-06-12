@@ -17,10 +17,13 @@ import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { OrderTypeSelector } from '../components/shared/OrderTypeSelector';
 import { Colors, Spacing, Typography, Shadows } from '../theme';
+import { formatImageUrl } from '../services/api';
 import type { CarritoItem } from '@amare/types';
+import { useThemeColors } from '../store/theme.store';
 
 export default function CartScreen() {
   const router = useRouter();
+  const theme = useThemeColors();
   const { items, removeItem, updateQty, total, clear, tipoPedido, setTipoPedido } = useCartStore();
 
   function handleCheckout() {
@@ -29,8 +32,8 @@ export default function CartScreen() {
 
   if (items.length === 0) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { backgroundColor: theme.background }]}>
           <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
             <Ionicons name="close" size={22} color="#111827" />
           </TouchableOpacity>
@@ -49,9 +52,9 @@ export default function CartScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       {/* Cabecera Aireada y Elegante */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.background }]}>
         <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
           <Ionicons name="close" size={22} color="#111827" />
         </TouchableOpacity>
@@ -95,12 +98,12 @@ export default function CartScreen() {
       />
 
       {/* --- FOOTER EN UNA SOLA FILA --- */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { backgroundColor: theme.background }]}>
         <Button
           label="Seguir ordenando"
           onPress={() => router.back()}
           size="lg"
-          variant="outline" // <-- Si tu componente UI soporta variantes outline, úsala aquí
+          variant="outline"
           style={styles.secondaryButton}
         />
 
@@ -127,7 +130,7 @@ function CartItemRow({
   return (
     <View style={styles.itemRow}>
       <Image
-        source={item.platillo.imagen ?? require('../assets/placeholder-food.jpg')}
+        source={formatImageUrl(item.platillo.imagen) ?? require('../assets/placeholder-food.jpg')}
         style={styles.itemImg}
         contentFit="cover"
         transition={200}
@@ -356,8 +359,5 @@ const styles = StyleSheet.create({
   secondaryButton: {
     flex: 1, // Toma exactamente la otra mitad del espacio
     borderRadius: 14,
-    backgroundColor: '#FFFFFF', // Fondo invertido a blanco puro
-    borderWidth: 2,
-    borderColor: Colors.primary || '#111827', // Borde del color de tu marca o negro oscuro
   },
 });
