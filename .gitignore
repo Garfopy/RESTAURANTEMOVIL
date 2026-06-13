@@ -1,3 +1,25 @@
+<<<<<<< HEAD
+# Dependencias de Backend (Node.js / PHP)
+node_modules/
+npm-debug.log*
+vendor/
+
+# Archivos de compilación de Mobile / Flutter
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Archivos comprimidos y de sistema
+*.rar
+*.zip
+.env
+.DS_Store
+Thumbs.db
+# Entorno de Python
+venv/
+__pycache__/
+=======
 node_modules/
 dist/
 .env
@@ -5,3 +27,4 @@ dist/
 *.log
 .turbo/
 .DS_Store
+>>>>>>> origin/migracion-api

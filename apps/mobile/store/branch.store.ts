@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Sucursal } from '@amare/types';
 import { apiClient } from '../services/api';
+import { normalizeBranch } from '../services/branches.service';
 
 interface BranchState {
   sucursales: Sucursal[];
@@ -38,7 +39,7 @@ export const useBranchStore = create<BranchState>((set, get) => ({
       // Usar el apiClient de axios que ya tiene la URL base de la PHP API
       const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>('/branches');
       
-      const listaSucursales = data.data?.branches || [];
+      const listaSucursales = (data.data?.branches || []).map(normalizeBranch);
       
       set({ sucursales: listaSucursales });
       get().autoSeleccionarSiUnica();

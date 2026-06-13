@@ -7,56 +7,109 @@ import type {
   RegisterPayload,
 } from '@amare/types';
 
-/** Parsea la respuesta del PHP API que devuelve { success, data: { user, token } } */
-function parseSesion(data: { user: MobileUser; token: string }): Sesion {
+type AuthUserPayload = Partial<MobileUser> & { user_id?: number };
+
+type AuthResponse =
+  | {
+      success?: boolean;
+      data?: {
+        user?: AuthUserPayload;
+        token?: string;
+      };
+    }
+  | (AuthUserPayload & {
+      token: string;
+    });
+
+type MeResponse =
+  | {
+      success?: boolean;
+      data?: {
+        user?: AuthUserPayload;
+      };
+    }
+  | AuthUserPayload;
+
+function hasAuthEnvelope(response: AuthResponse): response is Extract<AuthResponse, { data?: unknown }> {
+  return typeof response === 'object' && response !== null && 'data' in response;
+}
+
+function hasMeEnvelope(response: MeResponse): response is Extract<MeResponse, { data?: unknown }> {
+  return typeof response === 'object' && response !== null && 'data' in response;
+}
+
+function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
   return {
-    token: data.token,
-    user: data.user,
-    expires_at: '', // El PHP API no envía expires_at, se maneja con refresh implícito
+    id: Number(user?.id ?? user?.user_id ?? 0),
+    nombre: user?.nombre ?? '',
+    email: user?.email ?? '',
+    telefono: user?.telefono ?? null,
+    foto_url: user?.foto_url ?? null,
+    google_id: user?.google_id ?? null,
+    activo: user?.activo ?? true,
+    created_at: user?.created_at ?? '',
+    edad: user?.edad ?? null,
+    genero: user?.genero ?? null,
+    gustos: user?.gustos ?? null,
+    biografia: user?.biografia ?? null,
+    instagram: user?.instagram ?? null,
+    tiktok: user?.tiktok ?? null,
+    is_social_active: user?.is_social_active ?? user?.modo_social ?? false,
+    modo_social: user?.modo_social ?? user?.is_social_active ?? false,
   };
 }
 
-export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<Sesion> {
-  // La PHP API espera `token` en lugar de `id_token`
-  const { data } = await apiClient.post<{ success: boolean; data: { user: MobileUser; token: string } }>(
-    '/auth/google',
-    { token: payload.id_token }
-  );
-  return parseSesion(data.data);
+function parseSesion(response: AuthResponse): Sesion {
+  const token = hasAuthEnvelope(response) ? response.data?.token : response.token;
+  const user = hasAuthEnvelope(response) ? response.data?.user : response;
+
+  if (!token || !user) {
+    throw new Error('La respuesta del servidor no contiene una sesion valida.');
+  }
+
+  return {
+    token,
+    user: normalizeUser(user),
+    expires_at: '',
+  };
 }
 
 export async function loginWithEmail(payload: EmailLoginPayload): Promise<Sesion> {
-  const { data } = await apiClient.post<{ success: boolean; data: { user: MobileUser; token: string } }>(
-    '/auth/login',
-    { email: payload.email, password: payload.password }
-  );
-  return parseSesion(data.data);
+  const { data } = await apiClient.post<AuthResponse>('/auth/login', {
+    email: payload.email,
+    password: payload.password,
+  });
+  return parseSesion(data);
+}
+
+export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<Sesion> {
+  const { data } = await apiClient.post<AuthResponse>('/auth/login', {
+    email: payload.id_token,
+    password: 'google_oauth',
+  });
+  return parseSesion(data);
 }
 
 export async function register(payload: RegisterPayload): Promise<Sesion> {
-  // La PHP API espera `name`, `phone` en vez de `nombre`, `telefono`
-  const { data } = await apiClient.post<{ success: boolean; data: { user: MobileUser; token: string } }>(
-    '/auth/register',
-    {
-      name: payload.nombre,
-      email: payload.email,
-      password: payload.password,
-      phone: payload.telefono,
-    }
-  );
-  return parseSesion(data.data);
+  const { data } = await apiClient.post<AuthResponse>('/auth/register', {
+    nombre: payload.nombre,
+    email: payload.email,
+    password: payload.password,
+  });
+  return parseSesion(data);
 }
 
 export async function getMe(): Promise<MobileUser> {
-  const { data } = await apiClient.get<{ success: boolean; data: { user: MobileUser } }>('/auth/me');
-  return data.data.user;
+  const { data } = await apiClient.get<MeResponse>('/auth/me');
+  const user = hasMeEnvelope(data) ? data.data?.user : data;
+
+  if (!user) {
+    throw new Error('No se pudo obtener el usuario actual.');
+  }
+
+  return normalizeUser(user);
 }
 
-/**
- * La PHP API no tiene endpoint de logout.
- * Se elimina el token del lado del cliente únicamente.
- */
 export async function logout(): Promise<void> {
-  // No hay endpoint /auth/logout en la PHP API
   // El cliente limpia el token localmente en el store
 }

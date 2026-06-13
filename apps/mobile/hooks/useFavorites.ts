@@ -1,22 +1,26 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../services/api';
 
+type FavoriteItem = {
+  id: number;
+};
+
 export function useFavorites() {
   const queryClient = useQueryClient();
 
-  const query = useQuery({
+  const query = useQuery<FavoriteItem[]>({
     queryKey: ['favorites'],
     queryFn: async () => {
       const res = await apiClient.get('/favorites');
-      return res.data.data;
+      return (res.data.data ?? []) as FavoriteItem[];
     },
   });
 
   const toggle = async (id: number) => {
-    const previous = queryClient.getQueryData<any[]>(['favorites']) || [];
+    const previous = queryClient.getQueryData<FavoriteItem[]>(['favorites']) || [];
 
     // optimistic update
-    queryClient.setQueryData(['favorites'], (old: any[] = []) => {
+    queryClient.setQueryData<FavoriteItem[]>(['favorites'], (old = []) => {
       const exists = old.some((p) => p.id === id);
 
       if (exists) {

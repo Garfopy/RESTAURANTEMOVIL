@@ -1,0 +1,38 @@
+# Enruta todas las peticiones al front controller
+
+RewriteEngine On
+
+# Permitir acceso directo a api.php y archivos estáticos (SIN rewrite)
+RewriteCond %{REQUEST_URI} !/static/
+RewriteCond %{REQUEST_URI} !api\.php
+
+# Si no es un archivo/directorio real, redirigir a api.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ api.php [QSA,L]
+
+# Configuración CORS y cabeceras
+<IfModule mod_headers.c>
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Header set Access-Control-Allow-Headers "Content-Type, Authorization"
+</IfModule>
+
+# Tipos MIME para fotos
+<IfModule mod_mime.c>
+    AddType image/jpeg .jpg .jpeg
+    AddType image/png .png
+    AddType image/webp .webp
+</IfModule>
+
+# Cache para archivos estáticos
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 30 days"
+    ExpiresByType image/png "access plus 30 days"
+    ExpiresByType image/webp "access plus 30 days"
+</IfModule>
+
+# Limitar tamaño de subida a 5 MB para fotos
+php_value upload_max_filesize 5M
+php_value post_max_size 6M

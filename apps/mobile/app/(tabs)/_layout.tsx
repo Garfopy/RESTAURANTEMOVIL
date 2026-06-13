@@ -98,7 +98,6 @@ export default function TabsLayout() {
         tabBarShowLabel: false,
         tabBarAllowFontScaling: false,
         lazy: true,
-        detachInactiveScreens: true,
         freezeOnBlur: true,
 
         tabBarStyle: {

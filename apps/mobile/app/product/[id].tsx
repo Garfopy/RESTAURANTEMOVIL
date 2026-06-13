@@ -117,6 +117,7 @@ export default function ProductScreen() {
   }
 
   function handleAddToCart() {
+    if (!platillo) return;
     addItem(platillo, cantidad, modsSel, notas.trim());
     router.back();
   }
