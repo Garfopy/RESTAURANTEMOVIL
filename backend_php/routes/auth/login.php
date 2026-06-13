@@ -15,8 +15,8 @@ if (empty($body) || $email === '' || $password === '') {
 }
 
 $user = db_one(
-    "SELECT id, nombre, email, foto_url, password_hash,
-            edad, sexualidad, genero, descripcion, activo
+    "SELECT id, nombre, email, telefono, foto_url, google_id, password_hash,
+            edad, sexualidad, genero, descripcion, activo, created_at
        FROM mobile_usuarios
       WHERE email = ?
       LIMIT 1",
@@ -49,10 +49,22 @@ db_exec(
 );
 
 json_response([
-    'user_id'             => (int) $user['id'],
-    'nombre'              => $user['nombre'],
-    'email'               => $user['email'],
-    'foto_url'            => $user['foto_url'],
-    'has_social_profile'  => has_social_profile($user),
-    'token'               => $rawToken,
+    'success' => true,
+    'data' => [
+        'user' => [
+            'id' => (int) $user['id'],
+            'nombre' => $user['nombre'],
+            'email' => $user['email'],
+            'telefono' => $user['telefono'] ?? null,
+            'foto_url' => $user['foto_url'] ?? null,
+            'google_id' => $user['google_id'] ?? null,
+            'activo' => (bool) $user['activo'],
+            'created_at' => $user['created_at'] ?? '',
+            'edad' => isset($user['edad']) ? (int) $user['edad'] : null,
+            'genero' => $user['genero'] ?? null,
+            'biografia' => $user['descripcion'] ?? null,
+            'modo_social' => has_social_profile($user),
+        ],
+        'token' => $rawToken,
+    ],
 ]);

@@ -48,8 +48,19 @@ db_exec(
 );
 
 json_response([
-    'user_id' => $userId,
-    'nombre'  => $nombre,
-    'email'   => $email,
-    'token'   => $rawToken,
+    'success' => true,
+    'data' => [
+        'user' => [
+            'id' => (int) $userId,
+            'nombre' => $nombre,
+            'email' => $email,
+            'telefono' => null,
+            'foto_url' => null,
+            'google_id' => null,
+            'activo' => true,
+            'created_at' => $now,
+            'modo_social' => false,
+        ],
+        'token' => $rawToken,
+    ],
 ], 201);

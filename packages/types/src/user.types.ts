@@ -7,6 +7,19 @@ export interface MobileUser {
   google_id: string | null;
   activo: boolean;
   created_at: string;
+  // Social profile fields (frontend names)
+  edad?: number | null;
+  genero?: string | null;
+  sexualidad?: string | null;
+  gustos?: string | null; // -> columna: intereses
+  biografia?: string | null; // -> columna: descripcion
+  que_busca?: string | null;
+  redes_sociales?: string | null;
+  instagram?: string | null; // -> columna: redes_sociales (JSON o texto)
+  tiktok?: string | null; // -> columna: redes_sociales (JSON)
+  is_social_active?: boolean; // -> columna: is_social_active
+  modo_social?: boolean; // -> alias de is_social_active
+  current_restaurante_id?: number | null;
 }
 
 export interface Sesion {

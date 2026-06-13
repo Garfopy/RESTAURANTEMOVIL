@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { Alert, Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../theme';
@@ -51,7 +51,7 @@ export default function LoginScreen() {
   {/* Apple */}
   <TouchableOpacity
     style={styles.googleBtn}
-    onPress={() => router.push('/(auth)/apple-auth')}
+    onPress={() => Alert.alert('Próximamente', 'El inicio de sesión con Apple aún no está disponible.')}
     activeOpacity={0.88}
   >
     <Ionicons

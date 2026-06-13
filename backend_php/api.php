@@ -166,10 +166,10 @@ if (preg_match('#^/orders/(\d+)$#', $path, $m) && $method === 'GET') {
 }
 
 // ── Social ──────────────────────────────────────────────────────────
-if ($path === '/users/social-status' && $method === 'POST') {
+if ($path === '/users/social-status' && in_array($method, ['POST', 'PATCH'], true)) {
     require __DIR__ . '/routes/social/update_status.php'; exit;
 }
-if (preg_match('#^/restaurants/(\d+)/active-users$#', $path, $m) && $method === 'GET') {
+if (preg_match('#^/restaurants/(\d+)/(active-users|active-diners)$#', $path, $m) && $method === 'GET') {
     $db = db();
     $restaurantId = (int)$m[1];
     $sql = "SELECT id AS user_id, nombre, foto_url, edad, genero, sexualidad, descripcion, intereses, que_busca
@@ -276,7 +276,11 @@ if ($path === '/products' && $method === 'GET') {
 if ($path === '/gift-products' && $method === 'GET') {
     $db = db();
     try {
-        $stmt = $db->query('SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden FROM social_gift_products ORDER BY orden ASC, nombre ASC');
+        try {
+            $stmt = $db->query('SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden FROM social_gift_products ORDER BY orden ASC, nombre ASC');
+        } catch (Exception $e) {
+            $stmt = $db->query('SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden FROM social_gifts_products ORDER BY orden ASC, nombre ASC');
+        }
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         // Si la tabla no existe, retornar array vacío
@@ -308,8 +312,33 @@ if ($path === '/promotions' && $method === 'GET') {
 // ── Branches/Sucursales ─────────────────────────────────────────────
 if ($path === '/branches' && $method === 'GET') {
     $db = db();
-    $stmt = $db->query('SELECT * FROM sucursales WHERE activa = 1');
+    $stmt = $db->query(
+        'SELECT id, nombre, slug, descripcion, lat, lng, telefono, imagen_banner,
+                horarios_json, mesas_habilitadas, reservas_habilitadas, activo
+           FROM rest_restaurantes
+          WHERE activo = 1
+          ORDER BY nombre'
+    );
     json_response(['success' => true, 'data' => ['branches' => $stmt->fetchAll(PDO::FETCH_ASSOC)]]);
+    exit;
+}
+
+if (preg_match('#^/branches/(\d+)$#', $path, $m) && $method === 'GET') {
+    $db = db();
+    $branchId = (int)$m[1];
+    $stmt = $db->prepare(
+        'SELECT id, nombre, slug, descripcion, lat, lng, telefono, imagen_banner,
+                horarios_json, mesas_habilitadas, reservas_habilitadas, activo
+           FROM rest_restaurantes
+          WHERE id = ? AND activo = 1
+          LIMIT 1'
+    );
+    $stmt->execute([$branchId]);
+    $branch = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$branch) {
+        json_response(['detail' => 'Sucursal no encontrada.'], 404);
+    }
+    json_response(['success' => true, 'data' => ['branch' => $branch]]);
     exit;
 }
 

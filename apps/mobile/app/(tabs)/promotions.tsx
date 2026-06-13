@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient, formatImageUrl } from '../../services/api';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
+import type { BannerItem } from '../../components/shared/BannerCarousel';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 
@@ -39,14 +40,19 @@ export default function PromotionsScreen() {
 
   // Filtrar los destacados para el carrusel superior
   const bannerItems = (promos ?? [])
-    .filter((p) => p.imagen)
-    .map((p) => ({
-      id: p.id,
-      imagen: formatImageUrl(p.imagen!),
-      titulo: p.titulo,
-      subtitulo: p.descripcion,
-      deepLink: p.deepLink,
-    }));
+    .map((p): BannerItem | null => {
+      const imagen = formatImageUrl(p.imagen);
+      if (!imagen) return null;
+
+      return {
+        id: p.id,
+        imagen,
+        titulo: p.titulo,
+        subtitulo: p.descripcion,
+        deepLink: p.deepLink,
+      };
+    })
+    .filter((item): item is BannerItem => item !== null);
 
   const handlePromoPress = (deepLink?: string) => {
     if (!deepLink) return;
@@ -188,7 +194,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   subtitle: {
-    ...Typography.bodySmall,
+    ...Typography.bodySM,
     color: Colors.textMuted,
   },
   listContent: { 
@@ -199,7 +205,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   sectionTitle: {
-    ...Typography.bodyMedium,
+    ...Typography.body,
     fontWeight: '700',
     color: Colors.text,
     marginHorizontal: Spacing.base,

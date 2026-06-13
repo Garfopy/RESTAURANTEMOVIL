@@ -50,18 +50,19 @@ export default function CartScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Cabecera Aireada y Elegante */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
           <Ionicons name="close" size={22} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tu pedido</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           activeOpacity={0.7}
-          onPress={() => Alert.alert('Vaciar carrito', '¿Seguro que deseas quitar todos los elementos?', [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Vaciar', style: 'destructive', onPress: () => { clear(); router.back(); } },
-          ])}
+          onPress={() =>
+            Alert.alert('Vaciar carrito', '¿Seguro que deseas quitar todos los elementos?', [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Vaciar', style: 'destructive', onPress: () => { clear(); router.back(); } },
+            ])
+          }
         >
           <Text style={styles.clearText}>Vaciar</Text>
         </TouchableOpacity>
@@ -94,13 +95,12 @@ export default function CartScreen() {
         }
       />
 
-      {/* --- FOOTER EN UNA SOLA FILA --- */}
       <View style={styles.footer}>
         <Button
           label="Seguir ordenando"
           onPress={() => router.back()}
           size="lg"
-          variant="outline" // <-- Si tu componente UI soporta variantes outline, úsala aquí
+          variant="ghost"
           style={styles.secondaryButton}
         />
 
@@ -132,7 +132,7 @@ function CartItemRow({
         contentFit="cover"
         transition={200}
       />
-      
+
       <View style={styles.itemInfo}>
         <View style={styles.itemTopLine}>
           <Text style={styles.itemNombre} numberOfLines={1}>
@@ -150,7 +150,7 @@ function CartItemRow({
 
         <View style={styles.itemBottomLine}>
           <Text style={styles.itemPrecio}>${item.precio_unitario.toFixed(2)} c/u</Text>
-          
+
           <View style={styles.qtyPillContainer}>
             <TouchableOpacity
               activeOpacity={0.6}
@@ -159,12 +159,12 @@ function CartItemRow({
             >
               <Ionicons name={item.cantidad > 1 ? 'remove' : 'trash-outline'} size={14} color="#111827" />
             </TouchableOpacity>
-            
+
             <Text style={styles.qtyNumber}>{item.cantidad}</Text>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               activeOpacity={0.6}
-              onPress={() => onQty(item.id, item.cantidad + 1)} 
+              onPress={() => onQty(item.id, item.cantidad + 1)}
               style={styles.qtyAction}
             >
               <Ionicons name="add" size={14} color="#111827" />
@@ -193,30 +193,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#111827',
-    letterSpacing: -0.3 
+    letterSpacing: -0.3,
   },
-  clearText: { 
-    color: '#EF4444', 
-    fontSize: 14, 
+  clearText: {
+    color: '#EF4444',
+    fontSize: 14,
     fontWeight: '600',
     paddingHorizontal: 8,
   },
-  list: { paddingBottom: 140 }, // Reducido de 220 a 140 porque la fila única ocupa menos altura
-  
+  list: { paddingBottom: 140 },
+
   typeRow: {
     paddingTop: 16,
     paddingBottom: 24,
     gap: 12,
   },
-  sectionLabel: { 
-    fontSize: 14, 
-    fontWeight: '700', 
-    color: '#111827', 
-    paddingHorizontal: Spacing.base || 16 
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    paddingHorizontal: Spacing.base || 16,
   },
   selectorWrapper: {
     paddingHorizontal: 4,
@@ -231,11 +231,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  itemImg: { 
-    width: 76, 
-    height: 76, 
-    borderRadius: 16, 
-    backgroundColor: '#F3F4F6'
+  itemImg: {
+    width: 76,
+    height: 76,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
   },
   itemInfo: { flex: 1, justifyContent: 'space-between', height: 76 },
   itemTopLine: {
@@ -243,17 +243,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  itemNombre: { 
-    fontSize: 15, 
-    fontWeight: '700', 
-    color: '#111827', 
-    flex: 1, 
-    marginRight: 8 
+  itemNombre: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+    flex: 1,
+    marginRight: 8,
   },
-  itemSubtotal: { 
-    fontSize: 15, 
-    fontWeight: '700', 
-    color: '#111827' 
+  itemSubtotal: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
   },
   notesBadge: {
     flexDirection: 'row',
@@ -266,10 +266,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     maxWidth: '85%',
   },
-  itemNotas: { 
-    fontSize: 11, 
-    color: '#6B7280', 
-    fontWeight: '500'
+  itemNotas: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   itemBottomLine: {
     flexDirection: 'row',
@@ -277,10 +277,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   itemPrecio: { fontSize: 13, color: '#9CA3AF', fontWeight: '500' },
-  
-  qtyPillContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
+
+  qtyPillContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F3F4F6',
     borderRadius: 20,
     padding: 3,
@@ -295,12 +295,12 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
     shadowOpacity: 0.05,
   },
-  qtyNumber: { 
-    fontSize: 13, 
-    fontWeight: '700', 
-    color: '#111827', 
-    minWidth: 28, 
-    textAlign: 'center' 
+  qtyNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+    minWidth: 28,
+    textAlign: 'center',
   },
 
   summaryContainer: {
@@ -318,11 +318,11 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   summaryLabel: { fontSize: 14, color: '#6B7280', fontWeight: '500' },
   summaryValue: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  divider: { 
-    height: 1, 
-    backgroundColor: '#E5E7EB', 
+  divider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
     marginVertical: 4,
-    borderStyle: 'dashed' 
+    borderStyle: 'dashed',
   },
   totalRow: {
     flexDirection: 'row',
@@ -331,33 +331,32 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
   totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary || '#111827' },
-  
-  // NUEVO FOOTER HORIZONTAL
+
   footer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row', // Alínea los elementos de lado a lado
+    flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.base || 16,
     paddingTop: 16,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 20, 
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
-    gap: 12, // Espacio intermedio entre ambos botones
+    gap: 12,
     ...Shadows.md,
   },
   checkoutButton: {
-    flex: 1, // Toma exactamente la mitad del espacio
+    flex: 1,
     borderRadius: 14,
   },
   secondaryButton: {
-    flex: 1, // Toma exactamente la otra mitad del espacio
+    flex: 1,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF', // Fondo invertido a blanco puro
+    backgroundColor: '#FFFFFF',
     borderWidth: 2,
-    borderColor: Colors.primary || '#111827', // Borde del color de tu marca o negro oscuro
+    borderColor: Colors.primary || '#111827',
   },
 });

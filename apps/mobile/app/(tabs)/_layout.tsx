@@ -87,15 +87,11 @@ const TabIcon = memo(
 export default function TabsLayout() {
   return (
     <Tabs
-      sceneContainerStyle={{
-        backgroundColor: Colors.background || '#F9FAFB',
-      }}
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: false,
         tabBarAllowFontScaling: false,
         lazy: true,
-        detachInactiveScreens: true,
         freezeOnBlur: true,
 
         tabBarStyle: {

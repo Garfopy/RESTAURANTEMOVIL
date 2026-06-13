@@ -9,11 +9,15 @@ export interface ApiErrorResponse {
   message?: string;
   statusText?: string;
   response?: {
-    data?: {
-      message?: string;
-      error?: string;
-      errors?: Record<string, string>;
-    };
+    status?: number;
+    data?:
+      | {
+          detail?: string;
+          message?: string;
+          error?: string;
+          errors?: Record<string, string>;
+        }
+      | string;
   };
 }
 
@@ -33,8 +37,16 @@ export interface FriendlyError {
  */
 export function mapErrorToFriendly(error: any): FriendlyError {
   const apiError = error as ApiErrorResponse;
+  const responseData =
+    apiError?.response?.data && typeof apiError.response.data === 'object' ? apiError.response.data : undefined;
   const status = apiError?.status || apiError?.response?.status;
-  const message = apiError?.message || apiError?.response?.data?.message || error?.message || '';
+  const message =
+    responseData?.detail ||
+    responseData?.message ||
+    responseData?.error ||
+    apiError?.message ||
+    error?.message ||
+    '';
 
   // Credenciales inválidas
   if (
@@ -62,15 +74,30 @@ export function mapErrorToFriendly(error: any): FriendlyError {
     };
   }
 
-  // Email ya registrado
-  if (
-    status === 409 ||
-    message.toLowerCase().includes('already exists') ||
-    message.toLowerCase().includes('already registered') ||
-    message.toLowerCase().includes('ya existe')
-  ) {
+  // 409 — puede ser firewall o email duplicado. Mostramos el mensaje real del servidor.
+  if (status === 409) {
+    const rawData = apiError?.response?.data;
+    // Si la respuesta es HTML (firewall), mostrar mensaje genérico
+    if (typeof rawData === 'string' && rawData.includes('<script')) {
+      return {
+        message: 'Verificando seguridad... Intenta de nuevo.',
+        type: 'validation',
+        icon: 'shield',
+        isDismissible: true,
+      };
+    }
+    // Si tiene detail del servidor, mostrarlo directamente
+    if (typeof rawData === 'object' && rawData !== null && (rawData as any).detail) {
+      return {
+        message: (rawData as any).detail,
+        type: 'validation',
+        icon: 'alert-circle',
+        isDismissible: true,
+      };
+    }
+    // Fallback: mensaje genérico
     return {
-      message: 'Este email ya está registrado. Intenta con otro o recupera tu contraseña.',
+      message: message || 'Error al procesar la solicitud.',
       type: 'validation',
       icon: 'alert-circle',
       isDismissible: true,
