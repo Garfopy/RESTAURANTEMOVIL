@@ -34,7 +34,7 @@ export function ProductCard({
   // ✅ React Query source of truth
   const { data: favorites = [], toggle } = useFavorites();
 
-  const isFavorite = favorites.some((p: Platillo) => p.id === platillo.id);
+  const isFavorite = favorites.some((p) => p.id === platillo.id);
 
   const animStyle = { transform: [{ scale }] };
 

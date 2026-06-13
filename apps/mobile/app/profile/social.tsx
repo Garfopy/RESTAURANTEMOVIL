@@ -45,6 +45,12 @@ type SocialProfileResponse = {
   has_social_profile?: boolean;
 };
 
+type ApiEnvelope<T> = {
+  success?: boolean;
+  message?: string;
+  data?: T;
+};
+
 type DinerApiItem = {
   user_id: number;
   nombre: string;
@@ -216,6 +222,14 @@ function formatHandleLabel(value?: string | null): string | null {
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
+function unwrapApiData<T>(payload: ApiEnvelope<T> | T): T {
+  if (payload && typeof payload === 'object' && 'data' in payload && payload.data !== undefined) {
+    return payload.data as T;
+  }
+
+  return payload as T;
+}
+
 function moduloIndex(index: number, total: number): number {
   if (total <= 0) return 0;
   return ((index % total) + total) % total;
@@ -374,7 +388,10 @@ export default function SocialProfileScreen() {
     async function loadProfile() {
       try {
         setProfileLoading(true);
-        const { data } = await apiClient.get<SocialProfileResponse>('/users/social-profile');
+        const response = await apiClient.get<ApiEnvelope<SocialProfileResponse> | SocialProfileResponse>(
+          '/users/social-profile'
+        );
+        const data = unwrapApiData(response.data);
         if (!mounted) return;
 
         const redes = parseSocialNetworks(data.redes_sociales);
@@ -716,7 +733,11 @@ export default function SocialProfileScreen() {
         redes_sociales: stringifySocialNetworks(form.instagram, form.tiktok),
       };
 
-      const { data } = await apiClient.put<SocialProfileResponse>('/users/social-profile', payload);
+      const response = await apiClient.put<ApiEnvelope<SocialProfileResponse> | SocialProfileResponse>(
+        '/users/social-profile',
+        payload
+      );
+      const data = unwrapApiData(response.data);
       const redes = parseSocialNetworks(data.redes_sociales);
       const photoUrl = resolvePhotoUrl(data.foto_url) ?? user?.foto_url ?? null;
       const ready =

@@ -23,6 +23,7 @@ export default function ProfileScreen() {
   const user = useUserStore((s) => s.user);
   const setUser = useUserStore((s) => s.setUser);
   const logoutStore = useUserStore((s) => s.logout);
+  const socialEnabled = Boolean(user?.is_social_active ?? user?.modo_social);
 
   const [uploading, setUploading] = useState(false);
 
@@ -39,7 +40,7 @@ export default function ProfileScreen() {
   }
 
   async function openPicker(isCamera: boolean) {
-    const permissionResult = isCamera 
+    const permissionResult = isCamera
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -63,7 +64,7 @@ export default function ProfileScreen() {
       const formData = new FormData();
       const filename = uri.split('/').pop() || 'avatar.jpg';
       const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : `image/jpeg`;
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
 
       formData.append('foto', {
         uri,
@@ -95,7 +96,9 @@ export default function ProfileScreen() {
         text: 'Salir',
         style: 'destructive',
         onPress: async () => {
-          try { await logout(); } catch {}
+          try {
+            await logout();
+          } catch {}
           await logoutStore();
         },
       },
@@ -109,7 +112,6 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Sección del Avatar Principal */}
         <View style={styles.avatarSection}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
@@ -121,23 +123,47 @@ export default function ProfileScreen() {
                 </Text>
               )}
             </View>
-            <TouchableOpacity 
-              style={styles.editBadge} 
+            <TouchableOpacity
+              style={styles.editBadge}
               activeOpacity={0.9}
               onPress={handlePickImage}
               disabled={uploading}
             >
-              {uploading 
-                ? <ActivityIndicator size="small" color="#FFFFFF" />
-                : <Ionicons name="camera" size={16} color="#FFFFFF" />
-              }
+              {uploading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={16} color="#FFFFFF" />
+              )}
             </TouchableOpacity>
           </View>
           <Text style={styles.nombre}>{user?.nombre ?? '—'}</Text>
           <Text style={styles.email}>{user?.email ?? ''}</Text>
         </View>
 
-        {/* Bloques de Menú */}
+        <TouchableOpacity
+          style={styles.socialCard}
+          activeOpacity={0.85}
+          onPress={() => router.push('/profile/social' as any)}
+        >
+          <View style={styles.socialCardIcon}>
+            <Ionicons name="people" size={24} color="#FFFFFF" />
+          </View>
+          <View style={styles.socialCardBody}>
+            <Text style={styles.socialCardTitle}>Perfil social</Text>
+            <Text style={styles.socialCardText}>
+              {socialEnabled
+                ? 'Tu modo social está activo. Toca aquí para ver o editar tu perfil.'
+                : 'Completa o activa tu espacio social para descubrir otros comensales.'}
+            </Text>
+          </View>
+          <View style={styles.socialCardStatus}>
+            <Text style={[styles.socialStatusText, socialEnabled && styles.socialStatusTextActive]}>
+              {socialEnabled ? 'Activo' : 'Abrir'}
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+
         <View style={styles.menuContainer}>
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
           <View style={styles.section}>
@@ -181,7 +207,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Botón Cerrar Sesión Premium */}
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
           <Ionicons name="log-out" size={20} color={Colors.error || '#EF4444'} />
           <Text style={styles.logoutText}>Cerrar sesión</Text>
@@ -191,17 +216,16 @@ export default function ProfileScreen() {
   );
 }
 
-// Subcomponente de Elemento de Menú Refactorizado
-function MenuItem({ 
-  icon, 
-  label, 
-  color, 
+function MenuItem({
+  icon,
+  label,
+  color,
   onPress,
-  showDivider = false 
-}: { 
-  icon: string; 
-  label: string; 
-  color: string; 
+  showDivider = false,
+}: {
+  icon: string;
+  label: string;
+  color: string;
   onPress: () => void;
   showDivider?: boolean;
 }) {
@@ -219,29 +243,29 @@ function MenuItem({
 }
 
 const styles = StyleSheet.create({
-  safe: { 
-    flex: 1, 
-    backgroundColor: Colors.background || '#F9FAFB' 
+  safe: {
+    flex: 1,
+    backgroundColor: Colors.background || '#F9FAFB',
   },
   header: {
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 16,
   },
-  headerTitle: { 
-    fontSize: 34, 
-    fontWeight: '800', 
-    color: Colors.text || '#111827', 
+  headerTitle: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: Colors.text || '#111827',
     letterSpacing: -0.8,
     lineHeight: 42,
     paddingTop: 4,
   },
-  content: { 
-    paddingHorizontal: 24, 
-    paddingBottom: 120 
+  content: {
+    paddingHorizontal: 24,
+    paddingBottom: 120,
   },
-  avatarSection: { 
-    alignItems: 'center', 
+  avatarSection: {
+    alignItems: 'center',
     paddingVertical: 24,
   },
   avatarContainer: {
@@ -278,26 +302,73 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
     ...Shadows.sm,
   },
-  avatarLetter: { 
-    color: '#FFFFFF', 
-    fontSize: 38, 
-    fontWeight: '800' 
+  avatarLetter: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '800',
   },
-  nombre: { 
-    fontSize: 24, 
-    fontWeight: '800', 
-    color: Colors.text || '#111827', 
+  nombre: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text || '#111827',
     letterSpacing: -0.5,
-    marginBottom: 4
+    marginBottom: 4,
   },
-  email: { 
-    fontSize: 14, 
+  email: {
+    fontSize: 14,
     fontWeight: '500',
-    color: '#6B7280' 
+    color: '#6B7280',
   },
-  menuContainer: { 
-    gap: 20, 
-    marginTop: 12 
+  socialCard: {
+    marginTop: 6,
+    marginBottom: 4,
+    borderRadius: 24,
+    padding: 18,
+    backgroundColor: '#111827',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    ...Shadows.md,
+  },
+  socialCardIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: '#8B5CF6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  socialCardBody: {
+    flex: 1,
+  },
+  socialCardTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  socialCardText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.82)',
+  },
+  socialCardStatus: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  socialStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#C4B5FD',
+  },
+  socialStatusTextActive: {
+    color: '#86EFAC',
+  },
+  menuContainer: {
+    gap: 20,
+    marginTop: 12,
   },
   sectionTitle: {
     fontSize: 13,
@@ -331,20 +402,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  iconBg: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 12, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginRight: 14 
+  iconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
   },
-  menuLabel: { 
-    flex: 1, 
-    fontSize: 16, 
-    color: Colors.text || '#111827', 
+  menuLabel: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.text || '#111827',
     fontWeight: '600',
-    letterSpacing: -0.2
+    letterSpacing: -0.2,
   },
   logoutBtn: {
     flexDirection: 'row',
@@ -358,9 +429,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FEE2E2',
   },
-  logoutText: { 
-    fontSize: 15, 
-    fontWeight: '700', 
-    color: Colors.error || '#EF4444' 
+  logoutText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.error || '#EF4444',
   },
 });
