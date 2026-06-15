@@ -8,18 +8,28 @@ use Amare\Api\Config\Database;
 
 class Category
 {
-    public static function getAll(): array
+    public static function getAll(?int $branchId = null): array
     {
         // 🔥 Replicando la query de Node.js que incluye total_platillos
         $sql = "SELECT c.id, c.nombre, c.descripcion, c.imagen, c.orden, c.activo,
                        COUNT(p.id) as total_platillos
                 FROM rest_categorias_menu c
                 LEFT JOIN rest_platillos p ON p.categoria_id = c.id
+                  AND p.restaurante_id = c.restaurante_id
                   AND p.disponible = 1 AND p.activo = 1
-                WHERE c.activo = 1
-                GROUP BY c.id
-                ORDER BY c.orden, c.nombre";
-        return Database::query($sql);
+                WHERE c.activo = 1";
+
+        $params = [];
+
+        if ($branchId !== null) {
+            $sql .= " AND c.restaurante_id = :restaurante_id";
+            $params[':restaurante_id'] = $branchId;
+        }
+
+        $sql .= " GROUP BY c.id
+                  ORDER BY c.orden, c.nombre";
+
+        return Database::query($sql, $params);
     }
 
     public static function findById(int $id): ?array

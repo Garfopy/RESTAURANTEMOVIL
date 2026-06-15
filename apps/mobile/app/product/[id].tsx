@@ -30,7 +30,7 @@ export default function ProductScreen() {
     restauranteId: string;
   }>();
 
-  const { data: platillo, isLoading } = useDish(
+  const { data: platillo, isLoading, isError } = useDish(
     Number(restauranteId),
     Number(id)
   );
@@ -45,6 +45,19 @@ export default function ProductScreen() {
   const [cantidad, setCantidad] = useState(1);
   const [notas, setNotas] = useState('');
   const [modsSel, setModsSel] = useState<ModificadorSeleccionado[]>([]);
+
+  if (isError) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.notFound}>
+          <Ionicons name="restaurant-outline" size={44} color={Colors.textMuted} />
+          <Text style={styles.notFoundTitle}>Platillo no disponible</Text>
+          <Text style={styles.notFoundText}>Este platillo no pertenece a la sucursal seleccionada.</Text>
+          <Button label="Volver al menu" onPress={() => router.back()} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading || !platillo) {
     return (
@@ -366,4 +379,22 @@ const styles = StyleSheet.create({
   },
   qtyBtn: { padding: 6 },
   qty: { fontSize: 16, fontWeight: '700', color: Colors.text, minWidth: 24, textAlign: 'center' },
+  notFound: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  notFoundTitle: {
+    ...Typography.h3,
+    color: Colors.text,
+    textAlign: 'center',
+  },
+  notFoundText: {
+    ...Typography.body,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
 });

@@ -127,6 +127,7 @@ export default function RootLayout() {
                   <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="checkout/order-type" />
                   <Stack.Screen name="checkout/payment" />
+                  <Stack.Screen name="checkout/exit-pass" />
                   <Stack.Screen name="order/[id]" />
                 </Stack>
                 <GlobalCartButton />

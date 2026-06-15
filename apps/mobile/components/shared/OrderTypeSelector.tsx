@@ -12,7 +12,7 @@ const OPTIONS: { tipo: TipoPedido; label: string; icon: keyof typeof Ionicons.gl
 ];
 
 interface OrderTypeSelectorProps {
-  value: TipoPedido;
+  value: TipoPedido | null;
   onChange: (tipo: TipoPedido) => void;
   available?: TipoPedido[];
 }

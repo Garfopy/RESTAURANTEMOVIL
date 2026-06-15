@@ -16,6 +16,7 @@ $routes = [
     
     // Branches routes
     ['GET', '/branches', ['Amare\Api\Controllers\BranchController', 'index']],
+    ['GET', '/branches/nearest', ['Amare\Api\Controllers\BranchController', 'nearest']],
 
     // Config routes (configuración por restaurante) - DEBEN ir antes de /branches/:id
     ['GET', '/settings/theme', ['Amare\Api\Controllers\SettingsController', 'theme']],
@@ -32,8 +33,10 @@ $routes = [
     // Orders routes
     ['GET', '/orders', ['Amare\Api\Controllers\OrderController', 'index']],
     ['GET', '/orders/:id', ['Amare\Api\Controllers\OrderController', 'show']],
+    ['GET', '/orders/:id/exit-pass', ['Amare\Api\Controllers\OrderController', 'exitPass']],
     ['POST', '/orders', ['Amare\Api\Controllers\OrderController', 'store']],
     ['POST', '/orders/:id/confirm-payment', ['Amare\Api\Controllers\OrderController', 'confirmPayment']],
+    ['POST', '/orders/exit-pass/scan', ['Amare\Api\Controllers\OrderController', 'scanExitPass']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],

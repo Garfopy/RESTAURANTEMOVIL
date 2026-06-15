@@ -1,189 +1,134 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
   TouchableOpacity,
-  FlatList,
   ScrollView,
   Alert,
   ActivityIndicator,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import MapView, { Marker, Region } from 'react-native-maps';
+import MapView, { Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { apiClient, getApiError } from '../../services/api';
-import { getRestaurantConfig } from '../../services/config.service';
-import type { RestaurantConfig } from '@amare/types';
-
-// Stores de la aplicación
 import { useCartStore } from '../../store/cart.store';
-import { useUserStore } from '../../store/user.store';
-import { useBranchStore } from '../../store/branch.store'; // 🌟 Para leer los datos del restaurante
-
-import { createPaymentIntent } from '../../services/orders.service';
+import { useBranchStore } from '../../store/branch.store';
+import { createOrder, createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
-import { Colors, Spacing, Shadows } from '../../theme';
+import { Colors, Spacing } from '../../theme';
 
-const ALL_ORDER_TYPES = [
-  {
-    id: 'delivery',
-    title: 'A domicilio',
-    subtitle: 'Te lo llevamos rápido',
-    icon: 'bicycle-outline',
-    iconActive: 'bicycle',
-  },
-  {
-    id: 'pickup',
-    title: 'Para llevar',
-    subtitle: 'Tú recoges en tienda',
-    icon: 'bag-handle-outline',
-    iconActive: 'bag-handle',
-  },
-  {
-    id: 'eat_in',
-    title: 'Comer aquí',
-    subtitle: 'En el restaurante',
-    icon: 'restaurant-outline',
-    iconActive: 'restaurant',
-  },
-];
+type SavedAddress = {
+  id: number | string;
+  alias?: string;
+  calle?: string;
+  numero?: string;
+  colonia?: string;
+  ciudad?: string;
+  es_principal?: boolean;
+};
+
+type AddressData = {
+  calle: string;
+  colonia: string;
+  ciudad: string;
+  lat: number;
+  lng: number;
+  cp?: string | null;
+};
+
+type RestaurantTable = {
+  id: number;
+  label: string;
+  value: string;
+};
 
 export default function OrderTypeScreen() {
   const router = useRouter();
-  const { width: screenWidth } = useWindowDimensions();
-  const { items, total, tipoPedido, setTipoPedido, restauranteId } = useCartStore();
+  const { items, total, tipoPedido, restauranteId, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
+
   const resolvedRestaurantId =
     restauranteId ??
     seleccionada?.id ??
     items[0]?.platillo?.restaurante_id ??
     null;
-  
-  const user = useUserStore(s => s.user);
 
-  // Estados para direcciones persistentes
-  const [direccionesGuardadas, setDireccionesGuardadas] = useState<any[]>([]);
-  const [direccionSeleccionada, setDireccionSeleccionada] = useState<any | null>(null);
+  const selectedBranch = useMemo(
+    () => sucursales.find((s) => String(s.id) === String(resolvedRestaurantId)) ?? seleccionada ?? null,
+    [resolvedRestaurantId, seleccionada, sucursales]
+  );
+
+  const [direccionesGuardadas, setDireccionesGuardadas] = useState<SavedAddress[]>([]);
+  const [direccionSeleccionada, setDireccionSeleccionada] = useState<SavedAddress | null>(null);
   const [showMap, setShowMap] = useState(false);
-  const [addressData, setAddressData] = useState<any>(null); // Datos desglosados del geocode
-
-  // Estados locales para el flujo de ubicación
+  const [addressData, setAddressData] = useState<AddressData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
-  const [ubicacionVisual, setUbicacionVisual] = useState<string>('');
-  const [coords, setCoords] = useState<{
-    latitude: number;
-    longitude: number;
-    latitudeDelta: number;
-    longitudeDelta: number;
-  } | null>(null);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [ubicacionVisual, setUbicacionVisual] = useState('');
+  const [coords, setCoords] = useState<Region | null>(null);
+  const [tables, setTables] = useState<RestaurantTable[]>([]);
+  const [selectedTable, setSelectedTable] = useState<RestaurantTable | null>(null);
 
-  // Configuración del restaurante (métodos de pago y tipos de entrega habilitados)
-  const [config, setConfig] = useState<RestaurantConfig | null>(null);
-  const [loadingConfig, setLoadingConfig] = useState(true);
-
-  // Filtrar tipos de entrega según configuración
-  const enabledOrderTypes = config
-    ? ALL_ORDER_TYPES.filter((t) => config.tipos_entrega.includes(t.id as never))
-    : ALL_ORDER_TYPES.filter((t) => t.id !== 'eat_in'); // Por defecto: delivery + pickup
-
-  // Calcular dimensiones dinámicas de cards según cantidad
-  function getCardDimensions() {
-    const count = enabledOrderTypes.length;
-    const containerPadding = (Spacing.base || 16) * 2;
-    const gap = 16;
-    const availableWidth = screenWidth - containerPadding;
-
-    if (count === 1) {
-      return {
-        width: Math.min(availableWidth * 0.55, 200),
-        aspectRatio: 1.1,
-        iconSize: 36,
-        cardPadding: 16,
-        justifyContent: 'center' as const,
-      };
-    }
-    if (count === 2) {
-      return {
-        width: (availableWidth - gap) / 2,
-        aspectRatio: 0.9,
-        iconSize: 32,
-        cardPadding: 14,
-        justifyContent: 'space-between' as const,
-      };
-    }
-    // 3 métodos
-    return {
-      width: (availableWidth - gap * 2) / 3,
-      aspectRatio: 0.8,
-      iconSize: 28,
-      cardPadding: 12,
-      justifyContent: 'space-between' as const,
-    };
-  }
-
-  // Sincronizar y procesar la ubicación según el tipo de entrega seleccionado
   useEffect(() => {
     cargarDirecciones();
-    cargarConfiguracion();
   }, []);
 
   useEffect(() => {
-    if (!tipoPedido) return;
+    if (tipoPedido === 'eat_in' && resolvedRestaurantId) {
+      cargarMesas(Number(resolvedRestaurantId));
+    }
+  }, [resolvedRestaurantId, tipoPedido]);
+
+  useEffect(() => {
+    if (!tipoPedido) {
+      setUbicacionVisual('');
+      return;
+    }
 
     if (tipoPedido === 'delivery') {
-      // Lógica para entrega a domicilio
-      if (direccionesGuardadas.length === 0) {
+      if (direccionSeleccionada) {
+        setUbicacionVisual(formatAddress(direccionSeleccionada));
+        setShowMap(false);
+        return;
+      }
+
+      if (!addressData && !coords && !loadingLocation) {
         setShowMap(true);
         obtenerUbicacionGPS();
       }
-    } else if (tipoPedido === 'pickup') {
-      // Lógica para recoger en tienda
-      setShowMap(false);
-      const sucursalIdStr = String(resolvedRestaurantId);
-      const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
-      setUbicacionVisual(sucursal?.direccion || sucursal?.descripcion || 'Sucursal Seleccionada');
-    } else if (tipoPedido === 'eat_in') {
-      // Comer en el restaurante
-      setShowMap(false);
-      const sucursalIdStr = String(resolvedRestaurantId);
-      const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
-      setUbicacionVisual(sucursal?.nombre || 'Restaurante');
-    }
-  }, [tipoPedido, resolvedRestaurantId, sucursales]);
-
-  async function cargarConfiguracion() {
-    if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
-      setLoadingConfig(false);
       return;
     }
-    try {
-      const cfg = await getRestaurantConfig(Number(resolvedRestaurantId));
-      setConfig(cfg);
-      // Si el tipo actual no está habilitado, resetear al primero disponible
-      if (tipoPedido && !cfg.tipos_entrega.includes(tipoPedido as never)) {
-        setTipoPedido(cfg.tipos_entrega[0] as never);
-      }
-    } catch (err) {
-      console.error('Error al cargar configuración del restaurante:', err);
-    } finally {
-      setLoadingConfig(false);
+
+    setShowMap(false);
+    if (tipoPedido === 'pickup') {
+      setUbicacionVisual(
+        selectedBranch
+          ? `${selectedBranch.nombre} · ${selectedBranch.direccion || selectedBranch.descripcion || 'Sucursal'}`
+          : 'Sucursal seleccionada'
+      );
+      return;
     }
-  }
+
+    setUbicacionVisual(
+      selectedTable
+        ? `${selectedBranch?.nombre || 'Sucursal'} · ${selectedTable.label}`
+        : selectedBranch?.nombre || 'Comer aqui'
+    );
+  }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, selectedTable, tipoPedido]);
 
   async function cargarDirecciones() {
     try {
       const res = await apiClient.get('/profile/addresses');
       if (res.data.success || res.data.ok) {
-        setDireccionesGuardadas(Array.isArray(res.data.data) ? res.data.data : []);
-        const principal = res.data.data.find((d: any) => d.es_principal) || res.data.data[0];
+        const addresses = Array.isArray(res.data.data) ? res.data.data : [];
+        setDireccionesGuardadas(addresses);
+        const principal = addresses.find((d: SavedAddress) => d.es_principal) || addresses[0];
         if (principal) {
           setDireccionSeleccionada(principal);
-          setUbicacionVisual(`${principal.calle} ${principal.numero || ''}, ${principal.colonia}`);
         }
       }
     } catch (err) {
@@ -191,18 +136,33 @@ export default function OrderTypeScreen() {
     }
   }
 
-  // Función asíncrona para consultar el GPS del dispositivo y aplicar geocoding inverso
+  async function cargarMesas(branchId: number) {
+    try {
+      setTablesLoading(true);
+      const res = await apiClient.get(`/restaurants/${branchId}/tables`);
+      const data = Array.isArray(res.data?.data) ? res.data.data : [];
+      setTables(data);
+      if (!selectedTable && data.length === 1) {
+        setSelectedTable(data[0]);
+      }
+    } catch (err) {
+      console.error('Error al cargar mesas:', err);
+    } finally {
+      setTablesLoading(false);
+    }
+  }
+
   async function obtenerUbicacionGPS() {
     try {
       setLoadingLocation(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
-      
+
       if (status !== 'granted') {
         Alert.alert(
           'Permiso denegado',
-          'Necesitamos acceso a tu ubicación para calcular el envío. Puedes escribir tu dirección manualmente.'
+          'Necesitamos acceso a tu ubicacion para calcular el envio. Puedes escribir tu direccion manualmente.'
         );
-        setUbicacionVisual('Escribe tu dirección aquí...');
+        setUbicacionVisual('Escribe tu direccion aqui...');
         return;
       }
 
@@ -219,16 +179,14 @@ export default function OrderTypeScreen() {
 
       setCoords(initialRegion);
       await actualizarDireccionTexto(initialRegion.latitude, initialRegion.longitude);
-      
     } catch (error) {
-      console.error('Error al obtener la ubicación:', error);
-      setUbicacionVisual('Dirección no encontrada automáticamente');
+      console.error('Error al obtener la ubicacion:', error);
+      setUbicacionVisual('Direccion no encontrada automaticamente');
     } finally {
       setLoadingLocation(false);
     }
   }
 
-  // Nueva función para actualizar el texto de la dirección basado en coordenadas
   async function actualizarDireccionTexto(lat: number, lng: number) {
     try {
       const reverseGeocode = await Location.reverseGeocodeAsync({
@@ -238,10 +196,10 @@ export default function OrderTypeScreen() {
 
       if (reverseGeocode && reverseGeocode.length > 0) {
         const address = reverseGeocode[0];
-        const calle = `${address.street || 'Calle'} ${address.name || ''}`;
+        const calle = `${address.street || 'Calle'} ${address.name || ''}`.trim();
         const colonia = address.district || address.subregion || '';
         const direccionFormateada = `${calle}, Col. ${colonia}, ${address.city || ''}`;
-        
+
         setUbicacionVisual(direccionFormateada);
         setAddressData({
           calle,
@@ -249,7 +207,7 @@ export default function OrderTypeScreen() {
           ciudad: address.city || '',
           lat,
           lng,
-          cp: address.postalCode
+          cp: address.postalCode,
         });
       }
     } finally {
@@ -257,44 +215,48 @@ export default function OrderTypeScreen() {
     }
   }
 
-  // Permite al usuario re-escribir o seleccionar otra dirección si lo desea
   function handleCambiarUbicacion() {
-    if (tipoPedido === 'delivery') {
-      Alert.prompt(
-        'Modificar dirección',
-        'Introduce los detalles exactos de tu domicilio:',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Guardar',
-            onPress: (nuevaDireccion: string | undefined) => {
-              if (nuevaDireccion && nuevaDireccion.trim() !== '') {
-                setUbicacionVisual(nuevaDireccion);
-                setAddressData((prev: any) => prev ? { ...prev, calle: nuevaDireccion, colonia: '' } : { calle: nuevaDireccion, colonia: '', ciudad: '', lat: 0, lng: 0, cp: '' });
-              }
-            },
+    if (tipoPedido !== 'delivery') return;
+
+    Alert.prompt(
+      'Modificar direccion',
+      'Introduce los detalles exactos de tu domicilio:',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Guardar',
+          onPress: (nuevaDireccion: string | undefined) => {
+            if (nuevaDireccion && nuevaDireccion.trim() !== '') {
+              setDireccionSeleccionada(null);
+              setShowMap(false);
+              setUbicacionVisual(nuevaDireccion);
+              setAddressData((prev) =>
+                prev
+                  ? { ...prev, calle: nuevaDireccion, colonia: '' }
+                  : { calle: nuevaDireccion, colonia: '', ciudad: '', lat: 0, lng: 0, cp: '' }
+              );
+            }
           },
-        ],
-        'plain-text',
-        ubicacionVisual
-      );
-    }
+        },
+      ],
+      'plain-text',
+      ubicacionVisual
+    );
   }
 
-  // Se dispara cuando el usuario termina de mover el mapa
   function handleRegionChangeComplete(region: Region) {
     if (tipoPedido === 'delivery') {
+      setDireccionSeleccionada(null);
       setCoords(region);
-      // Solo actualizamos el texto si no estamos cargando inicialmente
       actualizarDireccionTexto(region.latitude, region.longitude);
     }
   }
 
-  async function promptToSaveAddress(): Promise<string | null> {
+  async function promptToSaveAddress(): Promise<string | number | null> {
     return new Promise((resolve) => {
       Alert.alert(
-        '¿Guardar esta dirección?',
-        'Podrás usarla en futuros pedidos a domicilio',
+        'Guardar esta direccion?',
+        'Podras usarla en futuros pedidos a domicilio',
         [
           {
             text: 'No guardar',
@@ -303,32 +265,15 @@ export default function OrderTypeScreen() {
           },
           {
             text: 'Guardar',
-            onPress: async () => {
-              // Mostrar opciones de alias
+            onPress: () => {
               Alert.alert(
-                'Tipo de dirección',
-                'Elige cómo quieres llamar esta dirección',
+                'Tipo de direccion',
+                'Elige como quieres llamar esta direccion',
                 [
-                  {
-                    text: 'Casa',
-                    onPress: () => saveAddressWithAlias('Casa'),
-                  },
-                  {
-                    text: 'Trabajo',
-                    onPress: () => saveAddressWithAlias('Trabajo'),
-                  },
-                  {
-                    text: 'Otro',
-                    onPress: () => {
-                      // Por ahora, usar "Otro"
-                      saveAddressWithAlias('Otro');
-                    },
-                  },
-                  {
-                    text: 'Cancelar',
-                    style: 'cancel',
-                    onPress: () => resolve(null),
-                  },
+                  { text: 'Casa', onPress: () => saveAddressWithAlias('Casa') },
+                  { text: 'Trabajo', onPress: () => saveAddressWithAlias('Trabajo') },
+                  { text: 'Otro', onPress: () => saveAddressWithAlias('Otro') },
+                  { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
                 ]
               );
             },
@@ -354,39 +299,69 @@ export default function OrderTypeScreen() {
           });
           resolve(res.data.data?.id || null);
         } catch (err) {
-          console.error('Error al guardar dirección:', err);
+          console.error('Error al guardar direccion:', err);
           resolve(null);
         }
       }
     });
   }
 
-  const cardDims = getCardDimensions();
-  const count = enabledOrderTypes.length;
-
   async function handleContinue() {
     if (!tipoPedido) {
-      Alert.alert('Selección requerida', 'Por favor, elige cómo quieres recibir tu pedido.');
+      Alert.alert('Seleccion requerida', 'Vuelve al inicio y elige como quieres recibir tu pedido.');
       return;
     }
 
     if (tipoPedido === 'delivery' && !direccionSeleccionada && !addressData) {
-      Alert.alert('Dirección requerida', 'Por favor, introduce una dirección de entrega válida.');
+      Alert.alert('Direccion requerida', 'Por favor, introduce una direccion de entrega valida.');
+      return;
+    }
+
+    if (tipoPedido === 'eat_in' && tables.length > 0 && !selectedTable) {
+      Alert.alert('Mesa requerida', 'Selecciona tu mesa para abrir la cuenta.');
       return;
     }
 
     if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
-      Alert.alert('Error', 'No se detectó la sucursal del pedido. Vuelve al menú y selecciona una sucursal antes de pagar.');
+      Alert.alert('Error', 'No se detecto la sucursal del pedido. Vuelve al menu y selecciona una sucursal antes de pagar.');
       return;
     }
 
     setLoading(true);
     try {
-      let finalAddressId = direccionSeleccionada?.id;
-      
-      // Si el usuario movió el mapa y no seleccionó una guardada, preguntar si la quiere guardar
+      if (tipoPedido === 'eat_in') {
+        const order = await createOrder({
+          restaurante_id: Number(resolvedRestaurantId),
+          tipo_pedido: 'eat_in',
+          mesa_id: selectedTable?.id,
+          direccion_entrega: ubicacionVisual,
+          items: items.map((i) => ({
+            platillo_id: i.platillo.id,
+            cantidad: i.cantidad,
+            precio_unit: i.precio_unitario,
+            notas: i.notas,
+            modificadores: i.modificadores_seleccionados.map((m) => ({
+              modificador_id: m.modificador_id,
+              modificador_nombre: m.modificador_nombre,
+              opciones: m.opciones.map((o) => ({
+                opcion_id: o.opcion_id,
+                opcion_nombre: o.opcion_nombre,
+                precio_extra: o.precio_extra,
+              })),
+            })),
+          })),
+          notas: selectedTable ? `Cuenta abierta · ${selectedTable.label}` : 'Cuenta abierta',
+        });
+
+        clear();
+        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
+        return;
+      }
+
+      let finalAddressId: string | number | undefined = direccionSeleccionada?.id;
+
       if (tipoPedido === 'delivery' && !direccionSeleccionada && addressData) {
-        finalAddressId = await promptToSaveAddress();
+        finalAddressId = (await promptToSaveAddress()) ?? undefined;
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
@@ -403,6 +378,8 @@ export default function OrderTypeScreen() {
           tipoPedido,
           direccionId: finalAddressId ? String(finalAddressId) : '',
           direccionEntrega: ubicacionVisual,
+          mesaId: selectedTable ? String(selectedTable.id) : '',
+          mesaLabel: selectedTable?.label ?? '',
         },
       });
     } catch (err) {
@@ -412,81 +389,134 @@ export default function OrderTypeScreen() {
     }
   }
 
+  function formatAddress(address: SavedAddress) {
+    const street = [address.calle, address.numero].filter(Boolean).join(' ');
+    return [street, address.colonia, address.ciudad].filter(Boolean).join(', ');
+  }
+
+  function getModeMeta() {
+    if (tipoPedido === 'delivery') {
+      return {
+        icon: 'bicycle-outline' as const,
+        title: 'Delivery',
+        subtitle: 'Entrega a domicilio',
+        detail: ubicacionVisual || 'Confirma tu direccion de entrega',
+      };
+    }
+
+    if (tipoPedido === 'pickup') {
+      return {
+        icon: 'bag-handle-outline' as const,
+        title: 'Pickup',
+        subtitle: 'Recoges en sucursal',
+        detail: ubicacionVisual || selectedBranch?.direccion || 'Sucursal seleccionada',
+      };
+    }
+
+    if (tipoPedido === 'eat_in') {
+      return {
+        icon: 'restaurant-outline' as const,
+        title: 'Comer aqui',
+        subtitle: 'Pedido en restaurante',
+        detail: ubicacionVisual || selectedBranch?.nombre || 'Sucursal seleccionada',
+      };
+    }
+
+    return {
+      icon: 'options-outline' as const,
+      title: 'Metodo pendiente',
+      subtitle: 'Selecciona el metodo desde el inicio',
+      detail: 'Vuelve al menu para elegir como recibir tu pedido.',
+    };
+  }
+
+  const modeMeta = getModeMeta();
+
   return (
     <SafeAreaView style={styles.safe}>
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
-          accessibilityLabel="Volver atrás"
+          accessibilityLabel="Volver atras"
           accessibilityRole="button"
           testID="back-btn"
         >
           <Ionicons name="arrow-back" size={22} color={Colors.text || '#111827'} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Método de Entrega</Text>
+        <Text style={styles.headerTitle}>Revisar pedido</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.welcomeSection}>
-          <Text style={styles.mainLabel}>¿Cómo quieres recibir tu pedido?</Text>
-          <Text style={styles.subLabel}>Elige la opción que mejor se adapte a ti hoy.</Text>
+          <Text style={styles.mainLabel}>Revisa tu pedido</Text>
+          <Text style={styles.subLabel}>{modeMeta.subtitle}</Text>
         </View>
 
-        {/* CARDS SELECCIÓN */}
-        <View style={[styles.cardsContainer, count === 1 && styles.cardsContainerCentered]}>
-          {enabledOrderTypes.map((type) => {
-            const isSelected = tipoPedido === type.id;
-            const iconWrapperSize = cardDims.iconSize * 1.7; // ~61px para 1 card, ~54px para 2-3
-            return (
-              <TouchableOpacity
-                key={type.id}
-                activeOpacity={0.8}
-                style={[
-                  styles.squareCard,
-                  {
-                    width: cardDims.width,
-                    aspectRatio: cardDims.aspectRatio,
-                    padding: cardDims.cardPadding,
-                  },
-                  isSelected && styles.squareCardActive,
-                ]}
-                onPress={() => setTipoPedido(type.id as never)}                accessibilityLabel={`Seleccionar ${type.title}`}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: isSelected }}
-                testID={`order-type-${type.id}`}              >
-                <View
-                  style={[
-                    styles.iconWrapper,
-                    {
-                      width: iconWrapperSize,
-                      height: iconWrapperSize,
-                      borderRadius: iconWrapperSize / 2,
-                    },
-                    isSelected && styles.iconWrapperActive,
-                  ]}
-                >
-                  <Ionicons
-                    name={(isSelected ? type.iconActive : type.icon) as never}
-                    size={cardDims.iconSize}
-                    color={isSelected ? (Colors.primary || '#111827') : '#6B7280'}
-                  />
-                </View>
-                <Text style={[styles.cardTitle, isSelected && styles.cardTitleActive]}>
-                  {type.title}
-                </Text>
-                <Text style={styles.cardSubtitle}>{type.subtitle}</Text>
-              </TouchableOpacity>
-            );
-          })}
+        <View style={styles.modeSummary}>
+          <View style={styles.modeIcon}>
+            <Ionicons name={modeMeta.icon} size={26} color={Colors.primary || '#111827'} />
+          </View>
+          <View style={styles.modeCopy}>
+            <Text style={styles.modeTitle}>{modeMeta.title}</Text>
+            <Text style={styles.modeDetail} numberOfLines={2}>{modeMeta.detail}</Text>
+          </View>
         </View>
 
-        {/* 🌟 SECCIÓN DINÁMICA DE DETALLES DE UBICACIÓN */}
-        {tipoPedido ? (
+        {tipoPedido === 'eat_in' ? (
           <View style={styles.locationContainer}>
-            {tipoPedido === 'delivery' && direccionesGuardadas.length > 0 && (
+            <View style={styles.locationHeader}>
+              <Ionicons name="restaurant" size={20} color={Colors.primary || '#111827'} />
+              <Text style={styles.locationTitle}>Cuenta abierta</Text>
+            </View>
+
+            <View style={styles.locationBox}>
+              <Text style={styles.locationAddress}>
+                Tu pedido quedara asociado a tu mesa. Al pagar se generara un QR de salida para que hostess cierre tu visita.
+              </Text>
+
+              {tablesLoading ? (
+                <View style={styles.locationLoading}>
+                  <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
+                  <Text style={styles.locationTextMuted}>Cargando mesas...</Text>
+                </View>
+              ) : tables.length > 0 ? (
+                <View style={styles.tableGrid}>
+                  {tables.map((table) => {
+                    const isSelected = selectedTable?.id === table.id;
+                    return (
+                      <TouchableOpacity
+                        key={table.id}
+                        style={[styles.tableChip, isSelected && styles.tableChipActive]}
+                        onPress={() => setSelectedTable(table)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: isSelected }}
+                      >
+                        <Ionicons
+                          name="grid-outline"
+                          size={14}
+                          color={isSelected ? '#FFFFFF' : '#6B7280'}
+                        />
+                        <Text style={[styles.tableChipText, isSelected && styles.tableChipTextActive]}>
+                          {table.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={styles.locationTextMuted}>
+                  No hay mesas cargadas para esta sucursal. La cuenta se abrira sin mesa asignada.
+                </Text>
+              )}
+            </View>
+          </View>
+        ) : null}
+
+        {tipoPedido === 'delivery' ? (
+          <View style={styles.locationContainer}>
+            {direccionesGuardadas.length > 0 && (
               <View style={{ marginBottom: 10 }}>
                 <Text style={styles.locationTitle}>Tus direcciones</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
@@ -496,26 +526,28 @@ export default function OrderTypeScreen() {
                       style={[styles.addressChip, direccionSeleccionada?.id === dir.id && styles.addressChipActive]}
                       onPress={() => {
                         setDireccionSeleccionada(dir);
-                        setUbicacionVisual(`${dir.calle}, ${dir.colonia}`);
+                        setUbicacionVisual(formatAddress(dir));
                         setShowMap(false);
                       }}
-                      accessibilityLabel={`Seleccionar dirección: ${dir.alias}`}
+                      accessibilityLabel={`Seleccionar direccion: ${dir.alias || 'guardada'}`}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: direccionSeleccionada?.id === dir.id }}
                       testID={`address-chip-${dir.id}`}
                     >
                       <Ionicons name="home-outline" size={14} color={direccionSeleccionada?.id === dir.id ? '#FFF' : '#6B7280'} />
-                      <Text style={[styles.addressChipText, direccionSeleccionada?.id === dir.id && { color: '#FFF' }]}>{dir.alias}</Text>
+                      <Text style={[styles.addressChipText, direccionSeleccionada?.id === dir.id && { color: '#FFF' }]}>
+                        {dir.alias || 'Direccion'}
+                      </Text>
                     </TouchableOpacity>
                   ))}
-                  <TouchableOpacity 
-                    style={styles.addressChip} 
+                  <TouchableOpacity
+                    style={styles.addressChip}
                     onPress={() => {
                       setDireccionSeleccionada(null);
                       setShowMap(true);
                       obtenerUbicacionGPS();
                     }}
-                    accessibilityLabel="Agregar nueva dirección"
+                    accessibilityLabel="Agregar nueva direccion"
                     accessibilityRole="button"
                     testID="add-address-btn"
                   >
@@ -526,21 +558,13 @@ export default function OrderTypeScreen() {
               </View>
             )}
 
-            {(!direccionesGuardadas.length || tipoPedido === 'pickup' || showMap) && (
-              <View style={styles.locationHeader}>
-                <Ionicons 
-                  name={tipoPedido === 'delivery' ? "location" : "storefront"} 
-                  size={20} 
-                  color={Colors.primary || '#111827'} 
-                />
-                <Text style={styles.locationTitle}>
-                  {tipoPedido === 'delivery' ? 'Dirección de Entrega' : 'Recoges en'}
-                </Text>
-              </View>
-            )}
-            
+            <View style={styles.locationHeader}>
+              <Ionicons name="location" size={20} color={Colors.primary || '#111827'} />
+              <Text style={styles.locationTitle}>Direccion de entrega</Text>
+            </View>
+
             <View style={styles.locationBox}>
-              {tipoPedido === 'delivery' && coords && (showMap || direccionesGuardadas.length === 0) && (
+              {coords && (showMap || direccionesGuardadas.length === 0) && (
                 <View style={styles.mapWrapper}>
                   <MapView
                     style={styles.miniMap}
@@ -560,42 +584,38 @@ export default function OrderTypeScreen() {
               {loadingLocation ? (
                 <View style={styles.locationLoading}>
                   <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
-                  <Text style={styles.locationTextMuted}>Detectando tu ubicación...</Text>
+                  <Text style={styles.locationTextMuted}>Detectando tu ubicacion...</Text>
                 </View>
               ) : (
                 <>
                   <Text style={styles.locationAddress} numberOfLines={2}>
-                    {ubicacionVisual}
+                    {ubicacionVisual || 'Confirma tu direccion de entrega'}
                   </Text>
-                  
-                  {tipoPedido === 'delivery' && (
-                    <TouchableOpacity 
-                      style={styles.changeButton} 
-                      onPress={handleCambiarUbicacion}
-                      activeOpacity={0.7}
-                      accessibilityLabel="Cambiar dirección de entrega"
-                      accessibilityRole="button"
-                      accessibilityHint="Permite editar o seleccionar una dirección diferente"
-                      testID="change-address-btn"
-                    >
-                      <Text style={styles.changeButtonText}>Cambiar dirección</Text>
-                      <Ionicons name="create-outline" size={16} color={Colors.primary || '#111827'} />
-                    </TouchableOpacity>
-                  )}
+
+                  <TouchableOpacity
+                    style={styles.changeButton}
+                    onPress={handleCambiarUbicacion}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Cambiar direccion de entrega"
+                    accessibilityRole="button"
+                    testID="change-address-btn"
+                  >
+                    <Text style={styles.changeButtonText}>Cambiar direccion</Text>
+                    <Ionicons name="create-outline" size={16} color={Colors.primary || '#111827'} />
+                  </TouchableOpacity>
                 </>
               )}
             </View>
           </View>
         ) : null}
 
-        {/* RESUMEN DE COMPRA */}
         <View style={styles.summaryContainer}>
-          <Text style={styles.summaryTitle}>Resumen del Pedido</Text>
+          <Text style={styles.summaryTitle}>Resumen del pedido</Text>
           <View style={styles.ticketBox}>
             {items.map((item) => (
               <View key={item.id} style={styles.summaryRow}>
                 <Text style={styles.summaryItem} numberOfLines={1}>
-                  <Text style={styles.itemQuantity}>{item.cantidad}x</Text>    {item.platillo.nombre}
+                  <Text style={styles.itemQuantity}>{item.cantidad}x</Text> {item.platillo.nombre}
                 </Text>
                 <Text style={styles.summaryPrice}>${item.subtotal.toFixed(2)}</Text>
               </View>
@@ -609,18 +629,16 @@ export default function OrderTypeScreen() {
         </View>
       </ScrollView>
 
-      {/* FOOTER FIJO */}
       <View style={styles.footer}>
         <Button
-          label="Continuar al pago"
+          label={tipoPedido === 'eat_in' ? 'Abrir cuenta' : 'Continuar al pago'}
           onPress={handleContinue}
           fullWidth
           size="lg"
           loading={loading}
-          disabled={!tipoPedido || loadingLocation}
+          disabled={!tipoPedido || loadingLocation || (tipoPedido === 'eat_in' && tables.length > 0 && !selectedTable)}
           style={styles.actionButton}
           accessibilityLabel="Continuar al pago"
-          accessibilityHint="Proceder al método de pago"
           testID="checkout-continue-btn"
         />
       </View>
@@ -645,82 +663,62 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#111827',
-    letterSpacing: -0.3 
   },
-  content: { 
-    padding: Spacing.base || 16, 
-    paddingBottom: 140, 
-    gap: 24 
+  content: {
+    padding: Spacing.base || 16,
+    paddingBottom: 140,
+    gap: 24,
   },
   welcomeSection: {
     gap: 4,
     marginTop: 8,
   },
-  mainLabel: { 
-    fontSize: 24, 
-    fontWeight: '800', 
+  mainLabel: {
+    fontSize: 24,
+    fontWeight: '800',
     color: '#111827',
-    letterSpacing: -0.5
   },
   subLabel: {
     fontSize: 15,
     color: '#6B7280',
   },
-  cardsContainer: {
+  modeSummary: {
     flexDirection: 'row',
-    gap: 16,
-    width: '100%',
-  },
-  cardsContainerCentered: {
-    justifyContent: 'center',
-  },
-  squareCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    padding: 16,
+    gap: 12,
+    borderRadius: 16,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
     borderColor: '#E5E7EB',
-    ...Shadows.sm,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
   },
-  squareCardActive: {
-    borderColor: Colors.primary || '#111827',
-    backgroundColor: '#FAFAFA',
-    ...Shadows.md,
-    shadowOpacity: 0.08,
-  },
-  iconWrapper: {
-    backgroundColor: '#F3F4F6',
+  modeIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  iconWrapperActive: {
-    backgroundColor: '#F3F4F6',
+  modeCopy: {
+    flex: 1,
+    minWidth: 0,
   },
-  cardTitle: {
+  modeTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 4,
+    fontWeight: '800',
+    color: '#111827',
   },
-  cardTitleActive: {
-    color: Colors.primary || '#111827',
+  modeDetail: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 3,
+    lineHeight: 18,
   },
-  cardSubtitle: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    textAlign: 'center',
-  },
-  
-  // ESTILOS DE LA SECCIÓN DE UBICACIÓN DINÁMICA
   locationContainer: {
     gap: 10,
     backgroundColor: '#FFFFFF',
@@ -753,6 +751,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#4B5563',
+  },
+  tableGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tableChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  tableChipActive: {
+    backgroundColor: Colors.primary || '#111827',
+    borderColor: Colors.primary || '#111827',
+  },
+  tableChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  tableChipTextActive: {
+    color: '#FFFFFF',
   },
   locationBox: {
     backgroundColor: '#F9FAFB',
@@ -818,14 +844,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.2)',
     marginTop: -2,
   },
-
-  // SUMMARY
   summaryContainer: {
     gap: 12,
   },
-  summaryTitle: { 
-    fontSize: 16, 
-    fontWeight: '700', 
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
     color: '#111827',
     marginLeft: 4,
   },
@@ -836,15 +860,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F3F4F6',
   },
-  summaryRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 6,
   },
-  summaryItem: { 
-    flex: 1, 
-    fontSize: 14, 
+  summaryItem: {
+    flex: 1,
+    fontSize: 14,
     color: '#4B5563',
     fontWeight: '500',
   },
@@ -852,16 +876,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.primary || '#111827',
   },
-  summaryPrice: { 
-    fontSize: 14, 
-    fontWeight: '600', 
-    color: '#111827' 
+  summaryPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
   },
-  divider: { 
-    height: 1, 
-    backgroundColor: '#E5E7EB', 
+  divider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
     marginVertical: 12,
-    borderStyle: 'dashed',
   },
   totalRow: {
     flexDirection: 'row',
@@ -869,8 +892,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 4,
   },
-  totalLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary || '#111827' },
+  totalLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.primary || '#111827',
+  },
   footer: {
     position: 'absolute',
     bottom: 0,
@@ -885,5 +916,5 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     borderRadius: 14,
-  }
+  },
 });

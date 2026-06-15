@@ -10,20 +10,84 @@ class Branch
 {
     public static function getAll(): array
     {
-        $sql = "SELECT id, nombre, slug, descripcion, lat, lng,
-                       imagen_banner, telefono, horarios_json,
-                       mesas_habilitadas, reservas_habilitadas, activo
-                FROM rest_restaurantes WHERE activo = 1 ORDER BY nombre";
-        return Database::query($sql);
+        $sql = self::baseSelect() . " WHERE r.activo = 1 ORDER BY r.nombre";
+        return array_map([self::class, 'normalize'], Database::query($sql));
     }
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT id, nombre, slug, descripcion, lat, lng,
-                       imagen_banner, telefono, horarios_json,
-                       mesas_habilitadas, reservas_habilitadas, activo
-                FROM rest_restaurantes WHERE id = :id AND activo = 1 LIMIT 1";
-        return Database::queryOne($sql, [':id' => $id]);
+        $sql = self::baseSelect() . " WHERE r.id = :id AND r.activo = 1 LIMIT 1";
+        $branch = Database::queryOne($sql, [':id' => $id]);
+        return $branch ? self::normalize($branch) : null;
+    }
+
+    public static function nearest(float $lat, float $lng, ?string $tipoPedido = null): array
+    {
+        $sql = self::baseSelect() . "
+                WHERE r.activo = 1
+                  AND r.lat IS NOT NULL
+                  AND r.lng IS NOT NULL";
+
+        $params = [];
+
+        if ($tipoPedido !== null) {
+            $sql .= " AND JSON_CONTAINS(COALESCE(rc.tipos_entrega, '[\"delivery\",\"pickup\"]'), JSON_QUOTE(:tipo_pedido))";
+            $params[':tipo_pedido'] = $tipoPedido;
+        }
+
+        $sql .= " ORDER BY r.nombre";
+
+        $branches = array_map([self::class, 'normalize'], Database::query($sql, $params));
+
+        foreach ($branches as &$branch) {
+            $branch['distancia_km'] = round(self::haversine(
+                $lat,
+                $lng,
+                (float)$branch['lat'],
+                (float)$branch['lng']
+            ), 2);
+        }
+        unset($branch);
+
+        usort($branches, fn($a, $b) => $a['distancia_km'] <=> $b['distancia_km']);
+
+        return $branches;
+    }
+
+    private static function baseSelect(): string
+    {
+        return "SELECT r.id, r.nombre, r.slug, r.descripcion, r.direccion, r.lat, r.lng,
+                       r.logo, r.imagen_banner, r.telefono, r.color_primario, r.color_secundario,
+                       r.horario_apertura, r.horario_cierre, r.horarios_json,
+                       r.mesas_habilitadas, r.reservas_habilitadas, r.activo,
+                       COALESCE(rc.tipos_entrega, '[\"delivery\",\"pickup\"]') AS tipos_entrega
+                FROM rest_restaurantes r
+                LEFT JOIN rest_configuracion rc ON rc.restaurante_id = r.id AND rc.activo = 1";
+    }
+
+    private static function normalize(array $branch): array
+    {
+        $branch['id'] = (int)$branch['id'];
+        $branch['lat'] = $branch['lat'] !== null ? (float)$branch['lat'] : null;
+        $branch['lng'] = $branch['lng'] !== null ? (float)$branch['lng'] : null;
+        $branch['mesas_habilitadas'] = (bool)$branch['mesas_habilitadas'];
+        $branch['reservas_habilitadas'] = (bool)$branch['reservas_habilitadas'];
+        $branch['activo'] = (bool)$branch['activo'];
+        $branch['tipos_entrega'] = json_decode((string)$branch['tipos_entrega'], true) ?: ['delivery', 'pickup'];
+
+        return $branch;
+    }
+
+    private static function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadiusKm = 6371;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
+
+        return $earthRadiusKm * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
     public static function create(array $data): int

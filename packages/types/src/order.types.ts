@@ -46,6 +46,21 @@ export interface Pedido {
   items: PedidoItem[];
   created_at: string;
   updated_at: string;
+  cuenta_abierta?: boolean | number;
+  salida_qr_generado_at?: string | null;
+  salida_validado_at?: string | null;
+}
+
+export interface ExitPass {
+  pedido_id: number;
+  folio: string | null;
+  restaurante_id: number | null;
+  mesa_id: number | null;
+  payload: string;
+  token: string;
+  generated_at: string | null;
+  validated_at: string | null;
+  is_validated: boolean;
 }
 
 export interface TrackingEvent {

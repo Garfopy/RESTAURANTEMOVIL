@@ -15,7 +15,7 @@ function calcSubtotal(platillo: Platillo, mods: ModificadorSeleccionado[], canti
 interface CartState {
   items: CarritoItem[];
   restauranteId: number | null;
-  tipoPedido: TipoPedido;
+  tipoPedido: TipoPedido | null;
   total: number;
   itemCount: number;
 
@@ -28,7 +28,7 @@ interface CartState {
   removeItem: (itemId: string) => void;
   updateQty: (itemId: string, cantidad: number) => void;
   clear: () => void;
-  setTipoPedido: (tipo: TipoPedido) => void;
+  setTipoPedido: (tipo: TipoPedido | null) => void;
   _persist: () => void;
 }
 
@@ -45,7 +45,7 @@ function computeTotals(items: CarritoItem[]): { total: number; itemCount: number
 export const useCartStore = create<CartState>((set, get) => ({
   items: [],
   restauranteId: null,
-  tipoPedido: 'pickup',
+  tipoPedido: null,
   total: 0,
   itemCount: 0,
 
@@ -146,12 +146,13 @@ export async function hydrateCart(): Promise<void> {
         items?.[0]?.platillo?.restaurante_id ??
         items?.[0]?.platillo?.restaurant_id ??
         null;
-      const { total, itemCount } = computeTotals(items ?? []);
+      const restoredItems = items ?? [];
+      const { total, itemCount } = computeTotals(restoredItems);
       useCartStore.setState({
-        items: items ?? [],
+        items: restoredItems,
         restauranteId:
           derivedRestaurantId == null ? null : Number.isNaN(Number(derivedRestaurantId)) ? null : Number(derivedRestaurantId),
-        tipoPedido,
+        tipoPedido: restoredItems.length > 0 ? tipoPedido ?? null : null,
         total,
         itemCount,
       });

@@ -17,6 +17,7 @@ class Product
                        p.disponible, p.activo
                 FROM rest_platillos p
                 LEFT JOIN rest_categorias_menu c ON p.categoria_id = c.id
+                  AND c.restaurante_id = p.restaurante_id
                 WHERE p.activo = 1";
         
         $params = [];
@@ -27,7 +28,7 @@ class Product
         }
         
         if ($branchId !== null) {
-            $sql .= " AND (p.restaurante_id IS NULL OR p.restaurante_id = :restaurante_id)";
+            $sql .= " AND p.restaurante_id = :restaurante_id";
             $params[':restaurante_id'] = $branchId;
         }
         
@@ -42,7 +43,7 @@ class Product
         return Database::query($sql, $params);
     }
 
-    public static function findById(int $id): ?array
+    public static function findById(int $id, ?int $branchId = null): ?array
     {
         $sql = "SELECT p.id, p.restaurante_id, p.categoria_id,
                        c.nombre as categoria_nombre,
@@ -51,10 +52,33 @@ class Product
                        p.disponible, p.activo
                 FROM rest_platillos p
                 LEFT JOIN rest_categorias_menu c ON p.categoria_id = c.id
-                WHERE p.id = :id AND p.activo = 1
-                LIMIT 1";
+                  AND c.restaurante_id = p.restaurante_id
+                WHERE p.id = :id AND p.activo = 1";
         
-        return Database::queryOne($sql, [':id' => $id]);
+        $params = [':id' => $id];
+
+        if ($branchId !== null) {
+            $sql .= " AND p.restaurante_id = :restaurante_id";
+            $params[':restaurante_id'] = $branchId;
+        }
+
+        $sql .= " LIMIT 1";
+
+        return Database::queryOne($sql, $params);
+    }
+
+    public static function belongsToRestaurant(int $id, int $restauranteId): bool
+    {
+        $row = Database::queryOne(
+            "SELECT id FROM rest_platillos
+             WHERE id = :id AND restaurante_id = :restaurante_id AND activo = 1 LIMIT 1",
+            [
+                ':id' => $id,
+                ':restaurante_id' => $restauranteId,
+            ]
+        );
+
+        return $row !== null;
     }
 
     public static function create(array $data): int

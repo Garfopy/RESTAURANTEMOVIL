@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { getBranches, getNearestBranches, getBranchById } from '../services/branches.service';
 import { useBranchStore } from '../store/branch.store';
-import type { Sucursal } from '@amare/types';
+import type { TipoPedido } from '@amare/types';
 
 export const branchKeys = {
   all: ['branches'] as const,
-  nearest: (lat: number, lng: number) => ['branches', 'nearest', lat, lng] as const,
+  nearest: (lat: number, lng: number, tipoPedido?: TipoPedido) =>
+    ['branches', 'nearest', lat, lng, tipoPedido] as const,
   detail: (id: number) => ['branches', id] as const,
 };
 
@@ -26,10 +27,10 @@ export function useBranches() {
   return query;
 }
 
-export function useNearestBranches(lat?: number, lng?: number) {
+export function useNearestBranches(lat?: number, lng?: number, tipoPedido?: TipoPedido) {
   return useQuery({
-    queryKey: branchKeys.nearest(lat ?? 0, lng ?? 0),
-    queryFn: () => getNearestBranches(lat!, lng!),
+    queryKey: branchKeys.nearest(lat ?? 0, lng ?? 0, tipoPedido),
+    queryFn: () => getNearestBranches(lat!, lng!, tipoPedido),
     enabled: lat !== undefined && lng !== undefined,
     staleTime: 2 * 60 * 1000,
   });

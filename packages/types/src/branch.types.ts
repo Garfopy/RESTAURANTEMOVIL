@@ -1,3 +1,5 @@
+import type { TipoEntregaHabilitado } from './config.types';
+
 export interface Sucursal {
   id: number;
   nombre: string;
@@ -17,6 +19,7 @@ export interface Sucursal {
   mesas_habilitadas: boolean;
   reservas_habilitadas: boolean;
   activo: boolean;
+  tipos_entrega: TipoEntregaHabilitado[];
   /** Calculado por el API según coordenadas del usuario (km) */
   distancia_km?: number;
 }

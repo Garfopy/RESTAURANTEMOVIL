@@ -1,5 +1,5 @@
 import { apiClient, formatImageUrl } from './api';
-import type { Sucursal } from '@amare/types';
+import type { Sucursal, TipoPedido } from '@amare/types';
 
 export async function getBranches(): Promise<Sucursal[]> {
   const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>('/branches');
@@ -9,6 +9,18 @@ export async function getBranches(): Promise<Sucursal[]> {
 export async function getBranchById(id: number): Promise<Sucursal> {
   const { data } = await apiClient.get<{ success: boolean; data: { branch: Sucursal } }>(`/branches/${id}`);
   return normalizeBranch(data.data.branch);
+}
+
+export async function getNearestBranches(
+  lat: number,
+  lng: number,
+  tipoPedido?: TipoPedido
+): Promise<Sucursal[]> {
+  const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>(
+    '/branches/nearest',
+    { params: { lat, lng, tipo_pedido: tipoPedido } }
+  );
+  return data.data.branches.map(normalizeBranch);
 }
 
 /** Normaliza la forma de la sucursal para que coincida con el tipo compartido */
@@ -27,37 +39,12 @@ export function normalizeBranch(branch: Partial<Sucursal>): Sucursal {
     horario_apertura: branch.horario_apertura ?? null,
     horario_cierre: branch.horario_cierre ?? null,
     horarios_json: branch.horarios_json ?? null,
-    lat: branch.lat ? Number(branch.lat) : null,
-    lng: branch.lng ? Number(branch.lng) : null,
+    lat: branch.lat != null ? Number(branch.lat) : null,
+    lng: branch.lng != null ? Number(branch.lng) : null,
     mesas_habilitadas: Boolean(branch.mesas_habilitadas),
     reservas_habilitadas: Boolean(branch.reservas_habilitadas),
     activo: Boolean(branch.activo),
+    tipos_entrega: branch.tipos_entrega ?? ['delivery', 'pickup'],
     distancia_km: branch.distancia_km,
   };
-}
-
-/**
- * ⚠️ La PHP API no tiene endpoint de sucursales cercanas.
- * Se obtienen todas las sucursales y se filtran localmente.
- */
-export async function getNearestBranches(lat: number, lng: number): Promise<Sucursal[]> {
-  const branches = await getBranches();
-  return branches
-    .filter((b) => b.lat != null && b.lng != null)
-    .sort((a, b) => {
-      const distA = haversine(lat, lng, a.lat!, a.lng!);
-      const distB = haversine(lat, lng, b.lat!, b.lng!);
-      return distA - distB;
-    });
-}
-
-/** Fórmula de Haversine para distancia entre coordenadas (km) */
-function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }

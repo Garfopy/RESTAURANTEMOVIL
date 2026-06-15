@@ -1,5 +1,5 @@
 import { apiClient } from './api';
-import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago } from '@amare/types';
+import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago, ExitPass } from '@amare/types';
 
 export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> {
 
@@ -25,6 +25,8 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     items: safeItems,
     direccion_id: payload.direccion_id ?? null,
     direccion_entrega: payload.direccion_entrega ?? null,
+    mesa_id: payload.mesa_id ?? null,
+    payment_intent_id: payload.payment_intent_id ?? null,
     notas: payload.notas ?? null,
   });
 
@@ -114,11 +116,29 @@ export async function confirmPayment(params: {
 }) {
   const { data } = await apiClient.post<{
     success: boolean;
-    data: { ok: boolean; pedido_id: number; folio: string; metodo_pago: string }
+    data: { ok: boolean; pedido_id: number; folio: string; metodo_pago: string; exit_pass?: ExitPass | null }
   }>(`/orders/${params.pedido_id}/confirm-payment`, {
     payment_intent_id: params.payment_intent_id,
     metodo: params.metodo,
   });
 
   return data.data;
+}
+
+export async function getExitPass(orderId: number): Promise<ExitPass> {
+  const { data } = await apiClient.get<{
+    success: boolean;
+    data: { exit_pass: ExitPass }
+  }>(`/orders/${orderId}/exit-pass`);
+
+  return data.data.exit_pass;
+}
+
+export async function scanExitPass(payload: string): Promise<ExitPass> {
+  const { data } = await apiClient.post<{
+    success: boolean;
+    data: { ok: boolean; exit_pass: ExitPass }
+  }>('/orders/exit-pass/scan', { payload });
+
+  return data.data.exit_pass;
 }

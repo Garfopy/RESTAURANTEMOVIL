@@ -14,7 +14,8 @@ class MenuController
 {
     public function categories(): void
     {
-        $categories = Category::getAll();
+        $branchId = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
+        $categories = Category::getAll($branchId);
         Response::success(['categories' => $categories]);
     }
 
@@ -30,7 +31,8 @@ class MenuController
 
     public function showProduct(int $id): void
     {
-        $product = Product::findById($id);
+        $branchId = isset($_GET['branch_id']) ? (int)$_GET['branch_id'] : null;
+        $product = Product::findById($id, $branchId);
 
         if (!$product) {
             Response::notFound('Producto no encontrado');

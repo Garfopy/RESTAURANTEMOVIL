@@ -1,25 +1,29 @@
 import React, { useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useBranchStore } from '../store/branch.store';
+import { useCartStore } from '../store/cart.store';
 import { Colors } from '../theme';
-import type { Sucursal } from '@amare/types';
+import type { Sucursal, TipoPedido } from '@amare/types';
 
 export default function BranchSelectorScreen() {
   const router = useRouter();
-  
-  // 🌟 Extraemos todo lo necesario, incluyendo el 'loading' y 'fetchSucursales' de tu Zustand
+  const params = useLocalSearchParams<{ tipoPedido?: TipoPedido }>();
+  const tipoPedido = params.tipoPedido;
   const { sucursales, seleccionada, loading, seleccionar, fetchSucursales } = useBranchStore();
+  const { itemCount, restauranteId, clear } = useCartStore();
 
-  // 🔄 Forzar la carga de las sucursales al montar la pantalla
   useEffect(() => {
     fetchSucursales();
-  }, []);
+  }, [fetchSucursales]);
 
-  function handleSelect(branch: Sucursal) {
-    seleccionar(branch);
+  const filteredSucursales = tipoPedido
+    ? sucursales.filter((branch) => branch.tipos_entrega?.includes(tipoPedido))
+    : sucursales;
+
+  function close() {
     if (router.canGoBack()) {
       router.back();
     } else {
@@ -27,12 +31,39 @@ export default function BranchSelectorScreen() {
     }
   }
 
+  function completeSelect(branch: Sucursal) {
+    seleccionar(branch);
+    close();
+  }
+
+  function handleSelect(branch: Sucursal) {
+    if (itemCount > 0 && restauranteId !== null && restauranteId !== branch.id) {
+      Alert.alert(
+        'Cambiar sucursal',
+        'Tu carrito tiene platillos de otra sucursal. Para cambiarla necesitamos vaciarlo.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Vaciar y cambiar',
+            style: 'destructive',
+            onPress: () => {
+              clear();
+              completeSelect(branch);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    completeSelect(branch);
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)')}
+          onPress={close}
           style={styles.closeButton}
           accessibilityLabel="Cerrar"
           accessibilityRole="button"
@@ -44,31 +75,29 @@ export default function BranchSelectorScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* CONTENIDO INTERACTIVO */}
       {loading && sucursales.length === 0 ? (
-        // Muestra el spinner de carga únicamente en la primera petición limpia
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={Colors?.accent || '#111827'} />
           <Text style={styles.loadingText}>Cargando sucursales...</Text>
         </View>
       ) : (
         <FlatList
-          data={sucursales || []}
+          data={filteredSucursales}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
-          
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="storefront-outline" size={48} color="#9CA3AF" />
               <Text style={styles.emptyText}>No hay sucursales disponibles</Text>
               <Text style={styles.emptySubtext}>
-                Intenta de nuevo más tarde o verifica tu conexión de red.
+                Intenta de nuevo mas tarde o elige otro tipo de pedido.
               </Text>
             </View>
           }
-          
           renderItem={({ item }) => {
             const isSelected = seleccionada?.id === item.id;
+            const subtitle = item.direccion || item.descripcion || 'Sucursal';
+
             return (
               <TouchableOpacity
                 style={[styles.item, isSelected && styles.itemSelected]}
@@ -77,7 +106,7 @@ export default function BranchSelectorScreen() {
                 accessibilityLabel={`Seleccionar sucursal ${item.nombre}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
-                accessibilityHint={item.descripcion || 'Sucursal'}
+                accessibilityHint={subtitle}
                 testID={`branch-${item.id}`}
               >
                 <View style={styles.itemContent}>
@@ -90,10 +119,11 @@ export default function BranchSelectorScreen() {
                     <Text style={[styles.itemName, isSelected && styles.itemNameSelected]}>
                       {item.nombre}
                     </Text>
-                    {item.descripcion ? (
-                      <Text style={styles.itemAddress} numberOfLines={1}>
-                        {item.descripcion}
-                      </Text>
+                    <Text style={styles.itemAddress} numberOfLines={1}>
+                      {subtitle}
+                    </Text>
+                    {item.distancia_km != null ? (
+                      <Text style={styles.itemDistance}>{item.distancia_km.toFixed(2)} km de ti</Text>
                     ) : null}
                   </View>
                 </View>
@@ -110,9 +140,9 @@ export default function BranchSelectorScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: Colors?.background || '#FFFFFF' 
+  container: {
+    flex: 1,
+    backgroundColor: Colors?.background || '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -126,13 +156,13 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: 4,
   },
-  title: { 
-    fontSize: 17, 
-    fontWeight: '700', 
-    color: Colors?.text || '#111827' 
+  title: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Colors?.text || '#111827',
   },
-  list: { 
-    padding: 16, 
+  list: {
+    padding: 16,
     flexGrow: 1,
   },
   item: {
@@ -141,37 +171,43 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     backgroundColor: Colors?.surface || '#F3F4F6',
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors?.border || '#E5E7EB',
     marginBottom: 10,
   },
-  itemSelected: { 
+  itemSelected: {
     borderColor: Colors?.accent || '#111827',
   },
-  itemContent: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12, 
-    flex: 1 
+  itemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
   },
-  itemText: { 
+  itemText: {
     flex: 1,
     marginLeft: 8,
   },
-  itemName: { 
-    fontSize: 15, 
-    fontWeight: '600', 
-    color: Colors?.text || '#111827' 
+  itemName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors?.text || '#111827',
   },
-  itemNameSelected: { 
+  itemNameSelected: {
     color: Colors?.accent || '#111827',
-    fontWeight: '700'
+    fontWeight: '700',
   },
-  itemAddress: { 
-    fontSize: 13, 
-    color: Colors?.textMuted || '#6B7280', 
-    marginTop: 2 
+  itemAddress: {
+    fontSize: 13,
+    color: Colors?.textMuted || '#6B7280',
+    marginTop: 2,
+  },
+  itemDistance: {
+    fontSize: 12,
+    color: Colors?.primary || '#C8102E',
+    marginTop: 4,
+    fontWeight: '600',
   },
   centerContainer: {
     flex: 1,
@@ -182,7 +218,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 14,
     color: '#6B7280',
-    fontWeight: '500'
+    fontWeight: '500',
   },
   emptyContainer: {
     flex: 1,
@@ -203,5 +239,5 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginTop: 4,
     textAlign: 'center',
-  }
+  },
 });

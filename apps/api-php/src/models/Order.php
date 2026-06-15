@@ -67,6 +67,12 @@ class Order
         return in_array($column, $cols, true);
     }
 
+    private static function tableExists(string $tableName): bool
+    {
+        $exists = Database::query("SHOW TABLES LIKE '{$tableName}'");
+        return !empty($exists);
+    }
+
     /**
      * Normaliza el método de pago al valor esperado por esquemas legacy.
      */
@@ -107,9 +113,20 @@ class Order
     {
         $hasTipoOrigen = self::columnExists('rest_pedidos', 'tipo_origen');
 
+        $extraFields = [];
+        foreach (['cuenta_abierta', 'mesa_id', 'salida_qr_generado_at', 'salida_validado_at'] as $column) {
+            if (self::columnExists('rest_pedidos', $column)) {
+                $extraFields[] = "p.{$column}";
+            }
+        }
+
         $selectFields = $hasTipoOrigen
             ? "p.id, p.folio, p.estado, p.subtotal, p.total, p.tipo_pedido, p.tipo_origen, p.created_at, r.nombre AS restaurante_nombre"
             : "p.id, p.folio, p.estado, p.subtotal, p.total, p.tipo_pedido, p.created_at, r.nombre AS restaurante_nombre";
+
+        if (!empty($extraFields)) {
+            $selectFields .= ', ' . implode(', ', $extraFields);
+        }
 
         $sql = "SELECT {$selectFields}
                 FROM rest_pedidos p
@@ -245,6 +262,12 @@ class Order
             if (!empty($data['payment_intent_id'])) {
                 $pedidoData['payment_intent_id'] = $data['payment_intent_id'];
             }
+            if (($data['order_type'] ?? null) === 'eat_in') {
+                $pedidoData['cuenta_abierta'] = 1;
+            }
+            if (!empty($data['mesa_id'])) {
+                $pedidoData['mesa_id'] = (int)$data['mesa_id'];
+            }
 
             $insertResult = self::buildInsert('rest_pedidos', $pedidoData);
             $orderId = Database::execute($insertResult['sql'], $insertResult['params']);
@@ -252,6 +275,10 @@ class Order
             if (!$orderId) {
                 $pdo->rollBack();
                 return 0;
+            }
+
+            if (($data['order_type'] ?? null) === 'eat_in' && !empty($data['mesa_id'])) {
+                self::setTableOccupied((int)$data['mesa_id'], true);
             }
 
             if (empty($data['items']) || !is_array($data['items'])) {
@@ -434,6 +461,229 @@ class Order
 
             throw $e;
         }
+    }
+
+    public static function ensureExitPass(int $orderId, ?int $userId = null): ?array
+    {
+        $order = self::findById($orderId, $userId);
+        if (!$order) {
+            return null;
+        }
+
+        if (($order['tipo_pedido'] ?? null) !== 'eat_in') {
+            return null;
+        }
+
+        $tokenColumn = self::columnExists('rest_pedidos', 'salida_token');
+        if (!$tokenColumn) {
+            return null;
+        }
+
+        $token = $order['salida_token'] ?? null;
+        if (!$token) {
+            $token = bin2hex(random_bytes(24));
+            $fields = ['salida_token = :token'];
+            $params = [
+                ':id' => $orderId,
+                ':token' => $token,
+            ];
+
+            if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
+                $fields[] = 'salida_qr_generado_at = NOW()';
+            }
+            if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+                $fields[] = 'cuenta_abierta = 0';
+            }
+            if (self::columnExists('rest_pedidos', 'updated_at')) {
+                $fields[] = 'updated_at = NOW()';
+            }
+
+            Database::rowCount(
+                'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id = :id',
+                $params
+            );
+
+            $order = self::findById($orderId, $userId);
+        }
+
+        return self::formatExitPass($order, $token);
+    }
+
+    public static function getExitPass(int $orderId, int $userId): ?array
+    {
+        $order = self::findById($orderId, $userId);
+        if (!$order || empty($order['salida_token'])) {
+            return null;
+        }
+
+        return self::formatExitPass($order, (string)$order['salida_token']);
+    }
+
+    public static function validateExitPass(string $payload, int $validatorUserId): ?array
+    {
+        $payload = trim($payload);
+        if ($payload === '') {
+            return null;
+        }
+
+        $orderId = null;
+        $token = $payload;
+        $parts = explode('|', $payload);
+
+        if (count($parts) >= 3 && $parts[0] === 'AMARE_EXIT') {
+            $orderId = (int)$parts[1];
+            $token = $parts[2];
+        }
+
+        $sql = "SELECT * FROM rest_pedidos WHERE salida_token = :token";
+        $params = [':token' => $token];
+
+        if ($orderId !== null && $orderId > 0) {
+            $sql .= ' AND id = :id';
+            $params[':id'] = $orderId;
+        }
+
+        $order = Database::queryOne($sql, $params);
+        if (!$order || ($order['tipo_pedido'] ?? null) !== 'eat_in') {
+            return null;
+        }
+
+        if (!empty($order['salida_validado_at'])) {
+            return self::formatExitPass($order, (string)$order['salida_token']);
+        }
+
+        $fields = [];
+        $updateParams = [
+            ':id' => (int)$order['id'],
+            ':validator_id' => $validatorUserId,
+        ];
+
+        if (self::columnExists('rest_pedidos', 'salida_validado_at')) {
+            $fields[] = 'salida_validado_at = NOW()';
+        }
+        if (self::columnExists('rest_pedidos', 'salida_validado_por')) {
+            $fields[] = 'salida_validado_por = :validator_id';
+        }
+        if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+            $fields[] = 'cuenta_abierta = 0';
+        }
+        if (self::columnExists('rest_pedidos', 'estado')) {
+            $fields[] = "estado = 'entregado'";
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (!empty($fields)) {
+            Database::rowCount(
+                'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id = :id',
+                $updateParams
+            );
+        }
+
+        if (!empty($order['mesa_id'])) {
+            self::setTableOccupied((int)$order['mesa_id'], false);
+        }
+
+        if (!empty($order['mobile_usuario_id'])) {
+            self::clearDinerTableSession((int)$order['mobile_usuario_id']);
+        }
+
+        $updated = self::findById((int)$order['id']);
+        return self::formatExitPass($updated ?? $order, (string)$order['salida_token']);
+    }
+
+    private static function formatExitPass(?array $order, string $token): ?array
+    {
+        if (!$order) {
+            return null;
+        }
+
+        $payload = 'AMARE_EXIT|' . (int)$order['id'] . '|' . $token;
+
+        return [
+            'pedido_id' => (int)$order['id'],
+            'folio' => $order['folio'] ?? null,
+            'restaurante_id' => isset($order['restaurante_id']) ? (int)$order['restaurante_id'] : null,
+            'mesa_id' => isset($order['mesa_id']) && $order['mesa_id'] !== null ? (int)$order['mesa_id'] : null,
+            'payload' => $payload,
+            'token' => $token,
+            'generated_at' => $order['salida_qr_generado_at'] ?? null,
+            'validated_at' => $order['salida_validado_at'] ?? null,
+            'is_validated' => !empty($order['salida_validado_at']),
+        ];
+    }
+
+    private static function setTableOccupied(int $mesaId, bool $occupied): void
+    {
+        if ($mesaId <= 0 || !self::tableExists('rest_mesas')) {
+            return;
+        }
+
+        $columns = self::getTableColumns('rest_mesas');
+        $fields = [];
+        $params = [':id' => $mesaId];
+
+        if (in_array('ocupada', $columns, true)) {
+            $fields[] = 'ocupada = :ocupada';
+            $params[':ocupada'] = $occupied ? 1 : 0;
+        }
+        if (in_array('disponible', $columns, true)) {
+            $fields[] = 'disponible = :disponible';
+            $params[':disponible'] = $occupied ? 0 : 1;
+        }
+        if (in_array('estado', $columns, true)) {
+            $fields[] = 'estado = :estado';
+            $params[':estado'] = $occupied ? 'ocupada' : 'libre';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (empty($fields)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE rest_mesas SET ' . implode(', ', $fields) . ' WHERE id = :id',
+            $params
+        );
+    }
+
+    private static function clearDinerTableSession(int $userId): void
+    {
+        if ($userId <= 0 || !self::tableExists('mobile_usuarios')) {
+            return;
+        }
+
+        $columns = self::getTableColumns('mobile_usuarios');
+        $fields = [];
+        $params = [':id' => $userId];
+
+        if (in_array('is_social_active', $columns, true)) {
+            $fields[] = 'is_social_active = 0';
+        }
+        if (in_array('current_restaurante_id', $columns, true)) {
+            $fields[] = 'current_restaurante_id = NULL';
+        }
+        if (in_array('mesa', $columns, true)) {
+            $fields[] = 'mesa = NULL';
+        }
+        if (in_array('social_updated_at', $columns, true)) {
+            $fields[] = 'social_updated_at = NOW()';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (empty($fields)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_usuarios SET ' . implode(', ', $fields) . ' WHERE id = :id',
+            $params
+        );
     }
 
     /**

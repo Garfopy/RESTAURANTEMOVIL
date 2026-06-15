@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient, formatImageUrl } from '../../services/api';
+import { apiClient, formatImageUrl, getApiError } from '../../services/api';
+import { createPaymentIntent } from '../../services/orders.service';
 import { Colors, Spacing, Shadows } from '../../theme';
 import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -30,6 +32,7 @@ const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const [payingAccount, setPayingAccount] = useState(false);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', id],
@@ -53,6 +56,42 @@ export default function OrderDetailScreen() {
   );
 
   const status = ESTADO_INFO[order?.estado ?? 'pendiente'];
+  const isOpenEatInAccount =
+    order?.tipo_pedido === 'eat_in' &&
+    Number(order?.cuenta_abierta ?? 0) === 1 &&
+    !order?.salida_qr_generado_at;
+
+  async function handlePayOpenAccount() {
+    if (!order) return;
+
+    try {
+      setPayingAccount(true);
+      const { client_secret, id: intentId } = await createPaymentIntent({
+        order_id: Number(order.id),
+        amount: Number(order.total || 0),
+        currency: 'mxn',
+      });
+
+      router.push({
+        pathname: '/checkout/payment',
+        params: {
+          clientSecret: client_secret,
+          intentId,
+          restauranteId: String(order.restaurante_id),
+          tipoPedido: 'eat_in',
+          orderId: String(order.id),
+          amount: String(order.total || 0),
+          folio: order.folio,
+          mesaId: order.mesa_id ? String(order.mesa_id) : '',
+          mesaLabel: order.mesa_nombre || (order.mesa_id ? `Mesa ${order.mesa_id}` : ''),
+        },
+      });
+    } catch (error) {
+      Alert.alert('Error', getApiError(error) || 'No se pudo iniciar el pago de la cuenta.');
+    } finally {
+      setPayingAccount(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -238,6 +277,24 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
+        {isOpenEatInAccount && (
+          <TouchableOpacity
+            style={styles.payAccountButton}
+            onPress={handlePayOpenAccount}
+            activeOpacity={0.85}
+            disabled={payingAccount}
+          >
+            {payingAccount ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="card-outline" size={20} color="#FFFFFF" />
+                <Text style={styles.payAccountText}>Pagar cuenta y generar QR de salida</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.helpButton} activeOpacity={0.8}>
           <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
           <Text style={styles.helpButtonText}>Necesito ayuda con mi pedido</Text>
@@ -365,6 +422,24 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
   totalLabel: { fontSize: 16, fontWeight: '700', color: '#111827' },
   totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary },
+
+  payAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    ...Shadows.md,
+  },
+  payAccountText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
 
   helpButton: {
     flexDirection: 'row',

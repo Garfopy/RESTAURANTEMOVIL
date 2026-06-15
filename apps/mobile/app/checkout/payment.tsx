@@ -66,7 +66,7 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
-  const { clientSecret, intentId, restauranteId, tipoPedido, direccionId, direccionEntrega } =
+  const { clientSecret, intentId, restauranteId, tipoPedido, direccionId, direccionEntrega, mesaId, mesaLabel, orderId, amount, folio } =
     useLocalSearchParams<{
       clientSecret: string;
       intentId: string;
@@ -74,6 +74,11 @@ export default function PaymentScreen() {
       tipoPedido: string;
       direccionId?: string;
       direccionEntrega?: string;
+      mesaId?: string;
+      mesaLabel?: string;
+      orderId?: string;
+      amount?: string;
+      folio?: string;
     }>();
 
   const { items, total, clear, restauranteId: cartRestaurantId } = useCartStore();
@@ -84,6 +89,8 @@ export default function PaymentScreen() {
     selectedBranchId ||
     items[0]?.platillo?.restaurante_id ||
     null;
+  const existingOrderId = typeof orderId === 'string' && orderId !== '' ? Number(orderId) : null;
+  const paymentAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : total;
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [config, setConfig] = useState<RestaurantConfig | null>(null);
@@ -143,10 +150,23 @@ export default function PaymentScreen() {
       }
 
       if (selectedMethod === 'cash') {
-        const order = await createOrderBackend('cash');
-        await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId ?? '', metodo: 'cash' });
-        clear();
-        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
+        const order = existingOrderId ? null : await createOrderBackend('cash');
+        const targetOrderId = existingOrderId ?? order!.id;
+        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId ?? '', metodo: 'cash' });
+        if (!existingOrderId) clear();
+        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
+          router.replace({
+            pathname: '/checkout/exit-pass',
+            params: {
+              orderId: String(targetOrderId),
+              payload: confirmation.exit_pass.payload,
+              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
+              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+            },
+          });
+          return;
+        }
+        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
         return;
       }
 
@@ -162,21 +182,47 @@ export default function PaymentScreen() {
           return;
         }
 
-        const order = await createOrderBackend('card');
-        await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId, metodo: 'card' });
+        const order = existingOrderId ? null : await createOrderBackend('card');
+        const targetOrderId = existingOrderId ?? order!.id;
+        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId, metodo: 'card' });
 
-        clear();
-        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
+        if (!existingOrderId) clear();
+        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
+          router.replace({
+            pathname: '/checkout/exit-pass',
+            params: {
+              orderId: String(targetOrderId),
+              payload: confirmation.exit_pass.payload,
+              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
+              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+            },
+          });
+          return;
+        }
+        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
         return;
       }
 
       if (selectedMethod === 'wallet') {
         const walletMethod = isIOS ? 'apple_pay' : 'google_pay';
-        const order = await createOrderBackend(walletMethod);
+        const order = existingOrderId ? null : await createOrderBackend(walletMethod);
+        const targetOrderId = existingOrderId ?? order!.id;
         // TODO: Integrar Apple Pay / Google Pay con Stripe o pasarela nativa
-        await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId ?? '', metodo: walletMethod });
-        clear();
-        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
+        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId ?? '', metodo: walletMethod });
+        if (!existingOrderId) clear();
+        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
+          router.replace({
+            pathname: '/checkout/exit-pass',
+            params: {
+              orderId: String(targetOrderId),
+              payload: confirmation.exit_pass.payload,
+              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
+              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+            },
+          });
+          return;
+        }
+        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
         return;
       }
     } catch (err: any) {
@@ -193,6 +239,7 @@ export default function PaymentScreen() {
       tipo_pedido: tipoPedido as never,
       direccion_id: typeof direccionId === 'string' && direccionId !== '' ? Number(direccionId) : undefined,
       direccion_entrega: typeof direccionEntrega === 'string' && direccionEntrega !== '' ? direccionEntrega : undefined,
+      mesa_id: typeof mesaId === 'string' && mesaId !== '' ? Number(mesaId) : undefined,
       items: items.map((i) => ({
         platillo_id: i.platillo.id,
         cantidad: i.cantidad,
@@ -295,18 +342,18 @@ export default function PaymentScreen() {
 
         <View style={styles.totalBox}>
           <Text style={styles.totalLabel}>Total a pagar</Text>
-          <Text style={styles.totalValue}>${total.toFixed(2)} MXN</Text>
+          <Text style={styles.totalValue}>${paymentAmount.toFixed(2)} MXN</Text>
         </View>
       </ScrollView>
 
       <View style={styles.footer}>
         <Button
-          label={selectedMethod === 'cash' ? `Confirmar pedido ($${total.toFixed(2)})` : `Pagar $${total.toFixed(2)}`}
+          label={selectedMethod === 'cash' ? `Confirmar pago ($${paymentAmount.toFixed(2)})` : `Pagar $${paymentAmount.toFixed(2)}`}
           onPress={handlePay}
           fullWidth
           size="lg"
           loading={loading}
-          accessibilityLabel={selectedMethod === 'cash' ? `Confirmar pedido por $${total.toFixed(2)} en efectivo` : `Pagar $${total.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`}
+          accessibilityLabel={selectedMethod === 'cash' ? `Confirmar pago por $${paymentAmount.toFixed(2)} en efectivo` : `Pagar $${paymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`}
           testID="payment-confirm-btn"
         />
       </View>
