@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Amare necesita tu ubicación para encontrar la sucursal más cercana.",
         "NSLocationAlwaysUsageDescription": "Amare necesita tu ubicación para el seguimiento de entregas.",
-        "NSCameraUsageDescription": "Amare necesita la cámara para foto de perfil."
+        "NSCameraUsageDescription": "Amare necesita la cámara para foto de perfil.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "splash": {
         "image": "./assets/amare_icon.png",
@@ -38,7 +39,9 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "splash": {
         "image": "./assets/amare_icon.png",
