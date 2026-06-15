@@ -14,7 +14,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import MapView, { Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { apiClient, formatImageUrl } from '../../services/api';
+import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import { createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Shadows } from '../../theme';
@@ -252,7 +252,6 @@ export default function StoreCheckoutScreen() {
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
-        order_id: Number(params.productId),
         amount: total,
         currency: 'mxn',
       });
@@ -274,7 +273,7 @@ export default function StoreCheckoutScreen() {
         },
       });
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo iniciar el pago. Intenta de nuevo.');
+      Alert.alert('Error', getApiError(err) || 'No se pudo iniciar el pago. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }

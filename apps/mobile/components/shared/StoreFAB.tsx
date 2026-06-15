@@ -2,11 +2,13 @@ import React, { useRef } from 'react';
 import { Animated, TouchableOpacity, StyleSheet, Platform, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
 
 export function StoreFAB() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const theme = useThemeColors();
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -19,7 +21,15 @@ export function StoreFAB() {
   }
 
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale }] }]}>
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          bottom: insets.bottom + (Platform.OS === 'ios' ? 88 : 80),
+          transform: [{ scale }],
+        },
+      ]}
+    >
       <TouchableOpacity
         style={[styles.button, { backgroundColor: theme.primary }]}
         onPress={handlePress}
@@ -39,7 +49,6 @@ export function StoreFAB() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 200 : 185, // Above CartButton (~125 iOS / ~110 Android)
     right: 20,
     zIndex: 150,
   },

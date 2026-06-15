@@ -1,0 +1,68 @@
+Options -Indexes
+RewriteEngine On
+# RewriteBase intencionalmente OMITIDO: el mismo .htaccess funciona en cualquier
+# subdirectorio (/carnihub/, /restaurante/, /, etc.) porque la sustitución
+# `index.php?url=$1` es relativa y Apache la resuelve contra la carpeta actual.
+# El BASE_URL del PHP se autodetecta en config/config.php desde SCRIPT_NAME.
+
+# Reenviar el header Authorization a PHP — DEBE ir ANTES de cualquier <IfModule> y RewriteRule
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# ── Content Security Policy ───────────────────────────────────────────────────
+# Incluye todos los dominios necesarios para Google Maps JS API + Embed API + Firebase
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "\
+    default-src 'self'; \
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' \
+      cdn.tailwindcss.com \
+      fonts.googleapis.com \
+      maps.googleapis.com \
+      *.googleapis.com \
+      unpkg.com \
+      accounts.google.com \
+      www.paypal.com \
+      www.paypalobjects.com \
+      www.gstatic.com \
+      *.gstatic.com \
+      js.stripe.com; \
+    style-src 'self' 'unsafe-inline' \
+      fonts.googleapis.com \
+      cdn.tailwindcss.com \
+      *.googleapis.com \
+      unpkg.com; \
+    font-src 'self' fonts.gstatic.com data:; \
+    img-src 'self' data: blob: \
+      *.googleapis.com \
+      *.gstatic.com \
+      maps.gstatic.com \
+      *.openstreetmap.org \
+      *.tile.openstreetmap.org \
+      api.qrserver.com; \
+    connect-src 'self' \
+      *.googleapis.com \
+      *.gstatic.com \
+      unpkg.com \
+      nominatim.openstreetmap.org \
+      router.project-osrm.org \
+      nominatim.openstreetmap.org \
+      *.firebaseio.com \
+      *.firebasedatabase.app \
+      wss://*.firebaseio.com \
+      wss://*.firebasedatabase.app \
+      api.stripe.com; \
+    frame-src 'self' www.google.com js.stripe.com; \
+    object-src 'none'"
+  Header always set Permissions-Policy "geolocation=(self)"
+</IfModule>
+
+# Block direct file access to sensitive directories (but allow virtual routes like config/general)
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^(config|app)/.*$ - [F,L]
+
+# Serve static files/directories directly
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Route everything else to index.php via query string
+RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]

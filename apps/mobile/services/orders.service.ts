@@ -23,6 +23,8 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     subtotal,
     total: subtotal,
     items: safeItems,
+    direccion_id: payload.direccion_id ?? null,
+    direccion_entrega: payload.direccion_entrega ?? null,
     notas: payload.notas ?? null,
   });
 
@@ -78,19 +80,23 @@ export async function getOrderTracking(_id: number) {
 }
 
 export async function createPaymentIntent(params: {
-  order_id: number;
+  order_id?: number;
   amount: number;
   currency?: string;
 }): Promise<PaymentIntent> {
+  const payload: Record<string, unknown> = {
+    amount: params.amount,
+    currency: params.currency ?? 'mxn',
+  };
+
+  if (typeof params.order_id === 'number' && Number.isInteger(params.order_id) && params.order_id > 0) {
+    payload.order_id = params.order_id;
+  }
 
   const { data } = await apiClient.post<{
     success: boolean;
     data: { client_secret: string; payment_intent_id: string }
-  }>('/payments/create-intent', {
-    amount: params.amount,
-    currency: params.currency ?? 'mxn',
-    order_id: params.order_id,
-  });
+  }>('/payments/create-intent', payload);
 
   return {
     id: data.data.payment_intent_id,

@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="es" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMARE | Restaurant Connecting Club</title>
+  <meta name="description" content="AMARE es un restaurante mexicano premium con cocina contemporánea, barra artesanal, destilados mexicanos y experiencias privadas para disfrutar sin prisa." />
+  <meta name="keywords" content="restaurante mexicano premium, restaurante elegante, cocina mexicana contemporánea, barra de mezcal, tequila premium, restaurante para eventos privados, restaurante mexicano de autor" />
+  <meta name="author" content="AMARE" />
+  <meta name="robots" content="index, follow" />
+  <meta property="og:title" content="AMARE | Restaurant Connecting Club" />
+  <meta property="og:description" content="Gastronomía mexicana contemporánea, barra artesanal y momentos que se disfrutan sin prisa." />
+  <meta property="og:type" content="website" />
+  
+  <meta property="og:image" content="https://impactosdigitales.com/amare/img/slide-amare.png" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            amareBlack: '#070605',
+            amareCoal: '#11100E',
+            amareBrown: '#2A1C14',
+            amareWalnut: '#4A3324',
+            amareGold: '#B68A48',
+            amareGoldSoft: '#D8B77A',
+            amareIvory: '#F6F0E7',
+            amareMuted: '#B8AA97'
+          },
+          fontFamily: {
+            display: ['Cormorant Garamond', 'serif'],
+            body: ['Inter', 'sans-serif']
+          },
+          boxShadow: {
+            gold: '0 30px 90px rgba(182, 138, 72, .18)',
+            soft: '0 30px 120px rgba(0,0,0,.42)'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root{--gold:#B68A48;--ivory:#F6F0E7;--black:#070605}
+    body{font-family:Inter,sans-serif;background:#070605;color:#F6F0E7;overflow-x:hidden}
+    .font-display{font-family:'Cormorant Garamond',serif}
+    .grain:before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.16;background-image:url('data:image/svg+xml,%3Csvg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"%3E%3Cfilter id="n"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="4" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100%25" height="100%25" filter="url(%23n)" opacity="0.55"/%3E%3C/svg%3E')}
+    .reveal{opacity:0;transform:translateY(34px);transition:opacity .9s ease,transform .9s ease}.reveal.show{opacity:1;transform:none}
+    .line-reveal{overflow:hidden}.line-reveal span{display:block;transform:translateY(105%);animation:lineUp 1.15s cubic-bezier(.2,.8,.2,1) forwards}.line-reveal:nth-child(2) span{animation-delay:.12s}.line-reveal:nth-child(3) span{animation-delay:.24s}@keyframes lineUp{to{transform:translateY(0)}}
+    .nav-blur{backdrop-filter:blur(18px);background:rgba(7,6,5,.74);border-bottom:1px solid rgba(216,183,122,.13)}
+    .image-zoom img{transition:transform 1.4s cubic-bezier(.2,.8,.2,1),filter .8s ease}.image-zoom:hover img{transform:scale(1.075);filter:saturate(1.12)}
+    .gold-line{height:1px;background:linear-gradient(90deg,transparent,rgba(216,183,122,.75),transparent)}
+    .btn-gold{background:linear-gradient(135deg,#D8B77A,#A77634);color:#090705;box-shadow:0 18px 55px rgba(182,138,72,.22)}
+    .btn-gold:hover{transform:translateY(-2px);box-shadow:0 24px 70px rgba(182,138,72,.34)}
+    .btn-ghost:hover{background:rgba(246,240,231,.08);border-color:rgba(216,183,122,.5)}
+    .marquee{animation:marquee 24s linear infinite}@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+    .side-link{position:relative}.side-link:after{content:'';position:absolute;left:0;bottom:-8px;width:0;height:1px;background:#D8B77A;transition:.45s}.side-link:hover:after{width:100%}
+  </style>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"Restaurant",
+    "name":"AMARE",
+    "description":"Restaurante mexicano premium con cocina contemporánea, barra artesanal y experiencias privadas.",
+    "servesCuisine":"Mexican contemporary cuisine",
+    "priceRange":"$$$$",
+    "acceptsReservations":"True",
+    "hasMenu":"#menu",
+    "sameAs":[]
+  }
+  </script>
+</head>
+<body>
+  <div id="cursorGlow" class="pointer-events-none fixed left-0 top-0 z-[90] hidden h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amareGold/10 blur-3xl lg:block"></div>
+
+  <header id="navbar" class="fixed left-0 right-0 top-0 z-50 transition-all duration-500">
+    <div class="mx-auto flex max-w-[1500px] items-center justify-between px-5 py-5 lg:px-10">
+      <a href="#inicio" class="group flex items-center gap-4">
+        <span class="flex h-11 w-11 items-center justify-center rounded-full border border-amareGold/40 text-xs font-semibold tracking-[.28em] text-amareGold">A</span>
+        <span class="font-display text-3xl font-semibold tracking-[.18em] text-amareIvory">AMARE</span>
+      </a>
+      <nav class="hidden items-center gap-8 text-[11px] font-semibold uppercase tracking-[.26em] text-amareIvory/70 xl:flex">
+        <a class="hover:text-amareGold" href="#historia">Historia</a>
+        <a class="hover:text-amareGold" href="#cocina">Cocina</a>
+        <a class="hover:text-amareGold" href="#barra">Barra</a>
+        <a class="hover:text-amareGold" href="#experiencias">Experiencias</a>
+        <a class="hover:text-amareGold" href="#galeria">Galería</a>
+        <a class="hover:text-amareGold" href="#reservar">Reservar</a>
+      </nav>
+      <div class="flex items-center gap-3">
+        <a href="#reservar" class="hidden rounded-full border border-amareGold/40 px-6 py-3 text-[11px] font-bold uppercase tracking-[.22em] text-amareGold transition hover:bg-amareGold hover:text-amareBlack lg:inline-flex">Mesa</a>
+        <button id="openMenu" class="rounded-full border border-amareIvory/15 bg-amareIvory/5 px-5 py-3 text-xs uppercase tracking-[.25em] text-amareIvory transition hover:border-amareGold/60">Menú</button>
+      </div>
+    </div>
+  </header>
+
+  <aside id="mobileMenu" class="fixed inset-y-0 right-0 z-[80] w-full translate-x-full bg-amareBlack/88 backdrop-blur-2xl transition-transform duration-700 md:w-[520px]">
+    <div class="absolute inset-0 grain"></div>
+    <div class="relative flex h-full flex-col p-8 md:p-12">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs uppercase tracking-[.35em] text-amareGold">AMARE</p>
+          <p class="mt-2 font-display text-3xl text-amareIvory">Mesa, barra y sobremesa.</p>
+        </div>
+        <button id="closeMenu" class="h-12 w-12 rounded-full border border-amareIvory/20 text-2xl text-amareIvory transition hover:border-amareGold hover:text-amareGold">×</button>
+      </div>
+      <nav class="mt-20 flex flex-col gap-8 font-display text-5xl text-amareIvory md:text-6xl">
+        <a class="side-link menuLink" href="#inicio">Inicio</a>
+        <a class="side-link menuLink" href="#historia">Historia</a>
+        <a class="side-link menuLink" href="#cocina">Cocina</a>
+        <a class="side-link menuLink" href="#barra">Barra</a>
+        <a class="side-link menuLink" href="#experiencias">Experiencias</a>
+        <a class="side-link menuLink" href="#reservar">Reservar</a>
+      </nav>
+      <div class="mt-auto border-t border-amareIvory/10 pt-8 text-sm leading-7 text-amareMuted">
+        <p>Gastronomía mexicana contemporánea.</p>
+        <p>Destilados artesanales. Momentos sin prisa.</p>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+<section class="relative min-h-[650px] h-[95vh] md:min-h-[720px] md:h-screen overflow-hidden">
+  <div id="heroCarousel" class="absolute inset-0">
+
+    <!-- SLIDE 1 -->
+    <div class="hero-slide absolute inset-0 opacity-100 transition-opacity duration-[1400ms] ease-out" data-slide="0">
+      <picture>
+        <!-- Imagen para desktop -->
+        <source media="(min-width: 600px)" srcset="/public/img/slide-amare-restaurant.webp">
+        
+        <!-- Imagen para móvil -->
+        <img
+          class="h-full w-full object-cover object-center"
+          src="/public/img/slide-amare-m.webp"
+          alt="AMARE Mexican social dining - Hay mesas que se vuelven recuerdos" />
+      </picture>
+
+      <div class="absolute inset-0 bg-gradient-to-r from-amareBlack/15 via-amareBlack/20 to-amareBlack/10"></div>
+    </div>
+
+    <!-- SLIDE 2 
+    <div class="hero-slide absolute inset-0 opacity-0 transition-opacity duration-[1400ms] ease-out" data-slide="1">
+      <picture>
+        <source media="(min-width: 768px)" srcset="img/barra-desktop.jpg">
+        <img
+          class="h-full w-full object-cover object-center"
+          src="img/barra-mobile.jpg"
+          alt="Barra premium con luz cálida" />
+      </picture>
+
+      <div class="absolute inset-0 bg-gradient-to-r from-amareBlack via-amareBlack/78 to-amareBlack/25"></div>
+      <div class="absolute inset-0 bg-gradient-to-t from-amareBlack via-transparent to-amareBlack/50"></div>
+    </div>-->
+
+    <!-- SLIDE 3
+    <div class="hero-slide absolute inset-0 opacity-0 transition-opacity duration-[1400ms] ease-out" data-slide="2">
+      <picture>
+        <source media="(min-width: 768px)" srcset="img/cocina-desktop.jpg">
+        <img
+          class="h-full w-full object-cover object-center"
+          src="img/cocina-mobile.jpg"
+          alt="Cena elegante en restaurante mexicano contemporáneo" />
+      </picture>
+
+      <div class="absolute inset-0 bg-gradient-to-r from-amareBlack via-amareBlack/80 to-amareBlack/25"></div>
+      <div class="absolute inset-0 bg-gradient-to-t from-amareBlack via-transparent to-amareBlack/50"></div>
+    </div> -->
+
+  </div>
+
+  <div class="absolute bottom-8 left-5 right-5 z-20 mx-auto flex max-w-[1500px] items-center justify-between lg:left-10 lg:right-10">
+    <div class="hidden items-center gap-4 text-[10px] uppercase tracking-[.35em] text-amareIvory/55 lg:flex">
+      <span>Desliza</span>
+      <span class="h-px w-24 bg-amareIvory/25"></span>
+      <span>para descubrir</span>
+    </div>
+
+    <div class="ml-auto flex items-center gap-3 rounded-full border border-amareIvory/10 bg-amareBlack/45 p-2 backdrop-blur-xl">
+      <button class="heroDot h-2.5 w-8 rounded-full bg-amareGold transition-all" data-go="0" aria-label="Slide 1"></button>
+      <button class="heroDot h-2.5 w-2.5 rounded-full bg-amareIvory/35 transition-all" data-go="1" aria-label="Slide 2"></button>
+      <button class="heroDot h-2.5 w-2.5 rounded-full bg-amareIvory/35 transition-all" data-go="2" aria-label="Slide 3"></button>
+    </div>
+  </div>
+</section>
+
+    <section class="relative overflow-hidden border-y border-amareGold/10 bg-amareCoal py-5">
+      <div class="marquee flex w-[200%] gap-10 whitespace-nowrap text-xs uppercase tracking-[.45em] text-amareGold/70">
+        <span>Gastronomía mexicana</span><span>•</span><span>Barra artesanal</span><span>•</span><span>Sobremesa</span><span>•</span><span>Destilados premium</span><span>•</span><span>Cenas privadas</span><span>•</span>
+        <span>Gastronomía mexicana</span><span>•</span><span>Barra artesanal</span><span>•</span><span>Sobremesa</span><span>•</span><span>Destilados premium</span><span>•</span><span>Cenas privadas</span><span>•</span>
+      </div>
+    </section>
+
+    <section id="historia" class="relative bg-amareBlack px-5 py-28 lg:px-10 lg:py-40">
+      <div class="mx-auto grid max-w-[1400px] gap-16 lg:grid-cols-[.95fr_1.05fr] lg:items-center">
+        <div class="reveal image-zoom relative overflow-hidden rounded-[2rem] border border-amareGold/15 shadow-soft">
+          <img class="h-[680px] w-full object-cover" src="https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=1400&q=90" alt="Barra premium con luz cálida" />
+          <div class="absolute inset-0 bg-gradient-to-t from-amareBlack/60 to-transparent"></div>
+          <div class="absolute bottom-8 left-8 right-8 border-t border-amareGold/30 pt-5">
+            <p class="font-display text-3xl text-amareIvory">Un espacio seguro  para conectar</p>
+          </div>
+        </div>
+        <div class="reveal lg:pl-10">
+          <p class="text-xs font-semibold uppercase tracking-[.45em] text-amareGold">Bienvenido</p>
+          <h2 class="mt-7 font-display text-6xl font-medium leading-none text-amareIvory md:text-8xl">AMARE se disfruta sin prisa.</h2>
+          <p class="mt-8 max-w-2xl text-lg font-light leading-9 text-amareIvory/76">Nos inspira la cocina mexicana, sus ingredientes, sus aromas y esas sobremesas que empiezan con una buena comida y terminan con una conversación que nadie quiere cortar.</p>
+          <p class="mt-6 max-w-2xl text-lg font-light leading-9 text-amareIvory/76">Aquí vienes a celebrar, a brindar, a compartir o simplemente a darte el gusto de comer bien. Sin complicarlo tanto. Con buen servicio, buena barra y un ambiente que se siente especial desde que entras.</p>
+          <div class="mt-10 grid gap-6 border-t border-amareIvory/10 pt-10 sm:grid-cols-3">
+            <div><p class="font-display text-5xl text-amareGold">01</p><p class="mt-2 text-sm text-amareMuted">Cocina mexicana contemporánea</p></div>
+            <div><p class="font-display text-5xl text-amareGold">02</p><p class="mt-2 text-sm text-amareMuted">Barra de destilados artesanales</p></div>
+            <div><p class="font-display text-5xl text-amareGold">03</p><p class="mt-2 text-sm text-amareMuted">Espacios para celebrar</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="cocina" class="relative overflow-hidden bg-[#0B0907] px-5 py-28 lg:px-10 lg:py-36">
+      <div class="absolute right-0 top-0 h-[520px] w-[520px] rounded-full bg-amareGold/10 blur-[130px]"></div>
+      <div class="mx-auto max-w-[1400px]">
+        <div class="reveal flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[.45em] text-amareGold">Nuestra cocina</p>
+            <h2 class="mt-6 max-w-4xl font-display text-6xl leading-none text-amareIvory md:text-8xl">Sabores que hablan bonito de México.</h2>
+          </div>
+          <p class="max-w-md text-base font-light leading-8 text-amareMuted">Recetas con raíz, ingredientes bien elegidos y una forma más actual de llevar México a la mesa.</p>
+        </div>
+
+        <div class="mt-16 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <article class="reveal group overflow-hidden rounded-[1.6rem] border border-amareIvory/10 bg-amareIvory/[.035]">
+            <div class="image-zoom h-80 overflow-hidden"><img class="h-full w-full object-cover" src="https://images.unsplash.com/photo-1615870216519-2f9fa575fa5c?auto=format&fit=crop&w=900&q=85" alt="Platillo mexicano elegante"></div>
+            <div class="p-7"><p class="text-xs uppercase tracking-[.32em] text-amareGold">Temporada</p><h3 class="mt-4 font-display text-3xl text-amareIvory">Chile Ancestral</h3><p class="mt-3 text-sm leading-7 text-amareMuted">Un clásico mexicano con una lectura elegante, sabores profundos y presentación memorable.</p></div>
+          </article>
+          <article class="reveal group overflow-hidden rounded-[1.6rem] border border-amareIvory/10 bg-amareIvory/[.035]">
+            <div class="image-zoom h-80 overflow-hidden"><img class="h-full w-full object-cover" src="https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=900&q=85" alt="Mesa con platillos"></div>
+            <div class="p-7"><p class="text-xs uppercase tracking-[.32em] text-amareGold">Para compartir</p><h3 class="mt-4 font-display text-3xl text-amareIvory">Mesa al Centro</h3><p class="mt-3 text-sm leading-7 text-amareMuted">Entradas, antojos y sabores pensados para abrir conversación desde el primer bocado.</p></div>
+          </article>
+          <article class="reveal group overflow-hidden rounded-[1.6rem] border border-amareIvory/10 bg-amareIvory/[.035]">
+            <div class="image-zoom h-80 overflow-hidden"><img class="h-full w-full object-cover" src="https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?auto=format&fit=crop&w=900&q=85" alt="Corte premium"></div>
+            <div class="p-7"><p class="text-xs uppercase tracking-[.32em] text-amareGold">Fuego</p><h3 class="mt-4 font-display text-3xl text-amareIvory">Cortes & Brasas</h3><p class="mt-3 text-sm leading-7 text-amareMuted">Cortes seleccionados, cocciones precisas y acompañamientos con carácter mexicano.</p></div>
+          </article>
+          <article class="reveal group overflow-hidden rounded-[1.6rem] border border-amareIvory/10 bg-amareIvory/[.035]">
+            <div class="image-zoom h-80 overflow-hidden"><img class="h-full w-full object-cover" src="https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=900&q=85" alt="Postre elegante"></div>
+            <div class="p-7"><p class="text-xs uppercase tracking-[.32em] text-amareGold">Dulce final</p><h3 class="mt-4 font-display text-3xl text-amareIvory">Postres con Memoria</h3><p class="mt-3 text-sm leading-7 text-amareMuted">Sabores familiares llevados a un cierre delicado, cálido y muy mexicano.</p></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="barra" class="relative min-h-[780px] overflow-hidden px-5 py-28 lg:px-10 lg:py-40">
+      <div class="absolute inset-0">
+        <img class="h-full w-full object-cover opacity-62" src="https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=2200&q=90" alt="Barra elegante de restaurante" />
+        <div class="absolute inset-0 bg-gradient-to-r from-amareBlack via-amareBlack/78 to-amareBlack/20"></div>
+        <div class="absolute inset-0 bg-gradient-to-t from-amareBlack via-transparent to-amareBlack/40"></div>
+      </div>
+      <div class="relative z-10 mx-auto max-w-[1400px]">
+        <div class="reveal max-w-2xl">
+          <p class="text-xs font-semibold uppercase tracking-[.45em] text-amareGold">Barra artesanal</p>
+          <h2 class="mt-7 font-display text-6xl leading-none text-amareIvory md:text-8xl">Una copa para cada historia.</h2>
+          <p class="mt-8 text-lg font-light leading-9 text-amareIvory/78">Mezcales artesanales, tequilas premium, destilados mexicanos de pequeños productores y cocteles creados para acompañar la noche.</p>
+        </div>
+        <div class="reveal mt-16 grid max-w-4xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="border border-amareGold/20 bg-amareBlack/45 p-6 backdrop-blur-md"><p class="font-display text-3xl text-amareGold">Mezcal</p><p class="mt-2 text-sm text-amareMuted">Origen, humo y carácter.</p></div>
+          <div class="border border-amareGold/20 bg-amareBlack/45 p-6 backdrop-blur-md"><p class="font-display text-3xl text-amareGold">Tequila</p><p class="mt-2 text-sm text-amareMuted">Selección premium.</p></div>
+          <div class="border border-amareGold/20 bg-amareBlack/45 p-6 backdrop-blur-md"><p class="font-display text-3xl text-amareGold">Raicilla</p><p class="mt-2 text-sm text-amareMuted">México menos obvio.</p></div>
+          <div class="border border-amareGold/20 bg-amareBlack/45 p-6 backdrop-blur-md"><p class="font-display text-3xl text-amareGold">Coctelería</p><p class="mt-2 text-sm text-amareMuted">Clásicos y autor.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="experiencias" class="bg-amareIvory px-5 py-28 text-amareBlack lg:px-10 lg:py-36">
+      <div class="mx-auto max-w-[1400px]">
+        <div class="reveal mx-auto max-w-4xl text-center">
+          <p class="text-xs font-bold uppercase tracking-[.45em] text-amareGold">Experiencias</p>
+          <h2 class="mt-6 font-display text-6xl leading-none md:text-8xl">Siempre hay un buen motivo para venir.</h2>
+          <p class="mx-auto mt-8 max-w-2xl text-lg font-light leading-8 text-amareBlack/68">Una cena especial, una reunión, una copa después del trabajo o una celebración que merece algo más cuidado.</p>
+        </div>
+        <div class="mt-16 grid gap-px overflow-hidden rounded-[2rem] border border-amareBlack/10 bg-amareBlack/10 md:grid-cols-2 lg:grid-cols-4">
+          <div class="reveal bg-amareIvory p-9"><span class="text-xs uppercase tracking-[.3em] text-amareGold">01</span><h3 class="mt-8 font-display text-4xl">Catas privadas</h3><p class="mt-4 text-sm leading-7 text-amareBlack/65">Mezcal, tequila y destilados mexicanos guiados con calma, sabor y buena charla.</p></div>
+          <div class="reveal bg-amareIvory p-9"><span class="text-xs uppercase tracking-[.3em] text-amareGold">02</span><h3 class="mt-8 font-display text-4xl">Chef's Table</h3><p class="mt-4 text-sm leading-7 text-amareBlack/65">Una experiencia cercana para conocer lo que inspira cada platillo.</p></div>
+          <div class="reveal bg-amareIvory p-9"><span class="text-xs uppercase tracking-[.3em] text-amareGold">03</span><h3 class="mt-8 font-display text-4xl">Noches especiales</h3><p class="mt-4 text-sm leading-7 text-amareBlack/65">Música, gastronomía y propuestas que hacen que cada visita se sienta distinta.</p></div>
+          <div class="reveal bg-amareIvory p-9"><span class="text-xs uppercase tracking-[.3em] text-amareGold">04</span><h3 class="mt-8 font-display text-4xl">Eventos privados</h3><p class="mt-4 text-sm leading-7 text-amareBlack/65">Cumpleaños, aniversarios, cenas empresariales y reuniones para recordar.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="galeria" class="bg-amareBlack px-5 py-28 lg:px-10 lg:py-36">
+      <div class="mx-auto max-w-[1500px]">
+        <div class="reveal mb-14 flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
+          <h2 class="font-display text-6xl leading-none text-amareIvory md:text-8xl">Un vistazo a la noche.</h2>
+          <p class="max-w-md text-base leading-8 text-amareMuted">Ambientes cálidos, mesas con historia y detalles que se descubren poco a poco.</p>
+        </div>
+        <div class="grid gap-5 lg:grid-cols-12">
+          <div class="reveal image-zoom overflow-hidden rounded-[2rem] lg:col-span-7"><img class="h-[520px] w-full object-cover" src="https://images.unsplash.com/photo-1543007630-9710e4a00a20?auto=format&fit=crop&w=1300&q=90" alt="Restaurante premium"></div>
+          <div class="reveal image-zoom overflow-hidden rounded-[2rem] lg:col-span-5"><img class="h-[520px] w-full object-cover" src="https://images.unsplash.com/photo-1600891964599-f61ba0e24092?auto=format&fit=crop&w=1200&q=90" alt="Cena elegante"></div>
+          <div class="reveal image-zoom overflow-hidden rounded-[2rem] lg:col-span-4"><img class="h-[380px] w-full object-cover" src="https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&w=900&q=90" alt="Coctel"></div>
+          <div class="reveal image-zoom overflow-hidden rounded-[2rem] lg:col-span-4"><img class="h-[380px] w-full object-cover" src="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=900&q=90" alt="Interior restaurante"></div>
+          <div class="reveal image-zoom overflow-hidden rounded-[2rem] lg:col-span-4"><img class="h-[380px] w-full object-cover" src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=900&q=90" alt="Platillo"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="relative overflow-hidden bg-amareBrown px-5 py-28 lg:px-10 lg:py-40">
+      <div class="mx-auto grid max-w-[1400px] gap-14 lg:grid-cols-[1fr_.9fr] lg:items-center">
+        <div class="reveal">
+          <p class="text-xs font-semibold uppercase tracking-[.45em] text-amareGoldSoft">Ambiente</p>
+          <h2 class="mt-6 font-display text-6xl leading-none text-amareIvory md:text-8xl">Quédate un rato más.</h2>
+          <p class="mt-8 text-lg font-light leading-9 text-amareIvory/78">La luz, la madera, los cuadros y la música están ahí para acompañar, no para robarse la noche. AMARE se siente elegante, pero cercano. Cuidado, pero sin pretensiones.</p>
+          <p class="mt-6 text-lg font-light leading-9 text-amareIvory/78">Ese tipo de lugar donde una comida termina en brindis, y un brindis en sobremesa.</p>
+        </div>
+        <div class="reveal image-zoom overflow-hidden rounded-[2rem] border border-amareGold/20 shadow-gold">
+          <img class="h-[620px] w-full object-cover" src="https://images.unsplash.com/photo-1592861956120-e524fc739696?auto=format&fit=crop&w=1200&q=90" alt="Mesa elegante en restaurante" />
+        </div>
+      </div>
+    </section>
+
+    <section id="reservar" class="relative overflow-hidden bg-amareBlack px-5 py-28 lg:px-10 lg:py-40">
+      <div class="absolute left-1/2 top-0 h-[540px] w-[540px] -translate-x-1/2 rounded-full bg-amareGold/10 blur-[150px]"></div>
+      <div class="relative mx-auto grid max-w-[1300px] gap-14 lg:grid-cols-[.9fr_1.1fr] lg:items-start">
+        <div class="reveal">
+          <p class="text-xs font-semibold uppercase tracking-[.45em] text-amareGold">Reservaciones</p>
+          <h2 class="mt-6 font-display text-6xl leading-none text-amareIvory md:text-8xl">Tu próxima mesa te está esperando.</h2>
+          <p class="mt-8 max-w-xl text-lg font-light leading-9 text-amareIvory/75">Reserva para una cena tranquila, una celebración o una noche que quieras disfrutar sin prisas.</p>
+          <div class="mt-10 gold-line max-w-md"></div>
+          <div class="mt-10 space-y-5 text-sm text-amareMuted">
+            <p><span class="text-amareGold">Horario:</span> Martes a domingo · 2:00 PM - 12:00 AM</p>
+            <p><span class="text-amareGold">Ubicación:</span> Próximamente</p>
+            <p><span class="text-amareGold">Contacto:</span> reservaciones@amare.mx</p>
+          </div>
+        </div>
+        <form class="reveal rounded-[2rem] border border-amareGold/15 bg-amareIvory/[.045] p-6 shadow-soft backdrop-blur md:p-10">
+          <div class="grid gap-5 md:grid-cols-2">
+            <label class="block"><span class="mb-2 block text-xs uppercase tracking-[.25em] text-amareGold">Nombre</span><input class="w-full rounded-full border border-amareIvory/10 bg-amareBlack/60 px-5 py-4 text-amareIvory outline-none transition focus:border-amareGold" type="text" placeholder="Tu nombre"></label>
+            <label class="block"><span class="mb-2 block text-xs uppercase tracking-[.25em] text-amareGold">Teléfono</span><input class="w-full rounded-full border border-amareIvory/10 bg-amareBlack/60 px-5 py-4 text-amareIvory outline-none transition focus:border-amareGold" type="tel" placeholder="WhatsApp"></label>
+            <label class="block"><span class="mb-2 block text-xs uppercase tracking-[.25em] text-amareGold">Fecha</span><input class="w-full rounded-full border border-amareIvory/10 bg-amareBlack/60 px-5 py-4 text-amareIvory outline-none transition focus:border-amareGold" type="date"></label>
+            <label class="block"><span class="mb-2 block text-xs uppercase tracking-[.25em] text-amareGold">Personas</span><select class="w-full rounded-full border border-amareIvory/10 bg-amareBlack/60 px-5 py-4 text-amareIvory outline-none transition focus:border-amareGold"><option>2 personas</option><option>4 personas</option><option>6 personas</option><option>8+ personas</option><option>Evento privado</option></select></label>
+          </div>
+          <label class="mt-5 block"><span class="mb-2 block text-xs uppercase tracking-[.25em] text-amareGold">Mensaje</span><textarea class="min-h-36 w-full rounded-[1.4rem] border border-amareIvory/10 bg-amareBlack/60 px-5 py-4 text-amareIvory outline-none transition focus:border-amareGold" placeholder="Cuéntanos si celebras algo especial"></textarea></label>
+          <button type="button" class="btn-gold mt-7 w-full rounded-full px-8 py-5 text-xs font-black uppercase tracking-[.25em] transition duration-500">Solicitar reservación</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-amareIvory/10 bg-amareCoal px-5 py-12 lg:px-10">
+    <div class="mx-auto flex max-w-[1500px] flex-col justify-between gap-8 lg:flex-row lg:items-center">
+      <div>
+        <p class="font-display text-5xl tracking-[.18em] text-amareIvory">AMARE</p>
+        <p class="mt-3 text-sm text-amareMuted">Gastronomía · Barra artesanal · Sobremesa</p>
+      </div>
+      <div class="flex flex-wrap gap-6 text-xs uppercase tracking-[.25em] text-amareIvory/60">
+        <a class="hover:text-amareGold" href="#historia">Historia</a>
+        <a class="hover:text-amareGold" href="#cocina">Cocina</a>
+        <a class="hover:text-amareGold" href="#barra">Barra</a>
+        <a class="hover:text-amareGold" href="#reservar">Reservar</a>
+      </div>
+      <p class="text-xs text-amareIvory/45">© 2026 AMARE. Todos los derechos reservados.</p>
+    </div>
+  </footer>
+
+  <script>
+    const navbar = document.getElementById('navbar');
+    const menu = document.getElementById('mobileMenu');
+    const openMenu = document.getElementById('openMenu');
+    const closeMenu = document.getElementById('closeMenu');
+    const menuLinks = document.querySelectorAll('.menuLink');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 40) navbar.classList.add('nav-blur');
+      else navbar.classList.remove('nav-blur');
+    });
+    openMenu.addEventListener('click', () => menu.classList.remove('translate-x-full'));
+    closeMenu.addEventListener('click', () => menu.classList.add('translate-x-full'));
+    menuLinks.forEach(link => link.addEventListener('click', () => menu.classList.add('translate-x-full')));
+
+    const heroSlides = document.querySelectorAll('.hero-slide');
+    const heroDots = document.querySelectorAll('.heroDot');
+    let currentHero = 0;
+    let heroTimer;
+
+    function showHeroSlide(index) {
+      currentHero = index;
+      heroSlides.forEach((slide, i) => {
+        slide.style.opacity = i === index ? '1' : '0';
+        slide.style.zIndex = i === index ? '2' : '1';
+      });
+      heroDots.forEach((dot, i) => {
+        dot.classList.toggle('bg-amareGold', i === index);
+        dot.classList.toggle('bg-amareIvory/35', i !== index);
+        dot.classList.toggle('w-8', i === index);
+        dot.classList.toggle('w-2.5', i !== index);
+      });
+    }
+
+    function startHeroCarousel() {
+      clearInterval(heroTimer);
+      heroTimer = setInterval(() => {
+        showHeroSlide((currentHero + 1) % heroSlides.length);
+      }, 6500);
+    }
+
+    heroDots.forEach(dot => {
+      dot.addEventListener('click', () => {
+        showHeroSlide(Number(dot.dataset.go));
+        startHeroCarousel();
+      });
+    });
+
+    showHeroSlide(0);
+    startHeroCarousel();
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) entry.target.classList.add('show');
+      });
+    }, { threshold: .16 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    const glow = document.getElementById('cursorGlow');
+    window.addEventListener('mousemove', (e) => {
+      glow.style.left = e.clientX + 'px';
+      glow.style.top = e.clientY + 'px';
+    });
+  </script>
+</body>
+</html>

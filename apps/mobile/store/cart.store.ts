@@ -141,8 +141,20 @@ export async function hydrateCart(): Promise<void> {
     const json = await AsyncStorage.getItem(CART_KEY);
     if (json) {
       const { items, restauranteId, tipoPedido } = JSON.parse(json);
+      const derivedRestaurantId =
+        restauranteId ??
+        items?.[0]?.platillo?.restaurante_id ??
+        items?.[0]?.platillo?.restaurant_id ??
+        null;
       const { total, itemCount } = computeTotals(items ?? []);
-      useCartStore.setState({ items: items ?? [], restauranteId, tipoPedido, total, itemCount });
+      useCartStore.setState({
+        items: items ?? [],
+        restauranteId:
+          derivedRestaurantId == null ? null : Number.isNaN(Number(derivedRestaurantId)) ? null : Number(derivedRestaurantId),
+        tipoPedido,
+        total,
+        itemCount,
+      });
     }
   } catch {
     // sin datos guardados

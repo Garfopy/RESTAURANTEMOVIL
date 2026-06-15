@@ -1,0 +1,30 @@
+# Environment variables
+.env
+
+# Dependencies
+vendor/
+
+# Uploads
+uploads/*
+!uploads/.gitignore
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+cache/
+*.cache
+
+# Composer
+composer.lock

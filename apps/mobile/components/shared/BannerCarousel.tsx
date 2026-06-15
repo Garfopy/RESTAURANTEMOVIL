@@ -1,12 +1,11 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
-  Dimensions,
   TouchableOpacity,
   Text,
   Animated,
-  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Colors, Spacing, BorderRadius } from '../../theme';
@@ -27,9 +26,7 @@ interface BannerCarouselProps {
   interval?: number;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BANNER_HEIGHT = 190;
-const BANNER_WIDTH = SCREEN_WIDTH - 40; // Ajustado para márgenes laterales de 20
 
 export function BannerCarousel({
   items,
@@ -38,12 +35,18 @@ export function BannerCarousel({
   interval = 4000,
 }: BannerCarouselProps) {
   const theme = useThemeColors();
+  const { width } = useWindowDimensions();
   const flatRef = useRef<Animated.FlatList<BannerItem>>(null);
   const currentIndex = useRef(0);
   const scrollX = useRef(new Animated.Value(0)).current;
+  const horizontalInset = width < 380 ? 16 : 20;
+  const bannerGap = 12;
+  const bannerWidth = Math.max(width - horizontalInset * 2, 260);
+  const snapInterval = bannerWidth + bannerGap;
 
   useEffect(() => {
     if (!autoPlay || items.length <= 1) return;
+
     const timer = setInterval(() => {
       currentIndex.current = (currentIndex.current + 1) % items.length;
       flatRef.current?.scrollToIndex({
@@ -51,6 +54,7 @@ export function BannerCarousel({
         animated: true,
       });
     }, interval);
+
     return () => clearInterval(timer);
   }, [autoPlay, interval, items.length]);
 
@@ -62,24 +66,27 @@ export function BannerCarousel({
         ref={flatRef}
         data={items}
         horizontal
-        pagingEnabled
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
-        snapToInterval={BANNER_WIDTH + 12} // BANNER_WIDTH + gap
+        snapToInterval={snapInterval}
+        snapToAlignment="start"
         decelerationRate="fast"
-        contentContainerStyle={{ paddingHorizontal: 20 }}
+        bounces={false}
+        removeClippedSubviews={false}
+        contentContainerStyle={{ paddingHorizontal: horizontalInset }}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { x: scrollX } } }],
           { useNativeDriver: false }
         )}
+        scrollEventThrottle={16}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => onPress?.(item)}
             activeOpacity={0.95}
-            style={styles.banner}
-            accessibilityLabel={item.titulo || 'Promoción'}
+            style={[styles.banner, { width: bannerWidth, marginRight: bannerGap }]}
+            accessibilityLabel={item.titulo || 'Promocion'}
             accessibilityRole="button"
-            accessibilityHint={item.subtitulo || 'Toca para ver más detalles'}
+            accessibilityHint={item.subtitulo || 'Toca para ver mas detalles'}
             testID={`banner-${item.id}`}
           >
             <Image
@@ -90,21 +97,20 @@ export function BannerCarousel({
             />
             {(item.titulo || item.subtitulo) && (
               <View style={styles.overlay}>
-                {item.titulo && <Text style={styles.titulo}>{item.titulo}</Text>}
-                {item.subtitulo && <Text style={styles.subtitulo}>{item.subtitulo}</Text>}
+                {item.titulo ? <Text style={styles.titulo}>{item.titulo}</Text> : null}
+                {item.subtitulo ? <Text style={styles.subtitulo}>{item.subtitulo}</Text> : null}
               </View>
             )}
           </TouchableOpacity>
         )}
       />
 
-      {/* Indicadores (Dots) */}
       <View style={styles.pagination}>
         {items.map((_, i) => {
           const inputRange = [
-            (i - 1) * (BANNER_WIDTH + 12),
-            i * (BANNER_WIDTH + 12),
-            (i + 1) * (BANNER_WIDTH + 12),
+            (i - 1) * snapInterval,
+            i * snapInterval,
+            (i + 1) * snapInterval,
           ];
 
           const dotWidth = scrollX.interpolate({
@@ -133,13 +139,14 @@ export function BannerCarousel({
 
 const styles = StyleSheet.create({
   banner: {
-    width: BANNER_WIDTH,
     height: BANNER_HEIGHT,
     borderRadius: BorderRadius.xl,
     overflow: 'hidden',
-    marginRight: 12,
   },
-  image: { width: '100%', height: '100%' },
+  image: {
+    width: '100%',
+    height: '100%',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',

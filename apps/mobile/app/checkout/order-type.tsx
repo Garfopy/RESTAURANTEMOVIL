@@ -15,7 +15,7 @@ import { useRouter } from 'expo-router';
 import MapView, { Marker, Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { apiClient } from '../../services/api';
+import { apiClient, getApiError } from '../../services/api';
 import { getRestaurantConfig } from '../../services/config.service';
 import type { RestaurantConfig } from '@amare/types';
 
@@ -56,7 +56,12 @@ export default function OrderTypeScreen() {
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
   const { items, total, tipoPedido, setTipoPedido, restauranteId } = useCartStore();
-  const { sucursales } = useBranchStore();
+  const { sucursales, seleccionada } = useBranchStore();
+  const resolvedRestaurantId =
+    restauranteId ??
+    seleccionada?.id ??
+    items[0]?.platillo?.restaurante_id ??
+    null;
   
   const user = useUserStore(s => s.user);
 
@@ -139,25 +144,25 @@ export default function OrderTypeScreen() {
     } else if (tipoPedido === 'pickup') {
       // Lógica para recoger en tienda
       setShowMap(false);
-      const sucursalIdStr = String(restauranteId);
+      const sucursalIdStr = String(resolvedRestaurantId);
       const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
       setUbicacionVisual(sucursal?.direccion || sucursal?.descripcion || 'Sucursal Seleccionada');
     } else if (tipoPedido === 'eat_in') {
       // Comer en el restaurante
       setShowMap(false);
-      const sucursalIdStr = String(restauranteId);
+      const sucursalIdStr = String(resolvedRestaurantId);
       const sucursal = sucursales.find(s => String(s.id) === sucursalIdStr);
       setUbicacionVisual(sucursal?.nombre || 'Restaurante');
     }
-  }, [tipoPedido, restauranteId, sucursales]);
+  }, [tipoPedido, resolvedRestaurantId, sucursales]);
 
   async function cargarConfiguracion() {
-    if (!restauranteId) {
+    if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
       setLoadingConfig(false);
       return;
     }
     try {
-      const cfg = await getRestaurantConfig(restauranteId);
+      const cfg = await getRestaurantConfig(Number(resolvedRestaurantId));
       setConfig(cfg);
       // Si el tipo actual no está habilitado, resetear al primero disponible
       if (tipoPedido && !cfg.tipos_entrega.includes(tipoPedido as never)) {
@@ -370,6 +375,11 @@ export default function OrderTypeScreen() {
       return;
     }
 
+    if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
+      Alert.alert('Error', 'No se detectó la sucursal del pedido. Vuelve al menú y selecciona una sucursal antes de pagar.');
+      return;
+    }
+
     setLoading(true);
     try {
       let finalAddressId = direccionSeleccionada?.id;
@@ -380,7 +390,6 @@ export default function OrderTypeScreen() {
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
-        order_id: restauranteId!,
         amount: total,
         currency: 'mxn',
       });
@@ -390,14 +399,14 @@ export default function OrderTypeScreen() {
         params: {
           clientSecret: client_secret,
           intentId,
-          restauranteId: String(restauranteId),
+          restauranteId: String(resolvedRestaurantId),
           tipoPedido,
           direccionId: finalAddressId ? String(finalAddressId) : '',
           direccionEntrega: ubicacionVisual,
         },
       });
     } catch (err) {
-      Alert.alert('Error', 'No se pudo iniciar el pago. Intenta de nuevo.');
+      Alert.alert('Error', getApiError(err) || 'No se pudo iniciar el pago. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }

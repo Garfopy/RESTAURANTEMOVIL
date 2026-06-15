@@ -14,8 +14,10 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
+import { useBranchStore } from '../../store/branch.store';
 import { confirmPayment, createOrder } from '../../services/orders.service';
 import { getRestaurantConfig } from '../../services/config.service';
+import { getApiError } from '../../services/api';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 import type { RestaurantConfig, MetodoPagoHabilitado } from '@amare/types';
@@ -64,15 +66,24 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
-  const { clientSecret, intentId, restauranteId, tipoPedido } =
+  const { clientSecret, intentId, restauranteId, tipoPedido, direccionId, direccionEntrega } =
     useLocalSearchParams<{
       clientSecret: string;
       intentId: string;
       restauranteId: string;
       tipoPedido: string;
+      direccionId?: string;
+      direccionEntrega?: string;
     }>();
 
-  const { items, total, clear } = useCartStore();
+  const { items, total, clear, restauranteId: cartRestaurantId } = useCartStore();
+  const selectedBranchId = useBranchStore((s) => s.seleccionada?.id);
+  const resolvedRestaurantId =
+    Number(restauranteId) ||
+    cartRestaurantId ||
+    selectedBranchId ||
+    items[0]?.platillo?.restaurante_id ||
+    null;
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [config, setConfig] = useState<RestaurantConfig | null>(null);
@@ -90,8 +101,8 @@ export default function PaymentScreen() {
 
   // Cargar configuración al montar
   useEffect(() => {
-    if (restauranteId) {
-      getRestaurantConfig(Number(restauranteId))
+    if (resolvedRestaurantId) {
+      getRestaurantConfig(Number(resolvedRestaurantId))
         .then((cfg) => {
           setConfig(cfg);
           // Seleccionar el primer método disponible si el actual no está habilitado
@@ -105,7 +116,7 @@ export default function PaymentScreen() {
     } else {
       setLoadingConfig(false);
     }
-  }, [restauranteId]);
+  }, [resolvedRestaurantId, selectedMethod]);
 
   // Cálculo dinámico del ancho de cada card según cuántas hay
   function getCardWidth() {
@@ -127,6 +138,10 @@ export default function PaymentScreen() {
   async function handlePay() {
     setLoading(true);
     try {
+      if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
+        throw new Error('No se detectó la sucursal del pedido. Regresa al carrito e intenta de nuevo.');
+      }
+
       if (selectedMethod === 'cash') {
         const order = await createOrderBackend('cash');
         await confirmPayment({ pedido_id: order.id, payment_intent_id: intentId ?? '', metodo: 'cash' });
@@ -165,7 +180,7 @@ export default function PaymentScreen() {
         return;
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || JSON.stringify(err));
+      Alert.alert('Error', getApiError(err) || err.message || 'No se pudo procesar el pago.');
       console.error('🔴 Error detallado en handlePay:', err);
     } finally {
       setLoading(false);
@@ -174,8 +189,10 @@ export default function PaymentScreen() {
 
   async function createOrderBackend(metodo_pago: string) {
     return await createOrder({
-      restaurante_id: Number(restauranteId),
+      restaurante_id: Number(resolvedRestaurantId),
       tipo_pedido: tipoPedido as never,
+      direccion_id: typeof direccionId === 'string' && direccionId !== '' ? Number(direccionId) : undefined,
+      direccion_entrega: typeof direccionEntrega === 'string' && direccionEntrega !== '' ? direccionEntrega : undefined,
       items: items.map((i) => ({
         platillo_id: i.platillo.id,
         cantidad: i.cantidad,

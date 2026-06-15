@@ -31,6 +31,12 @@ type SelectOption = {
   value: string;
 };
 
+type MesaApiItem = {
+  id: number;
+  label: string;
+  value: string;
+};
+
 type SocialProfileResponse = {
   user_id: number;
   nombre: string;
@@ -42,6 +48,11 @@ type SocialProfileResponse = {
   intereses: string | null;
   que_busca: string | null;
   redes_sociales: string | null;
+  mesa?: string | null;
+  is_social_active?: boolean | null;
+  modo_social?: boolean | null;
+  current_restaurante_id?: number | null;
+  social_updated_at?: string | null;
   has_social_profile?: boolean;
 };
 
@@ -62,6 +73,7 @@ type DinerApiItem = {
   intereses: string | null;
   que_busca: string | null;
   redes_sociales?: string | null;
+  mesa?: string | null;
 };
 
 type SocialFormState = {
@@ -72,6 +84,13 @@ type SocialFormState = {
   biografia: string;
   instagram: string;
   tiktok: string;
+};
+
+type SocialFilterState = {
+  edadMin: string;
+  edadMax: string;
+  genero: string;
+  sexualidad: string;
 };
 
 type SocialDiner = {
@@ -85,6 +104,7 @@ type SocialDiner = {
   intereses: string[];
   que_busca: string | null;
   redes_sociales: string | null;
+  mesa: string | null;
 };
 
 type GiftProduct = {
@@ -111,7 +131,6 @@ const GENDER_OPTIONS: SelectOption[] = [
 const SEXUALITY_OPTIONS: SelectOption[] = [
   { label: 'Heterosexual', value: 'Heterosexual' },
   { label: 'Homosexual', value: 'Homosexual' },
-  { label: 'Lesbiana', value: 'Lesbiana' },
   { label: 'Bisexual', value: 'Bisexual' },
   { label: 'Pansexual', value: 'Pansexual' },
   { label: 'Asexual', value: 'Asexual' },
@@ -153,6 +172,13 @@ const EMPTY_FORM: SocialFormState = {
   biografia: '',
   instagram: '',
   tiktok: '',
+};
+
+const EMPTY_FILTERS: SocialFilterState = {
+  edadMin: '',
+  edadMax: '',
+  genero: '',
+  sexualidad: '',
 };
 
 function parseInterestList(value?: string | null): string[] {
@@ -215,6 +241,13 @@ function resolvePhotoUrl(path?: string | null): string | null {
   return formatImageUrl(path) ?? path;
 }
 
+function normalizeMesaValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
+}
+
 function formatHandleLabel(value?: string | null): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -247,6 +280,7 @@ function buildDiner(item: DinerApiItem): SocialDiner {
     intereses: parseInterestList(item.intereses),
     que_busca: item.que_busca ?? null,
     redes_sociales: item.redes_sociales ?? null,
+    mesa: normalizeMesaValue(item.mesa),
   };
 }
 
@@ -337,6 +371,8 @@ export default function SocialProfileScreen() {
   const [form, setForm] = useState<SocialFormState>(EMPTY_FORM);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [mesaModalVisible, setMesaModalVisible] = useState(false);
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -345,6 +381,8 @@ export default function SocialProfileScreen() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [dinersLoading, setDinersLoading] = useState(false);
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
+  const [giftSending, setGiftSending] = useState(false);
+  const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
   const [diners, setDiners] = useState<SocialDiner[]>([]);
@@ -352,6 +390,10 @@ export default function SocialProfileScreen() {
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
   const [giftProducts, setGiftProducts] = useState<GiftProduct[]>([]);
   const [selectedGiftId, setSelectedGiftId] = useState<number | null>(null);
+  const [filters, setFilters] = useState<SocialFilterState>(EMPTY_FILTERS);
+  const [mesaInput, setMesaInput] = useState('');
+  const [mesaOptions, setMesaOptions] = useState<SelectOption[]>([]);
+  const [pendingActivationAfterBranch, setPendingActivationAfterBranch] = useState(false);
 
   const carouselRef = useRef<FlatList<SocialDiner> | null>(null);
   const isSwipingRef = useRef(false);
@@ -362,6 +404,10 @@ export default function SocialProfileScreen() {
     selectedInterests.forEach((interest) => unique.add(interest));
     return Array.from(unique);
   }, [selectedInterests]);
+  const activeFilterCount = useMemo(
+    () => [filters.edadMin, filters.edadMax, filters.genero, filters.sexualidad].filter(Boolean).length,
+    [filters]
+  );
 
   const carouselPageWidth = Math.max(width - 40, 280);
   const safeCurrentIndex = diners.length > 0 ? moduloIndex(currentIndex, diners.length) : 0;
@@ -396,6 +442,8 @@ export default function SocialProfileScreen() {
 
         const redes = parseSocialNetworks(data.redes_sociales);
         const photoUrl = resolvePhotoUrl(data.foto_url) ?? user?.foto_url ?? null;
+        const socialEnabled = Boolean(data.is_social_active ?? data.modo_social ?? user?.is_social_active ?? user?.modo_social);
+        const mesaValue = normalizeMesaValue(data.mesa) ?? '';
 
         setForm({
           edad: data.edad?.toString() ?? '',
@@ -407,7 +455,8 @@ export default function SocialProfileScreen() {
           tiktok: redes.tiktok,
         });
         setSelectedInterests(parseInterestList(data.intereses));
-        setModoSocial(Boolean(user?.is_social_active ?? user?.modo_social));
+        setMesaInput(mesaValue);
+        setModoSocial(socialEnabled);
         setHasCompleteProfile(
           data.has_social_profile ??
             isProfileReady({
@@ -430,8 +479,10 @@ export default function SocialProfileScreen() {
           redes_sociales: data.redes_sociales,
           instagram: redes.instagram || null,
           tiktok: redes.tiktok || null,
-          is_social_active: Boolean(user?.is_social_active ?? user?.modo_social),
-          modo_social: Boolean(user?.is_social_active ?? user?.modo_social),
+          is_social_active: socialEnabled,
+          modo_social: socialEnabled,
+          current_restaurante_id: data.current_restaurante_id ?? null,
+          mesa: normalizeMesaValue(data.mesa),
         });
       } catch (error) {
         if (mounted) {
@@ -452,6 +503,19 @@ export default function SocialProfileScreen() {
   }, []);
 
   useEffect(() => {
+    if (!pendingActivationAfterBranch || !selectedBranch?.id) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setPendingActivationAfterBranch(false);
+      void openMesaPrompt();
+    }, 220);
+
+    return () => clearTimeout(timer);
+  }, [pendingActivationAfterBranch, selectedBranch?.id]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadActiveDiners() {
@@ -463,15 +527,31 @@ export default function SocialProfileScreen() {
 
       try {
         setDinersLoading(true);
+        const requestParams: Record<string, string | number> = {};
+
+        if (filters.edadMin) {
+          requestParams.edad_min = Number(filters.edadMin);
+        }
+        if (filters.edadMax) {
+          requestParams.edad_max = Number(filters.edadMax);
+        }
+        if (filters.genero) {
+          requestParams.genero = filters.genero;
+        }
+        if (filters.sexualidad) {
+          requestParams.sexualidad = filters.sexualidad;
+        }
 
         let response;
         try {
           response = await apiClient.get<{ success?: boolean; data?: DinerApiItem[] }>(
-            `/restaurants/${selectedBranch.id}/active-diners`
+            `/restaurants/${selectedBranch.id}/active-diners`,
+            { params: requestParams }
           );
         } catch (error) {
           response = await apiClient.get<{ success?: boolean; data?: DinerApiItem[] }>(
-            `/restaurants/${selectedBranch.id}/active-users`
+            `/restaurants/${selectedBranch.id}/active-users`,
+            { params: requestParams }
           );
         }
 
@@ -503,7 +583,7 @@ export default function SocialProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, [modoSocial, selectedBranch?.id]);
+  }, [filters, modoSocial, selectedBranch?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -555,6 +635,10 @@ export default function SocialProfileScreen() {
 
   function updateField<K extends keyof SocialFormState>(field: K, value: SocialFormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateFilter<K extends keyof SocialFilterState>(field: K, value: SocialFilterState[K]) {
+    setFilters((current) => ({ ...current, [field]: value }));
   }
 
   function toggleInterest(interest: string) {
@@ -674,7 +758,24 @@ export default function SocialProfileScreen() {
 
   async function updateSocialStatus(nextValue: boolean) {
     if (nextValue && !selectedBranch?.id) {
-      Alert.alert('Sucursal requerida', 'Selecciona una sucursal antes de activar el modo social.');
+      Alert.alert(
+        'Sucursal requerida',
+        'Selecciona una sucursal antes de activar el modo social.',
+        [
+          {
+            text: 'Elegir sucursal',
+            onPress: () => {
+              setPendingActivationAfterBranch(true);
+              router.push('/branch-selector' as never);
+            },
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel',
+            onPress: () => setPendingActivationAfterBranch(false),
+          },
+        ]
+      );
       return;
     }
 
@@ -687,24 +788,110 @@ export default function SocialProfileScreen() {
       return;
     }
 
+    if (nextValue) {
+      await openMesaPrompt();
+      return;
+    }
+
+    await persistSocialStatus(false, null);
+  }
+
+  async function openMesaPrompt() {
+    const prefilledMesa = normalizeMesaValue(user?.mesa) ?? mesaInput.trim();
+    setMesaInput(prefilledMesa);
+    setMesaModalVisible(true);
+
+    if (!selectedBranch?.id) {
+      setMesaOptions([]);
+      return;
+    }
+
+    try {
+      setMesaOptionsLoading(true);
+      const response = await apiClient.get<{ success?: boolean; data?: MesaApiItem[] } | MesaApiItem[]>(
+        `/restaurants/${selectedBranch.id}/tables`
+      );
+
+      const rawItems = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.data)
+          ? response.data.data
+          : [];
+
+      const nextOptions = rawItems
+        .map((item) => ({
+          label: String(item.label ?? '').trim(),
+          value: String(item.value ?? '').trim(),
+        }))
+        .filter((item) => item.label && item.value);
+
+      setMesaOptions(nextOptions);
+
+      if (!prefilledMesa && nextOptions.length === 1) {
+        setMesaInput(nextOptions[0].value);
+      }
+    } catch {
+      setMesaOptions([]);
+    } finally {
+      setMesaOptionsLoading(false);
+    }
+  }
+
+  async function persistSocialStatus(nextValue: boolean, mesaValue: string | null) {
     try {
       setStatusUpdating(true);
       await apiClient.post('/users/social-status', {
         is_social_active: nextValue,
         current_restaurante_id: nextValue ? selectedBranch?.id ?? null : null,
-      });
+        mesa: nextValue ? mesaValue : null,
+      }, {
+        _suppressConsoleError: nextValue,
+      } as never);
 
+      if (!nextValue) {
+        setDiners([]);
+        setCurrentIndex(0);
+        setDinerDetails({});
+      }
+
+      setMesaInput(nextValue ? mesaValue ?? '' : '');
+      setMesaModalVisible(false);
+      setPendingActivationAfterBranch(false);
       setModoSocial(nextValue);
       updateProfile({
         is_social_active: nextValue,
         modo_social: nextValue,
         current_restaurante_id: nextValue ? selectedBranch?.id ?? null : null,
+        mesa: nextValue ? normalizeMesaValue(mesaValue) : null,
       });
     } catch (error) {
-      Alert.alert('Modo social', getApiError(error));
+      const message = getApiError(error);
+      const normalizedMessage = message.toLowerCase();
+
+      if (normalizedMessage.includes('debes completar tu perfil social')) {
+        setHasCompleteProfile(false);
+        setModoSocial(false);
+        setMesaModalVisible(false);
+        setPendingActivationAfterBranch(false);
+        setModalVisible(true);
+        return;
+      }
+
+      Alert.alert('Modo social', message);
     } finally {
       setStatusUpdating(false);
     }
+  }
+
+  async function handleConfirmMesa() {
+    const cleanMesa = mesaInput.trim();
+
+    if (!cleanMesa) {
+      Alert.alert('Mesa requerida', 'Ingresa tu numero de mesa para activar el modo social.');
+      return;
+    }
+
+    await persistSocialStatus(true, cleanMesa);
   }
 
   async function handleSaveProfile() {
@@ -803,17 +990,59 @@ export default function SocialProfileScreen() {
     }
   }
 
-  function handleSendGift() {
+  async function handleSendGift() {
     if (!currentDiner || !selectedGift) {
       Alert.alert('Regalos', 'Selecciona un regalo para continuar.');
       return;
     }
 
-    Alert.alert(
-      'Regalo seleccionado',
-      `Seleccionaste "${selectedGift.nombre}" para ${currentDiner.nombre}. El siguiente paso es conectar el endpoint de envio en el backend.`,
-      [{ text: 'Entendido' }]
-    );
+    if (!selectedBranch?.id) {
+      Alert.alert('Regalos', 'Selecciona una sucursal antes de enviar un regalo.');
+      return;
+    }
+
+    try {
+      setGiftSending(true);
+
+      const response = await apiClient.post<
+        ApiEnvelope<{
+          id: number;
+          folio: string;
+          mesa_id: number;
+          mesa_label: string;
+          gift_nombre: string;
+          recipient_nombre: string;
+          sender_nombre?: string;
+          recipient_mesa?: string;
+          giftName?: string;
+          recipientName?: string;
+          mesaLabel?: string;
+        }>
+      >('/social-gifts', {
+        restaurant_id: selectedBranch.id,
+        recipient_user_id: currentDiner.user_id,
+        gift_product_id: selectedGift.id,
+      });
+
+      const result = unwrapApiData(response.data);
+      const giftName = result?.gift_nombre ?? result?.giftName ?? selectedGift.nombre;
+      const recipientName = result?.recipient_nombre ?? result?.recipientName ?? currentDiner.nombre;
+      const mesaLabel =
+        result?.mesa_label ??
+        result?.mesaLabel ??
+        (currentDiner.mesa ? `Mesa ${currentDiner.mesa}` : 'la mesa del comensal');
+      const folio = result?.folio;
+
+      setGiftsVisible(false);
+      Alert.alert(
+        'Regalo enviado',
+        `Avisamos al equipo de meseros para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
+      );
+    } catch (error) {
+      Alert.alert('No se pudo enviar', getApiError(error));
+    } finally {
+      setGiftSending(false);
+    }
   }
 
   function renderSwipeCard(
@@ -849,10 +1078,37 @@ export default function SocialProfileScreen() {
         </TouchableOpacity>
 
         <View style={styles.dinerPreview}>
-          <Text style={styles.previewTitle}>Carrusel de comensales</Text>
-          <Text style={styles.previewText}>
-            Desliza horizontalmente para cambiar de comensal y toca la foto para ver su perfil completo.
+          {diner.que_busca ? <Text style={styles.previewEyebrow}>{diner.que_busca}</Text> : null}
+
+          <View style={styles.previewMetaWrap}>
+            {diner.mesa ? (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaChipText}>Mesa {diner.mesa}</Text>
+              </View>
+            ) : null}
+            {diner.edad ? (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaChipText}>{diner.edad} años</Text>
+              </View>
+            ) : null}
+            {diner.genero ? (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaChipText}>{diner.genero}</Text>
+              </View>
+            ) : null}
+            {diner.sexualidad ? (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaChipText}>{diner.sexualidad}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <Text style={styles.previewText} numberOfLines={3}>
+            {diner.descripcion?.trim()
+              ? diner.descripcion
+              : 'Desliza para conocer mas comensales y toca la foto para abrir su perfil completo.'}
           </Text>
+
         </View>
       </>
     );
@@ -870,9 +1126,14 @@ export default function SocialProfileScreen() {
         {diner.que_busca ? <Text style={styles.dinerSubtitle}>{diner.que_busca}</Text> : null}
 
         <View style={styles.metaWrap}>
+          {diner.mesa ? (
+            <View style={styles.metaChip}>
+              <Text style={styles.metaChipText}>Mesa {diner.mesa}</Text>
+            </View>
+          ) : null}
           {diner.edad ? (
             <View style={styles.metaChip}>
-              <Text style={styles.metaChipText}>{diner.edad} anos</Text>
+              <Text style={styles.metaChipText}>{diner.edad} años</Text>
             </View>
           ) : null}
           {diner.genero ? (
@@ -1059,12 +1320,30 @@ export default function SocialProfileScreen() {
         <View style={styles.summaryRow}>
           <TouchableOpacity style={styles.summaryPill} activeOpacity={0.8} onPress={() => setModalVisible(true)}>
             <Ionicons name="person-circle-outline" size={18} color={Colors.primary} />
-            <Text style={styles.summaryPillText}>{hasCompleteProfile ? 'Editar perfil social' : 'Completar perfil social'}</Text>
+            <Text numberOfLines={1} style={styles.summaryPillText}>
+              {hasCompleteProfile ? 'Mi perfil' : 'Completar'}
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.summaryPill} activeOpacity={0.8} onPress={() => router.push('/branch-selector' as never)}>
+          <TouchableOpacity
+            style={styles.summaryPill}
+            activeOpacity={0.8}
+            onPress={() => {
+              setPendingActivationAfterBranch(false);
+              router.push('/branch-selector' as never);
+            }}
+          >
             <Ionicons name="location-outline" size={18} color={Colors.primary} />
-            <Text style={styles.summaryPillText}>{selectedBranch?.nombre ?? 'Elegir sucursal'}</Text>
+            <Text numberOfLines={1} style={styles.summaryPillText}>
+              {selectedBranch?.nombre ?? 'Sucursal'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.summaryPill} activeOpacity={0.8} onPress={() => setFiltersVisible(true)}>
+            <Ionicons name="options-outline" size={18} color={Colors.primary} />
+            <Text numberOfLines={1} style={styles.summaryPillText}>
+              {activeFilterCount > 0 ? `Filtros (${activeFilterCount})` : 'Filtros'}
+            </Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -1258,6 +1537,114 @@ export default function SocialProfileScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={mesaModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!statusUpdating) {
+            setPendingActivationAfterBranch(false);
+            setMesaModalVisible(false);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => {
+              if (!statusUpdating) {
+                setPendingActivationAfterBranch(false);
+                setMesaModalVisible(false);
+              }
+            }}
+          />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Tu mesa</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!statusUpdating) {
+                    setPendingActivationAfterBranch(false);
+                    setMesaModalVisible(false);
+                  }
+                }}
+                style={styles.closeButton}
+                activeOpacity={0.8}
+                disabled={statusUpdating}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.helperText}>
+              Comparte tu numero de mesa para ubicar mejor tu perfil en la sucursal y dejar listo el flujo de regalos
+              hacia el panel de meseros.
+            </Text>
+
+            {mesaOptionsLoading ? (
+              <View style={styles.giftLoadingWrap}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.giftLoadingText}>Buscando mesas disponibles...</Text>
+              </View>
+            ) : mesaOptions.length > 0 ? (
+              <ChoiceField
+                label="Mesa"
+                value={mesaInput}
+                placeholder="Selecciona tu mesa"
+                options={mesaOptions}
+                onSelect={(value) => setMesaInput(value)}
+              />
+            ) : (
+              <>
+                <InputField
+                  label="Numero de mesa"
+                  value={mesaInput}
+                  onChangeText={(value) => setMesaInput(value.slice(0, 20))}
+                  placeholder="Ej. 12"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={handleConfirmMesa}
+                />
+                <Text style={styles.helperText}>
+                  Si no vemos las mesas desde la sucursal, puedes escribirla manualmente y seguir usando el modo social.
+                </Text>
+              </>
+            )}
+
+            <View style={styles.filterActions}>
+              <TouchableOpacity
+                style={[styles.modalActionButton, styles.modalActionGhostButton]}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setPendingActivationAfterBranch(false);
+                  setMesaModalVisible(false);
+                }}
+                disabled={statusUpdating}
+              >
+                <Text style={styles.modalActionGhostButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalActionButton, styles.modalActionPrimaryButton, statusUpdating && styles.saveButtonDisabled]}
+                activeOpacity={0.85}
+                onPress={handleConfirmMesa}
+                disabled={statusUpdating}
+              >
+                {statusUpdating ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <Text style={styles.saveButtonText}>Activar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={detailsVisible} transparent animationType="slide" onRequestClose={() => setDetailsVisible(false)}>
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={() => setDetailsVisible(false)} />
@@ -1288,6 +1675,89 @@ export default function SocialProfileScreen() {
                 </View>
               </ScrollView>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={filtersVisible} transparent animationType="slide" onRequestClose={() => setFiltersVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setFiltersVisible(false)} />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filtrar comensales</Text>
+              <TouchableOpacity onPress={() => setFiltersVisible(false)} style={styles.closeButton} activeOpacity={0.8}>
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+              <Text style={styles.helperText}>
+                Ajusta edad, genero o sexualidad para ver perfiles mas cercanos a lo que buscas.
+              </Text>
+
+              <View style={styles.filterRow}>
+                <View style={styles.filterHalf}>
+                  <InputField
+                    label="Edad minima"
+                    value={filters.edadMin}
+                    onChangeText={(value) => updateFilter('edadMin', value.replace(/[^0-9]/g, ''))}
+                    placeholder="18"
+                    keyboardType="number-pad"
+                  />
+                </View>
+
+                <View style={styles.filterHalf}>
+                  <InputField
+                    label="Edad maxima"
+                    value={filters.edadMax}
+                    onChangeText={(value) => updateFilter('edadMax', value.replace(/[^0-9]/g, ''))}
+                    placeholder="35"
+                    keyboardType="number-pad"
+                  />
+                </View>
+              </View>
+
+              <ChoiceField
+                label="Genero"
+                value={filters.genero}
+                placeholder="Todos"
+                options={GENDER_OPTIONS}
+                onSelect={(value) => updateFilter('genero', value)}
+              />
+
+              <ChoiceField
+                label="Sexualidad"
+                value={filters.sexualidad}
+                placeholder="Todas"
+                options={SEXUALITY_OPTIONS}
+                onSelect={(value) => updateFilter('sexualidad', value)}
+              />
+            </ScrollView>
+
+            <View style={styles.filterActions}>
+              <TouchableOpacity
+                style={styles.filterGhostButton}
+                activeOpacity={0.85}
+                onPress={() => setFilters(EMPTY_FILTERS)}
+              >
+                <Text style={styles.filterGhostButtonText}>Limpiar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.saveButton}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setCurrentIndex(0);
+                  setFiltersVisible(false);
+                }}
+              >
+                <Ionicons name="options-outline" size={18} color={Colors.white} />
+                <Text style={styles.saveButtonText}>Aplicar filtros</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1359,13 +1829,13 @@ export default function SocialProfileScreen() {
             </ScrollView>
 
             <TouchableOpacity
-              style={[styles.saveButton, (!selectedGift || giftProductsLoading) && styles.saveButtonDisabled]}
+              style={[styles.saveButton, (!selectedGift || giftProductsLoading || giftSending) && styles.saveButtonDisabled]}
               activeOpacity={0.85}
               onPress={handleSendGift}
-              disabled={!selectedGift || giftProductsLoading}
+              disabled={!selectedGift || giftProductsLoading || giftSending}
             >
-              <Ionicons name="gift-outline" size={18} color={Colors.white} />
-              <Text style={styles.saveButtonText}>Confirmar regalo</Text>
+              {giftSending ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="gift-outline" size={18} color={Colors.white} />}
+              <Text style={styles.saveButtonText}>{giftSending ? 'Enviando regalo...' : 'Confirmar regalo'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1457,11 +1927,13 @@ const styles = StyleSheet.create({
   },
   summaryRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: 10,
     marginTop: 14,
   },
   summaryPill: {
+    flex: 1,
+    minWidth: 0,
     minHeight: 42,
     borderRadius: 999,
     paddingHorizontal: 14,
@@ -1471,12 +1943,15 @@ const styles = StyleSheet.create({
     borderColor: '#E7EAF0',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   summaryPillText: {
-    fontSize: 13,
+    flex: 1,
+    fontSize: 12,
     fontWeight: '700',
     color: Colors.primary,
+    textAlign: 'center',
   },
   contentArea: {
     flex: 1,
@@ -1612,14 +2087,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 20,
   },
-  previewTitle: {
-    fontSize: 17,
+  previewEyebrow: {
+    fontSize: 15,
     fontWeight: '800',
-    color: Colors.text,
-    letterSpacing: -0.3,
+    color: Colors.accentDark,
+    letterSpacing: -0.2,
+  },
+  previewMetaWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
   },
   previewText: {
-    marginTop: 6,
+    marginTop: 12,
     fontSize: 14,
     lineHeight: 21,
     color: Colors.textSecondary,
@@ -1650,10 +2132,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#EEF2FF',
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    minHeight: 34,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   metaChipText: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: '700',
     color: Colors.primary,
   },
@@ -1967,6 +2453,58 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   choiceItemTextActive: {
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  filterHalf: {
+    flex: 1,
+  },
+  filterActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+  },
+  modalActionButton: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalActionGhostButton: {
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#F9FAFC',
+    paddingHorizontal: 20,
+  },
+  modalActionGhostButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  modalActionPrimaryButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 20,
+    marginTop: 0,
+    ...Shadows.md,
+  },
+  filterGhostButton: {
+    minHeight: 56,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#F9FAFC',
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterGhostButtonText: {
+    fontSize: 15,
     fontWeight: '700',
     color: Colors.primary,
   },

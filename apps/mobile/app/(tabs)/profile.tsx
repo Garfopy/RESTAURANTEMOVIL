@@ -16,27 +16,22 @@ import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
 import { apiClient } from '../../services/api';
 import { logout } from '../../services/auth.service';
-import { Colors, Spacing, Typography, Shadows } from '../../theme';
+import { Colors, Shadows } from '../../theme';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const setUser = useUserStore((s) => s.setUser);
   const logoutStore = useUserStore((s) => s.logout);
-  const socialEnabled = Boolean(user?.is_social_active ?? user?.modo_social);
 
   const [uploading, setUploading] = useState(false);
 
   async function handlePickImage() {
-    Alert.alert(
-      'Foto de perfil',
-      '¿De dónde quieres obtener la imagen?',
-      [
-        { text: 'Cámara', onPress: () => openPicker(true) },
-        { text: 'Galería', onPress: () => openPicker(false) },
-        { text: 'Cancelar', style: 'cancel' },
-      ]
-    );
+    Alert.alert('Foto de perfil', '¿De dónde quieres obtener la imagen?', [
+      { text: 'Cámara', onPress: () => openPicker(true) },
+      { text: 'Galería', onPress: () => openPicker(false) },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
   }
 
   async function openPicker(isCamera: boolean) {
@@ -66,11 +61,14 @@ export default function ProfileScreen() {
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `image/${match[1]}` : 'image/jpeg';
 
-      formData.append('foto', {
-        uri,
-        name: filename,
-        type,
-      } as any);
+      formData.append(
+        'foto',
+        {
+          uri,
+          name: filename,
+          type,
+        } as any
+      );
 
       const response = await apiClient.post('/profile/avatar', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -118,9 +116,7 @@ export default function ProfileScreen() {
               {user?.foto_url ? (
                 <Image source={{ uri: user.foto_url }} style={styles.avatarImg} cachePolicy="disk" />
               ) : (
-                <Text style={styles.avatarLetter}>
-                  {user?.nombre?.[0]?.toUpperCase() ?? '?'}
-                </Text>
+                <Text style={styles.avatarLetter}>{user?.nombre?.[0]?.toUpperCase() ?? '?'}</Text>
               )}
             </View>
             <TouchableOpacity
@@ -139,30 +135,6 @@ export default function ProfileScreen() {
           <Text style={styles.nombre}>{user?.nombre ?? '—'}</Text>
           <Text style={styles.email}>{user?.email ?? ''}</Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.socialCard}
-          activeOpacity={0.85}
-          onPress={() => router.push('/profile/social' as any)}
-        >
-          <View style={styles.socialCardIcon}>
-            <Ionicons name="people" size={24} color="#FFFFFF" />
-          </View>
-          <View style={styles.socialCardBody}>
-            <Text style={styles.socialCardTitle}>Perfil social</Text>
-            <Text style={styles.socialCardText}>
-              {socialEnabled
-                ? 'Tu modo social está activo. Toca aquí para ver o editar tu perfil.'
-                : 'Completa o activa tu espacio social para descubrir otros comensales.'}
-            </Text>
-          </View>
-          <View style={styles.socialCardStatus}>
-            <Text style={[styles.socialStatusText, socialEnabled && styles.socialStatusTextActive]}>
-              {socialEnabled ? 'Activo' : 'Abrir'}
-            </Text>
-            <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
 
         <View style={styles.menuContainer}>
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
@@ -319,56 +291,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#6B7280',
   },
-  socialCard: {
-    marginTop: 6,
-    marginBottom: 4,
-    borderRadius: 24,
-    padding: 18,
-    backgroundColor: '#111827',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    ...Shadows.md,
-  },
-  socialCardIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    backgroundColor: '#8B5CF6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  socialCardBody: {
-    flex: 1,
-  },
-  socialCardTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 4,
-    letterSpacing: -0.2,
-  },
-  socialCardText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: 'rgba(255,255,255,0.82)',
-  },
-  socialCardStatus: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  socialStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#C4B5FD',
-  },
-  socialStatusTextActive: {
-    color: '#86EFAC',
-  },
   menuContainer: {
     gap: 20,
-    marginTop: 12,
+    marginTop: 6,
   },
   sectionTitle: {
     fontSize: 13,

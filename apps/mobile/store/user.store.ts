@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { MobileUser, Sesion } from '@amare/types';
+import { API_BASE_URL } from '../constants/api';
 
 const TOKEN_KEY = 'amare_auth_token';
+const API_SOURCE_KEY = 'amare_auth_api_url';
 
 interface UserState {
   user: MobileUser | null;
@@ -24,11 +26,13 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   login: async (sesion: Sesion) => {
     await SecureStore.setItemAsync(TOKEN_KEY, sesion.token);
+    await SecureStore.setItemAsync(API_SOURCE_KEY, normalizeApiBase(API_BASE_URL));
     set({ user: sesion.user, token: sesion.token, isAuthenticated: true });
   },
 
   logout: async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await SecureStore.deleteItemAsync(API_SOURCE_KEY);
     set({ user: null, token: null, isAuthenticated: false, isLoading: false });
   },
 
@@ -44,14 +48,28 @@ export const useUserStore = create<UserState>((set, get) => ({
   hydrateFromStorage: async () => {
     try {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      const storedApiBase = await SecureStore.getItemAsync(API_SOURCE_KEY);
+
+      if (token && storedApiBase && storedApiBase !== normalizeApiBase(API_BASE_URL)) {
+        await SecureStore.deleteItemAsync(TOKEN_KEY);
+        await SecureStore.deleteItemAsync(API_SOURCE_KEY);
+        set({ user: null, token: null, isAuthenticated: false, isLoading: false });
+        return;
+      }
+
       if (token) {
-        // Sólo restauramos el token; isLoading queda true para que _layout valide con el servidor
+        // Solo restauramos el token; _layout valida con el servidor antes de continuar.
         set({ token, isAuthenticated: true });
         return;
       }
     } catch {
-      // token no disponible
+      // Token no disponible.
     }
+
     set({ isLoading: false });
   },
 }));
+
+function normalizeApiBase(url: string): string {
+  return url.trim().replace(/\/+$/, '').toLowerCase();
+}

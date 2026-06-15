@@ -6,8 +6,10 @@ import {
   StyleSheet,
   Animated,
   Easing,
+  useWindowDimensions,
 } from 'react-native';
 import React, { useRef, useEffect, memo } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
 
@@ -87,6 +89,11 @@ const TabIcon = memo(
 
 export default function TabsLayout() {
   const theme = useThemeColors();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const horizontalInset = width < 380 ? 12 : 20;
+  const tabBarBottom = insets.bottom + (Platform.OS === 'ios' ? 8 : 10);
+  const tabBarHeight = 64 + Math.min(insets.bottom, 10);
 
   return (
     <Tabs
@@ -99,15 +106,16 @@ export default function TabsLayout() {
 
         tabBarStyle: {
           position: 'absolute',
-          left: 20,
-          right: 20,
-          bottom: Platform.OS === 'ios' ? 28 : 16,
-          height: 64,
+          left: horizontalInset,
+          right: horizontalInset,
+          bottom: tabBarBottom,
+          height: tabBarHeight,
           borderRadius: 24,
           backgroundColor: '#FFFFFF',
           borderTopWidth: 0,
           elevation: 6,
-          paddingBottom: 0,
+          paddingBottom: Math.min(insets.bottom, 8),
+          paddingTop: 4,
           
           ...Platform.select({
             ios: {
@@ -122,6 +130,7 @@ export default function TabsLayout() {
         tabBarItemStyle: {
           justifyContent: 'center',
           alignItems: 'center',
+          paddingVertical: 4,
         },
 
         tabBarIconStyle: {

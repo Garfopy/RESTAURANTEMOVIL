@@ -76,6 +76,7 @@ export interface CreateOrderPayload {
     precio_unit: number;
   }[];
   direccion_id?: number;
+  direccion_entrega?: string;
   mesa_id?: number;
   notas?: string;
   payment_intent_id?: string;

@@ -6,14 +6,14 @@ import {
   ScrollView,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
-  Dimensions,
   Animated,
   Modal,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -31,13 +31,6 @@ import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
 import type { Platillo, Categoria, TipoPedido } from '@amare/types';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-const FEATURED_CARD_WIDTH = SCREEN_WIDTH * 0.82; 
-const FEATURED_GAP = 12;
-const FEATURED_SNAP_INTERVAL = FEATURED_CARD_WIDTH + FEATURED_GAP;
-const FEATURED_INSET = 20; 
 
 const HOME_BANNERS = [
   {
@@ -65,6 +58,7 @@ const HOME_BANNERS = [
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const user = useUserStore((s) => s.user);
   const { seleccionada: branch } = useBranchStore();
   const { tipoPedido, setTipoPedido } = useCartStore();
@@ -76,6 +70,11 @@ export default function HomeScreen() {
 
   // 🎞️ Animación para los indicadores (dots)
   const scrollX = useRef(new Animated.Value(0)).current;
+  const featuredGap = 12;
+  const featuredInset = width < 380 ? 16 : 20;
+  const availableFeaturedWidth = Math.max(width - featuredInset * 2, 280);
+  const featuredCardWidth = Math.min(Math.max(availableFeaturedWidth * 0.78, 240), 320);
+  const featuredSnapInterval = featuredCardWidth + featuredGap;
 
   // 🔥 CRITICAL: Invocar este hook para que sincronice las sucursales desde el API
   // al Zustand store. Sin esto, autoSeleccionarSiUnica() nunca se ejecuta y
@@ -167,7 +166,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
       
       {/* HEADER ULTRA-SLIM CORREGIDO */}
@@ -178,7 +177,7 @@ export default function HomeScreen() {
           activeOpacity={0.7}
         >
           <Ionicons name="location" size={18} color={Colors.primary} />
-          <View style={{ marginLeft: 8 }}>
+          <View style={styles.locationCopy}>
             <Text style={styles.locationLabel}>Entregar en</Text>
             <View style={styles.row}>
               <Text style={styles.locationName} numberOfLines={1}>
@@ -235,7 +234,7 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>Explorar menú</Text>
         </View>
         {loadingCats ? (
-          <View style={[styles.horizontalList, { paddingHorizontal: 20 }]}>
+          <View style={[styles.horizontalList, { paddingHorizontal: featuredInset }]}>
             {[1, 2, 3].map((i) => <Skeleton key={i} width={140} height={100} borderRadius={20} style={{marginRight: 12}} />)}
           </View>
         ) : (
@@ -244,8 +243,9 @@ export default function HomeScreen() {
             data={categories}
             keyExtractor={(item) => item.id.toString()}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[styles.horizontalList, { paddingHorizontal: 20 }]}
+            contentContainerStyle={[styles.horizontalList, { paddingHorizontal: featuredInset }]}
             renderItem={({ item }) => <CategoryCard categoria={item} onPress={handleCategory} />}
+            removeClippedSubviews={false}
             // CategoryCard ya incluye un margen derecho interno por defecto en su componente
           />
         )}
@@ -271,8 +271,8 @@ export default function HomeScreen() {
         </View>
         
         {loadingFeatured ? (
-          <View style={[styles.horizontalList, { paddingHorizontal: FEATURED_INSET }]}>
-            {[1, 2].map((i) => <Skeleton key={i} width={FEATURED_CARD_WIDTH} height={260} borderRadius={25} style={{marginRight: FEATURED_GAP}} />)}
+          <View style={[styles.horizontalList, { paddingHorizontal: featuredInset }]}>
+            {[1, 2].map((i) => <Skeleton key={i} width={featuredCardWidth} height={260} borderRadius={25} style={{marginRight: featuredGap}} />)}
           </View>
         ) : (
           <View>
@@ -281,12 +281,14 @@ export default function HomeScreen() {
               data={featured}
               keyExtractor={(item) => item.id.toString()}
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={[styles.horizontalList, { paddingHorizontal: FEATURED_INSET }]}
-              renderItem={({ item }) => <ProductCard platillo={item} onPress={handleDish} width={FEATURED_CARD_WIDTH} />}
-              ItemSeparatorComponent={() => <View style={{ width: FEATURED_GAP }} />}
-              snapToInterval={FEATURED_SNAP_INTERVAL}
+              contentContainerStyle={[styles.horizontalList, { paddingHorizontal: featuredInset }]}
+              renderItem={({ item }) => <ProductCard platillo={item} onPress={handleDish} width={featuredCardWidth} />}
+              ItemSeparatorComponent={() => <View style={{ width: featuredGap }} />}
+              snapToInterval={featuredSnapInterval}
               snapToAlignment="start"
               decelerationRate="fast"
+              bounces={false}
+              removeClippedSubviews={false}
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                 { useNativeDriver: false }
@@ -297,7 +299,7 @@ export default function HomeScreen() {
             {/* 🔘 INDICADORES (DOTS) */}
             <View style={styles.pagination}>
               {featured?.map((_, i) => {
-                const inputRange = [(i - 1) * FEATURED_SNAP_INTERVAL, i * FEATURED_SNAP_INTERVAL, (i + 1) * FEATURED_SNAP_INTERVAL];
+                const inputRange = [(i - 1) * featuredSnapInterval, i * featuredSnapInterval, (i + 1) * featuredSnapInterval];
                 
                 const dotWidth = scrollX.interpolate({
                   inputRange,
@@ -318,7 +320,7 @@ export default function HomeScreen() {
         )}
 
         {/* Espacio final interno para empujar el contenido arriba del dock */}
-        <View style={{ height: 40 }} />
+        <View style={styles.bottomSpacer} />
       </ScrollView>
 
       {/* BOTÓN FLOTANTE DE TIENDA */}
@@ -370,7 +372,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     backgroundColor: '#FFF',
     
     zIndex: 50, 
@@ -385,7 +388,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
     paddingVertical: 4, // Área de toque expandida
+  },
+  locationCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 8,
   },
   locationLabel: {
     fontSize: 11,
@@ -398,6 +407,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginRight: 4,
+    flexShrink: 1,
   },
   row: { flexDirection: 'row', alignItems: 'center' },
   profileTrigger: {
@@ -423,7 +433,7 @@ const styles = StyleSheet.create({
 
   scrollContent: { 
     paddingTop: 10,
-    paddingBottom: 130, 
+    paddingBottom: 176, 
   },
 
   welcomeSection: {
@@ -487,6 +497,9 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: Colors.primary,
+  },
+  bottomSpacer: {
+    height: 24,
   },
   modalOverlay: {
     flex: 1,

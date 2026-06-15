@@ -20,6 +20,7 @@ export interface MobileUser {
   is_social_active?: boolean; // -> columna: is_social_active
   modo_social?: boolean; // -> alias de is_social_active
   current_restaurante_id?: number | null;
+  mesa?: string | null;
 }
 
 export interface Sesion {

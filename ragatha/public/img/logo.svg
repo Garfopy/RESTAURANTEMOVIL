@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80">
+  <!-- CARNIHUB Logo SVG -->
+  <style>
+    .logo-red  { fill: #C8102E; }
+    .logo-dark { fill: #1A1D23; }
+    .logo-text { font-family: 'Inter', 'Arial Black', sans-serif; font-weight: 900; }
+  </style>
+  <!-- Bull head icon inside the A -->
+  <g transform="translate(8,8)">
+    <!-- C -->
+    <text x="0" y="54" class="logo-text logo-red" font-size="58">C</text>
+    <!-- Bull horns -->
+    <path d="M58 8 Q52 2 46 6 Q44 14 50 18 M58 8 Q64 2 70 6 Q72 14 66 18" stroke="#C8102E" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <!-- Bull face -->
+    <ellipse cx="58" cy="26" rx="10" ry="11" class="logo-red"/>
+    <circle cx="54" cy="24" r="2" fill="white"/>
+    <circle cx="62" cy="24" r="2" fill="white"/>
+    <ellipse cx="58" cy="32" rx="5" ry="3" fill="#A00D24"/>
+    <!-- ARNI in red -->
+    <text x="72" y="54" class="logo-text logo-red" font-size="58">ARNI</text>
+  </g>
+  <!-- HUB in dark -->
+  <text x="216" y="62" class="logo-text logo-dark" font-size="58">HUB</text>
+</svg>

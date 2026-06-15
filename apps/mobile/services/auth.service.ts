@@ -50,12 +50,17 @@ function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
     created_at: user?.created_at ?? '',
     edad: user?.edad ?? null,
     genero: user?.genero ?? null,
+    sexualidad: user?.sexualidad ?? null,
     gustos: user?.gustos ?? null,
     biografia: user?.biografia ?? null,
+    que_busca: user?.que_busca ?? null,
+    redes_sociales: user?.redes_sociales ?? null,
     instagram: user?.instagram ?? null,
     tiktok: user?.tiktok ?? null,
     is_social_active: user?.is_social_active ?? user?.modo_social ?? false,
     modo_social: user?.modo_social ?? user?.is_social_active ?? false,
+    current_restaurante_id: user?.current_restaurante_id ?? null,
+    mesa: user?.mesa ?? null,
   };
 }
 
@@ -92,9 +97,12 @@ export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<Sesi
 
 export async function register(payload: RegisterPayload): Promise<Sesion> {
   const { data } = await apiClient.post<AuthResponse>('/auth/register', {
+    name: payload.nombre,
     nombre: payload.nombre,
     email: payload.email,
     password: payload.password,
+    phone: payload.telefono ?? null,
+    telefono: payload.telefono ?? null,
   });
   return parseSesion(data);
 }

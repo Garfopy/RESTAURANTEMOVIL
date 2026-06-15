@@ -51,6 +51,7 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config as (InternalAxiosRequestConfig & {
       _retry?: boolean;
       _imunifyWarmup?: boolean;
+      _suppressConsoleError?: boolean;
     }) | null;
 
     if (
@@ -93,8 +94,10 @@ apiClient.interceptors.response.use(
       await useUserStore.getState().logout();
     }
 
-    console.error(`[API] Error ${error.response?.status} en ${error.config?.url}:`, error.message);
-    console.log('Detalle del error:', JSON.stringify(error.response?.data, null, 2));
+    if (!originalRequest?._suppressConsoleError) {
+      console.error(`[API] Error ${error.response?.status} en ${error.config?.url}:`, error.message);
+      console.log('Detalle del error:', JSON.stringify(error.response?.data, null, 2));
+    }
 
     return Promise.reject(error);
   }
