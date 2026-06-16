@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -50,6 +51,7 @@ type SocialProfileResponse = {
   user_id: number;
   nombre: string;
   foto_url: string | null;
+  social_photos?: string[] | null;
   edad: number | null;
   sexualidad: string | null;
   genero: string | null;
@@ -62,6 +64,9 @@ type SocialProfileResponse = {
   modo_social?: boolean | null;
   current_restaurante_id?: number | null;
   social_updated_at?: string | null;
+  social_consent_accepted_at?: string | null;
+  social_consent_version?: string | null;
+  requires_social_consent?: boolean | null;
   has_social_profile?: boolean;
 };
 
@@ -71,10 +76,27 @@ type ApiEnvelope<T> = {
   data?: T;
 };
 
+type SocialPhotoResponse = {
+  foto_url?: string | null;
+  social_photos?: string[] | null;
+  uploaded_photo_url?: string | null;
+};
+
+type SocialStatusResponse = {
+  is_social_active?: boolean;
+  modo_social?: boolean;
+  current_restaurante_id?: number | null;
+  mesa?: string | null;
+  social_consent_accepted_at?: string | null;
+  social_consent_version?: string | null;
+  requires_social_consent?: boolean | null;
+};
+
 type DinerApiItem = {
   user_id: number;
   nombre: string;
   foto_url: string | null;
+  social_photos?: string[] | null;
   edad: number | null;
   genero: string | null;
   sexualidad: string | null;
@@ -86,6 +108,7 @@ type DinerApiItem = {
 };
 
 type SocialFormState = {
+  nombre: string;
   edad: string;
   genero: string;
   sexualidad: string;
@@ -106,6 +129,7 @@ type SocialDiner = {
   user_id: number;
   nombre: string;
   foto_url: string | null;
+  social_photos: string[];
   edad: number | null;
   genero: string | null;
   sexualidad: string | null;
@@ -198,6 +222,7 @@ const DEFAULT_INTEREST_OPTIONS = [
 ];
 
 const EMPTY_FORM: SocialFormState = {
+  nombre: '',
   edad: '',
   genero: '',
   sexualidad: '',
@@ -213,6 +238,8 @@ const EMPTY_FILTERS: SocialFilterState = {
   genero: '',
   sexualidad: '',
 };
+
+const SOCIAL_PRIVACY_NOTICE_URL = 'https://amarerestaurant.club/aviso-de-privacidad';
 
 function parseInterestList(value?: string | null): string[] {
   if (!value) return [];
@@ -274,6 +301,20 @@ function resolvePhotoUrl(path?: string | null): string | null {
   return formatImageUrl(path) ?? path;
 }
 
+function normalizePhotoList(value?: (string | null)[] | null, fallback?: string | null): string[] {
+  const rawPhotos = Array.isArray(value) ? value : [];
+  const photos = rawPhotos
+    .map((photo) => resolvePhotoUrl(photo))
+    .filter((photo): photo is string => Boolean(photo));
+  const fallbackPhoto = resolvePhotoUrl(fallback);
+
+  if (photos.length === 0 && fallbackPhoto) {
+    photos.push(fallbackPhoto);
+  }
+
+  return Array.from(new Set(photos)).slice(0, 6);
+}
+
 function normalizeMesaValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
 
@@ -302,10 +343,13 @@ function moduloIndex(index: number, total: number): number {
 }
 
 function buildDiner(item: DinerApiItem): SocialDiner {
+  const socialPhotos = normalizePhotoList(item.social_photos, item.foto_url);
+
   return {
     user_id: Number(item.user_id),
     nombre: item.nombre,
-    foto_url: resolvePhotoUrl(item.foto_url),
+    foto_url: socialPhotos[0] ?? resolvePhotoUrl(item.foto_url),
+    social_photos: socialPhotos,
     edad: item.edad ?? null,
     genero: item.genero ?? null,
     sexualidad: item.sexualidad ?? null,
@@ -440,6 +484,7 @@ export default function SocialProfileScreen() {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [mesaModalVisible, setMesaModalVisible] = useState(false);
+  const [consentModalVisible, setConsentModalVisible] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
@@ -453,6 +498,9 @@ export default function SocialProfileScreen() {
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
+  const [requiresSocialConsent, setRequiresSocialConsent] = useState(false);
+  const [socialConsentChecked, setSocialConsentChecked] = useState(false);
+  const [socialPhotos, setSocialPhotos] = useState<string[]>([]);
   const [diners, setDiners] = useState<SocialDiner[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
@@ -462,6 +510,8 @@ export default function SocialProfileScreen() {
   const [mesaInput, setMesaInput] = useState('');
   const [mesaOptions, setMesaOptions] = useState<SelectOption[]>([]);
   const [pendingActivationAfterBranch, setPendingActivationAfterBranch] = useState(false);
+  const [pendingSocialMesaValue, setPendingSocialMesaValue] = useState<string | null>(null);
+  const userSocialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
@@ -490,6 +540,10 @@ export default function SocialProfileScreen() {
         }
       : currentDinerBase;
   const selectedGift = giftProducts.find((item) => item.id === selectedGiftId) ?? null;
+  const detailPhotos = currentDiner
+    ? normalizePhotoList(currentDiner.social_photos, currentDiner.foto_url)
+    : [];
+  const detailImageWidth = Math.max(260, width - 36);
 
   function advanceToDiner(direction: 'next' | 'prev') {
     const offset = direction === 'next' ? 1 : -1;
@@ -533,6 +587,27 @@ export default function SocialProfileScreen() {
     });
 
   useEffect(() => {
+    setModoSocial(userSocialActive);
+
+    if (!userSocialActive) {
+      setDiners([]);
+      setCurrentIndex(0);
+      setDinerDetails({});
+      setConsentModalVisible(false);
+      setPendingSocialMesaValue(null);
+    }
+
+    if (typeof user?.requires_social_consent === 'boolean') {
+      setRequiresSocialConsent(user.requires_social_consent);
+    }
+
+    const nextMesa = normalizeMesaValue(user?.mesa);
+    if (nextMesa !== null) {
+      setMesaInput(nextMesa);
+    }
+  }, [userSocialActive, user?.requires_social_consent, user?.mesa]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadProfile() {
@@ -545,11 +620,13 @@ export default function SocialProfileScreen() {
         if (!mounted) return;
 
         const redes = parseSocialNetworks(data.redes_sociales);
-        const photoUrl = resolvePhotoUrl(data.foto_url) ?? user?.foto_url ?? null;
+        const photos = normalizePhotoList(data.social_photos, data.foto_url ?? user?.foto_url ?? null);
+        const photoUrl = photos[0] ?? resolvePhotoUrl(data.foto_url) ?? user?.foto_url ?? null;
         const socialEnabled = Boolean(data.is_social_active ?? data.modo_social ?? user?.is_social_active ?? user?.modo_social);
         const mesaValue = normalizeMesaValue(data.mesa) ?? '';
 
         setForm({
+          nombre: data.nombre ?? user?.nombre ?? '',
           edad: data.edad?.toString() ?? '',
           genero: data.genero ?? '',
           sexualidad: data.sexualidad ?? '',
@@ -559,8 +636,10 @@ export default function SocialProfileScreen() {
           tiktok: redes.tiktok,
         });
         setSelectedInterests(parseInterestList(data.intereses));
+        setSocialPhotos(photos);
         setMesaInput(mesaValue);
         setModoSocial(socialEnabled);
+        setRequiresSocialConsent(Boolean(data.requires_social_consent));
         setHasCompleteProfile(
           data.has_social_profile ??
             isProfileReady({
@@ -573,7 +652,9 @@ export default function SocialProfileScreen() {
         );
 
         updateProfile({
+          nombre: data.nombre ?? user?.nombre ?? '',
           foto_url: photoUrl,
+          social_photos: photos,
           edad: data.edad,
           genero: data.genero,
           sexualidad: data.sexualidad,
@@ -587,6 +668,9 @@ export default function SocialProfileScreen() {
           modo_social: socialEnabled,
           current_restaurante_id: data.current_restaurante_id ?? null,
           mesa: normalizeMesaValue(data.mesa),
+          social_consent_accepted_at: data.social_consent_accepted_at ?? null,
+          social_consent_version: data.social_consent_version ?? null,
+          requires_social_consent: Boolean(data.requires_social_consent),
         });
       } catch (error) {
         if (mounted) {
@@ -744,8 +828,34 @@ export default function SocialProfileScreen() {
     setDetailsVisible(true);
   }
 
+  function applyPhotoResponse(payload: SocialPhotoResponse) {
+    const hasGalleryPayload = Array.isArray(payload.social_photos);
+    const photos = normalizePhotoList(
+      hasGalleryPayload ? payload.social_photos : undefined,
+      hasGalleryPayload ? payload.foto_url ?? null : payload.foto_url ?? user?.foto_url ?? null
+    );
+    const photoUrl = photos[0] ?? resolvePhotoUrl(payload.foto_url) ?? null;
+
+    setSocialPhotos(photos);
+    updateProfile({ foto_url: photoUrl, social_photos: photos });
+    setHasCompleteProfile((current) =>
+      isProfileReady({
+        foto_url: photoUrl,
+        edad: Number(form.edad) || null,
+        sexualidad: form.sexualidad,
+        genero: form.genero,
+        descripcion: form.biografia,
+      }) || current
+    );
+  }
+
   async function handlePickImage() {
-    Alert.alert('Foto de perfil', 'Elige de donde tomar la imagen.', [
+    if (socialPhotos.length >= 6) {
+      Alert.alert('Galeria completa', 'Puedes tener hasta 6 fotos en tu perfil social.');
+      return;
+    }
+
+    Alert.alert('Agregar foto', 'Elige de donde tomar la imagen.', [
       { text: 'Camara', onPress: () => openPicker(true) },
       { text: 'Galeria', onPress: () => openPicker(false) },
       { text: 'Cancelar', style: 'cancel' },
@@ -782,32 +892,101 @@ export default function SocialProfileScreen() {
 
       formData.append('photo', { uri, name: filename, type } as never);
 
-      const response = await apiClient.post('/users/social-profile/photo', formData, {
+      const response = await apiClient.post<ApiEnvelope<SocialPhotoResponse> | SocialPhotoResponse>('/users/social-profile/photo', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000,
       });
 
-      const rawPhotoUrl = response.data?.data?.foto_url ?? response.data?.foto_url ?? null;
-      const photoUrl = resolvePhotoUrl(rawPhotoUrl);
+      applyPhotoResponse(unwrapApiData(response.data));
 
-      if (photoUrl) {
-        updateProfile({ foto_url: photoUrl });
-        setHasCompleteProfile((current) =>
-          isProfileReady({
-            foto_url: photoUrl,
-            edad: Number(form.edad) || null,
-            sexualidad: form.sexualidad,
-            genero: form.genero,
-            descripcion: form.biografia,
-          }) || current
-        );
-      }
-
-      Alert.alert('Listo', 'Tu foto social se actualizo correctamente.');
+      Alert.alert('Listo', 'La foto se agrego a tu perfil social.');
     } catch (error) {
       Alert.alert('No se pudo subir la foto', getApiError(error));
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleSetPrimaryPhoto(photoUrl: string) {
+    try {
+      setUploading(true);
+      const response = await apiClient.post<ApiEnvelope<SocialPhotoResponse> | SocialPhotoResponse>(
+        '/users/social-profile/photo/primary',
+        { photo_url: photoUrl }
+      );
+
+      applyPhotoResponse(unwrapApiData(response.data));
+    } catch (error) {
+      Alert.alert('No se pudo cambiar la principal', getApiError(error));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeletePhoto(photoUrl: string) {
+    Alert.alert('Eliminar foto', 'Esta foto se quitara de tu perfil social.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setUploading(true);
+            const response = await apiClient.delete<ApiEnvelope<SocialPhotoResponse> | SocialPhotoResponse>(
+              '/users/social-profile/photo',
+              { data: { photo_url: photoUrl } }
+            );
+
+            applyPhotoResponse(unwrapApiData(response.data));
+          } catch (error) {
+            Alert.alert('No se pudo eliminar', getApiError(error));
+          } finally {
+            setUploading(false);
+          }
+        },
+      },
+    ]);
+  }
+
+  async function requestSocialActivation(mesaValue: string) {
+    if (requiresSocialConsent) {
+      setPendingSocialMesaValue(mesaValue);
+      setSocialConsentChecked(false);
+      setConsentModalVisible(true);
+      return;
+    }
+
+    await persistSocialStatus(true, mesaValue);
+  }
+
+  async function handleAcceptSocialConsent() {
+    if (!socialConsentChecked) {
+      Alert.alert('Confirmacion requerida', 'Marca la casilla para confirmar que aceptas compartir tus datos sociales.');
+      return;
+    }
+
+    if (!pendingSocialMesaValue) {
+      setConsentModalVisible(false);
+      return;
+    }
+
+    const mesaValue = pendingSocialMesaValue;
+    setConsentModalVisible(false);
+    setPendingSocialMesaValue(null);
+    await persistSocialStatus(true, mesaValue, true);
+  }
+
+  function handleCancelSocialConsent() {
+    setConsentModalVisible(false);
+    setSocialConsentChecked(false);
+    setPendingSocialMesaValue(null);
+  }
+
+  async function openPrivacyNotice() {
+    try {
+      await Linking.openURL(SOCIAL_PRIVACY_NOTICE_URL);
+    } catch {
+      Alert.alert('Aviso de privacidad', SOCIAL_PRIVACY_NOTICE_URL);
     }
   }
 
@@ -845,7 +1024,7 @@ export default function SocialProfileScreen() {
 
     if (nextValue) {
       if (tableSession?.mesaValue) {
-        await persistSocialStatus(true, tableSession.mesaValue);
+        await requestSocialActivation(tableSession.mesaValue);
         return;
       }
 
@@ -866,17 +1045,19 @@ export default function SocialProfileScreen() {
     router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social' } });
   }
 
-  async function persistSocialStatus(nextValue: boolean, mesaValue: string | null) {
+  async function persistSocialStatus(nextValue: boolean, mesaValue: string | null, acceptsSocialPrivacy = false) {
     try {
       setStatusUpdating(true);
       const socialRestaurantId = tableSession?.restauranteId ?? selectedBranch?.id ?? null;
-      await apiClient.post('/users/social-status', {
+      const response = await apiClient.post<ApiEnvelope<SocialStatusResponse> | SocialStatusResponse>('/users/social-status', {
         is_social_active: nextValue,
         current_restaurante_id: nextValue ? socialRestaurantId : null,
         mesa: nextValue ? mesaValue : null,
+        accepts_social_privacy: nextValue ? acceptsSocialPrivacy : false,
       }, {
         _suppressConsoleError: nextValue,
       } as never);
+      const result = unwrapApiData(response.data);
 
       if (!nextValue) {
         setDiners([]);
@@ -888,11 +1069,15 @@ export default function SocialProfileScreen() {
       setMesaModalVisible(false);
       setPendingActivationAfterBranch(false);
       setModoSocial(nextValue);
+      setRequiresSocialConsent(Boolean(result.requires_social_consent));
       updateProfile({
         is_social_active: nextValue,
         modo_social: nextValue,
         current_restaurante_id: nextValue ? socialRestaurantId : null,
         mesa: nextValue ? normalizeMesaValue(mesaValue) : null,
+        social_consent_accepted_at: result.social_consent_accepted_at ?? user?.social_consent_accepted_at ?? null,
+        social_consent_version: result.social_consent_version ?? user?.social_consent_version ?? null,
+        requires_social_consent: Boolean(result.requires_social_consent),
       });
     } catch (error) {
       const message = getApiError(error);
@@ -904,6 +1089,16 @@ export default function SocialProfileScreen() {
         setMesaModalVisible(false);
         setPendingActivationAfterBranch(false);
         setModalVisible(true);
+        return;
+      }
+
+      if (nextValue && normalizedMessage.includes('aviso de privacidad')) {
+        setRequiresSocialConsent(true);
+        if (mesaValue) {
+          setPendingSocialMesaValue(mesaValue);
+          setSocialConsentChecked(false);
+          setConsentModalVisible(true);
+        }
         return;
       }
 
@@ -932,6 +1127,11 @@ export default function SocialProfileScreen() {
       return;
     }
 
+    if (!form.nombre.trim()) {
+      Alert.alert('Nombre requerido', 'Ingresa el nombre que quieres mostrar en tu perfil social.');
+      return;
+    }
+
     if (!form.genero || !form.sexualidad || !form.biografia.trim()) {
       Alert.alert('Perfil incompleto', 'Genero, sexualidad y descripcion son obligatorios.');
       return;
@@ -941,6 +1141,7 @@ export default function SocialProfileScreen() {
       setSaving(true);
 
       const payload = {
+        nombre: form.nombre.trim(),
         edad,
         genero: form.genero,
         sexualidad: form.sexualidad,
@@ -956,7 +1157,8 @@ export default function SocialProfileScreen() {
       );
       const data = unwrapApiData(response.data);
       const redes = parseSocialNetworks(data.redes_sociales);
-      const photoUrl = resolvePhotoUrl(data.foto_url) ?? user?.foto_url ?? null;
+      const photos = normalizePhotoList(data.social_photos, data.foto_url ?? user?.foto_url ?? null);
+      const photoUrl = photos[0] ?? resolvePhotoUrl(data.foto_url) ?? user?.foto_url ?? null;
       const ready =
         data.has_social_profile ??
         isProfileReady({
@@ -968,10 +1170,13 @@ export default function SocialProfileScreen() {
         });
 
       setHasCompleteProfile(ready);
+      setSocialPhotos(photos);
       setModalVisible(false);
 
       updateProfile({
+        nombre: data.nombre,
         foto_url: photoUrl,
+        social_photos: photos,
         edad: data.edad,
         genero: data.genero,
         sexualidad: data.sexualidad,
@@ -1315,11 +1520,9 @@ export default function SocialProfileScreen() {
             <View style={[styles.statusDot, { backgroundColor: modoSocial ? '#21A453' : '#D0D5DD' }]} />
             <View style={styles.statusBody}>
               <Text style={styles.statusTitle}>Modo social {modoSocial ? 'encendido' : 'apagado'}</Text>
-              <Text style={styles.statusSubtitle}>
-                {modoSocial
-                  ? 'Tu perfil esta visible para otros comensales activos.'
-                  : 'Activalo para aparecer en el carrusel de la sucursal actual.'}
-              </Text>
+              {modoSocial ? (
+                <Text style={styles.statusHint}>Tu perfil sera visible para comensales de esta sucursal mientras este activo.</Text>
+              ) : null}
             </View>
           </View>
 
@@ -1421,30 +1624,80 @@ export default function SocialProfileScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={styles.profileHero}>
-                <TouchableOpacity activeOpacity={0.88} onPress={handlePickImage} style={styles.profilePhotoWrap}>
-                  <View style={styles.profilePhoto}>
-                    {user?.foto_url ? (
-                      <Image source={{ uri: user.foto_url }} style={styles.profilePhotoImage} cachePolicy="disk" />
-                    ) : (
-                      <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.profilePhotoFallback}>
-                        <Text style={styles.profilePhotoLetter}>{user?.nombre?.[0]?.toUpperCase() ?? '?'}</Text>
-                      </LinearGradient>
-                    )}
+              <View style={styles.profileGalleryBlock}>
+                <View style={styles.galleryHeader}>
+                  <View>
+                    <Text style={styles.galleryTitle}>Fotos</Text>
+                    <Text style={styles.helperText}>La primera foto sera tu portada social.</Text>
                   </View>
+                  <Text style={styles.galleryCount}>{socialPhotos.length}/6</Text>
+                </View>
 
-                  <View style={styles.photoButton}>
-                    {uploading ? (
-                      <ActivityIndicator size="small" color={Colors.white} />
-                    ) : (
-                      <>
-                        <Ionicons name="camera-outline" size={16} color={Colors.white} />
-                        <Text style={styles.photoButtonText}>Cambiar foto</Text>
-                      </>
-                    )}
-                  </View>
-                </TouchableOpacity>
+                <View style={styles.photoGrid}>
+                  {socialPhotos.map((photo, index) => (
+                    <View key={`${photo}-${index}`} style={styles.galleryPhotoSlot}>
+                      <Image source={{ uri: photo }} style={styles.galleryPhotoImage} contentFit="cover" cachePolicy="disk" />
+
+                      {index === 0 ? (
+                        <View style={styles.primaryBadge}>
+                          <Text style={styles.primaryBadgeText}>Principal</Text>
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.makePrimaryButton}
+                          activeOpacity={0.82}
+                          onPress={() => handleSetPrimaryPhoto(photo)}
+                          disabled={uploading}
+                        >
+                          <Ionicons name="star-outline" size={15} color={Colors.white} />
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={styles.deletePhotoButton}
+                        activeOpacity={0.82}
+                        onPress={() => handleDeletePhoto(photo)}
+                        disabled={uploading}
+                      >
+                        <Ionicons name="trash-outline" size={15} color={Colors.white} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+
+                  {socialPhotos.length < 6 ? (
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={handlePickImage}
+                      disabled={uploading}
+                      style={[styles.galleryPhotoSlot, styles.addPhotoSlot]}
+                    >
+                      {uploading ? (
+                        <ActivityIndicator size="small" color={Colors.primary} />
+                      ) : (
+                        <>
+                          <Ionicons name="add" size={28} color={Colors.primary} />
+                          <Text style={styles.addPhotoText}>Agregar</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {Array.from({ length: Math.max(0, 6 - socialPhotos.length - (socialPhotos.length < 6 ? 1 : 0)) }).map(
+                    (_, index) => (
+                      <View key={`empty-${index}`} style={[styles.galleryPhotoSlot, styles.emptyPhotoSlot]} />
+                    )
+                  )}
+                </View>
               </View>
+
+              <InputField
+                label="Nombre"
+                value={form.nombre}
+                onChangeText={(value) => updateField('nombre', value.slice(0, 80))}
+                placeholder="Como quieres aparecer"
+                autoCapitalize="words"
+                maxLength={80}
+              />
 
               <InputField
                 label="Edad"
@@ -1549,6 +1802,86 @@ export default function SocialProfileScreen() {
                 </>
               )}
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={consentModalVisible} transparent animationType="slide" onRequestClose={handleCancelSocialConsent}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={handleCancelSocialConsent} />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Antes de activar tu perfil social</Text>
+              <TouchableOpacity onPress={handleCancelSocialConsent} style={styles.closeButton} activeOpacity={0.8}>
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.consentContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.consentIconWrap}>
+                <Ionicons name="shield-checkmark-outline" size={34} color={Colors.primary} />
+              </View>
+
+              <Text style={styles.consentText}>
+                Al activar el modo social, otros comensales activos de esta sucursal podran ver la informacion que
+                compartas en tu perfil: nombre, fotos, edad, genero, sexualidad, descripcion, intereses, que buscas y
+                tu mesa o sucursal actual.
+              </Text>
+
+              <Text style={styles.consentText}>
+                Estos datos se usaran solo para las funciones sociales de la app, como descubrir comensales y enviar
+                regalos. Puedes apagar el modo social cuando quieras.
+              </Text>
+
+              <TouchableOpacity style={styles.privacyNoticeButton} activeOpacity={0.82} onPress={openPrivacyNotice}>
+                <Ionicons name="document-text-outline" size={18} color={Colors.primary} />
+                <Text style={styles.privacyNoticeText}>Ver aviso de privacidad</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.consentCheckRow}
+                activeOpacity={0.85}
+                onPress={() => setSocialConsentChecked((current) => !current)}
+              >
+                <View style={[styles.consentCheckbox, socialConsentChecked && styles.consentCheckboxActive]}>
+                  {socialConsentChecked ? <Ionicons name="checkmark" size={18} color={Colors.white} /> : null}
+                </View>
+                <Text style={styles.consentCheckText}>
+                  Acepto compartir mis datos personales para usar el modo social de Amare.
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+
+            <View style={styles.filterActions}>
+              <TouchableOpacity
+                style={[styles.modalActionButton, styles.modalActionGhostButton]}
+                activeOpacity={0.85}
+                onPress={handleCancelSocialConsent}
+                disabled={statusUpdating}
+              >
+                <Text style={styles.modalActionGhostButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modalActionButton,
+                  styles.modalActionPrimaryButton,
+                  (!socialConsentChecked || statusUpdating) && styles.saveButtonDisabled,
+                ]}
+                activeOpacity={0.85}
+                onPress={handleAcceptSocialConsent}
+                disabled={!socialConsentChecked || statusUpdating}
+              >
+                {statusUpdating ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <Text style={styles.saveButtonText}>Acepto y activar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1679,8 +2012,32 @@ export default function SocialProfileScreen() {
               <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.detailHeroCard}>
                   <View style={styles.detailHeroImageWrap}>
-                    {currentDiner.foto_url ? (
-                      <Image source={{ uri: currentDiner.foto_url }} style={styles.detailHeroImage} contentFit="cover" cachePolicy="disk" />
+                    {detailPhotos.length > 0 ? (
+                      <>
+                        <ScrollView
+                          horizontal
+                          pagingEnabled
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.detailPhotoCarousel}
+                        >
+                          {detailPhotos.map((photo, index) => (
+                            <Image
+                              key={`${photo}-${index}`}
+                              source={{ uri: photo }}
+                              style={[styles.detailHeroImage, { width: detailImageWidth }]}
+                              contentFit="cover"
+                              cachePolicy="disk"
+                            />
+                          ))}
+                        </ScrollView>
+
+                        {detailPhotos.length > 1 ? (
+                          <View style={styles.detailPhotoCount}>
+                            <Ionicons name="images-outline" size={14} color={Colors.white} />
+                            <Text style={styles.detailPhotoCountText}>{detailPhotos.length}</Text>
+                          </View>
+                        ) : null}
+                      </>
                     ) : (
                       <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.detailHeroFallback}>
                         <Text style={styles.dinerImageFallbackLetter}>{currentDiner.nombre[0]?.toUpperCase() ?? '?'}</Text>
@@ -1940,6 +2297,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: Colors.textSecondary,
+  },
+  statusHint: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textMuted,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -2235,9 +2598,28 @@ const styles = StyleSheet.create({
     height: 360,
     backgroundColor: '#E8EBF3',
   },
+  detailPhotoCarousel: {
+    flex: 1,
+  },
   detailHeroImage: {
-    width: '100%',
     height: '100%',
+  },
+  detailPhotoCount: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
+    minHeight: 30,
+    borderRadius: 999,
+    backgroundColor: 'rgba(17, 24, 39, 0.64)',
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  detailPhotoCountText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.white,
   },
   detailHeroFallback: {
     flex: 1,
@@ -2363,6 +2745,75 @@ const styles = StyleSheet.create({
   modalContent: {
     paddingBottom: 12,
   },
+  consentContent: {
+    paddingBottom: 8,
+  },
+  consentIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  consentText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: Colors.textSecondary,
+    marginBottom: 12,
+  },
+  privacyNoticeButton: {
+    minHeight: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#F9FAFC',
+    paddingHorizontal: 14,
+    marginTop: 2,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  privacyNoticeText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  consentCheckRow: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E1E5ED',
+    backgroundColor: '#FBFCFE',
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  consentCheckbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  consentCheckboxActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  consentCheckText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: Colors.text,
+  },
   profileHero: {
     alignItems: 'center',
     marginBottom: 18,
@@ -2409,6 +2860,105 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: Colors.white,
+  },
+  profileGalleryBlock: {
+    marginBottom: 18,
+  },
+  galleryHeader: {
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  galleryTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  galleryCount: {
+    minWidth: 44,
+    minHeight: 30,
+    borderRadius: 999,
+    backgroundColor: '#F4F6FA',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    paddingHorizontal: 10,
+    paddingTop: Platform.OS === 'ios' ? 6 : 5,
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.textSecondary,
+  },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  galleryPhotoSlot: {
+    width: '31%',
+    aspectRatio: 1,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#EEF1F6',
+    borderWidth: 1,
+    borderColor: '#E1E5ED',
+  },
+  galleryPhotoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  addPhotoSlot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderStyle: 'dashed',
+    backgroundColor: '#FAFBFD',
+  },
+  addPhotoText: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  emptyPhotoSlot: {
+    backgroundColor: '#F7F8FB',
+    opacity: 0.75,
+  },
+  primaryBadge: {
+    position: 'absolute',
+    left: 8,
+    top: 8,
+    minHeight: 24,
+    borderRadius: 999,
+    backgroundColor: 'rgba(17, 24, 39, 0.68)',
+    paddingHorizontal: 9,
+    justifyContent: 'center',
+  },
+  primaryBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.white,
+  },
+  makePrimaryButton: {
+    position: 'absolute',
+    left: 8,
+    top: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(17, 24, 39, 0.68)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deletePhotoButton: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(190, 18, 60, 0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fieldBlock: {
     marginBottom: 18,

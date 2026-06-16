@@ -4,6 +4,7 @@ export interface MobileUser {
   email: string;
   telefono: string | null;
   foto_url: string | null;
+  social_photos?: string[];
   google_id: string | null;
   activo: boolean;
   created_at: string;
@@ -21,6 +22,9 @@ export interface MobileUser {
   modo_social?: boolean; // -> alias de is_social_active
   current_restaurante_id?: number | null;
   mesa?: string | null;
+  social_consent_accepted_at?: string | null;
+  social_consent_version?: string | null;
+  requires_social_consent?: boolean | null;
 }
 
 export interface Sesion {

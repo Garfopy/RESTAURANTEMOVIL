@@ -12,6 +12,7 @@ import React, { useRef, useEffect, memo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
+import { useUserStore } from '../../store/user.store';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -24,7 +25,6 @@ const TABS: {
   { name: 'orders', icon: 'bag-outline', iconFocused: 'bag' },
   { name: 'favorites', icon: 'heart-outline', iconFocused: 'heart' },
   { name: 'promotions', icon: 'pricetag-outline', iconFocused: 'pricetag' },
-  { name: 'profile', icon: 'person-circle-outline', iconFocused: 'person-circle' },
 ];
 
 const TabIcon = memo(
@@ -89,11 +89,13 @@ const TabIcon = memo(
 
 export default function TabsLayout() {
   const theme = useThemeColors();
+  const user = useUserStore((state) => state.user);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const horizontalInset = width < 380 ? 12 : 20;
   const tabBarBottom = insets.bottom + (Platform.OS === 'ios' ? 8 : 10);
-  const tabBarHeight = 64 + Math.min(insets.bottom, 10);
+  const tabBarHeight = 55 + Math.min(insets.bottom, 10);
+  const socialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   return (
     <Tabs
@@ -110,7 +112,9 @@ export default function TabsLayout() {
           right: horizontalInset,
           bottom: tabBarBottom,
           height: tabBarHeight,
-          borderRadius: 24,
+          borderRadius: 60,
+          shadowColor: '#111827',
+          shadowOffset: { width: 0, height: 8 },
           backgroundColor: '#FFFFFF',
           borderTopWidth: 0,
           elevation: 6,
@@ -160,6 +164,26 @@ export default function TabsLayout() {
           }}
         />
       ))}
+      <Tabs.Screen
+        name="social"
+        options={{
+          href: socialActive ? undefined : null,
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              focused={focused}
+              color={color}
+              icon="people-outline"
+              iconFocused="people"
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   FlatList,
+  Pressable,
   TouchableOpacity,
   StatusBar,
   Animated,
@@ -467,9 +468,9 @@ export default function HomeScreen() {
       <StoreFAB />
 
       {/* MODAL DE SELECCIÓN INICIAL */}
-      <Modal visible={showTypeModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={showTypeModal} transparent animationType="fade" onRequestClose={() => setShowTypeModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowTypeModal(false)}>
+          <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
             <Ionicons
               name={selectingPickupBranch ? 'storefront' : 'restaurant'}
               size={40}
@@ -552,8 +553,8 @@ export default function HomeScreen() {
                 </Text>
               </View>
             )}
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );

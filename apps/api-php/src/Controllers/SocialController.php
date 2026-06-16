@@ -12,6 +12,8 @@ use Amare\Api\Models\User;
 class SocialController
 {
     private const DEFAULT_RESTAURANT_LOGO = 'public/uploads/restaurantes/rest_logo_1_1781280185.png';
+    private const MAX_SOCIAL_PHOTOS = 6;
+    private const SOCIAL_CONSENT_VERSION = 'social-v1-2026-06-16';
 
     public function updateStatus(): void
     {
@@ -34,6 +36,10 @@ class SocialController
             ]);
         }
 
+        $acceptsSocialPrivacy = !empty($input['accepts_social_privacy']);
+        $currentProfile = null;
+        $shouldStoreConsent = false;
+
         if ($isActive) {
             if (!$this->hasMesaColumn()) {
                 Response::serverError('La base de datos aun no tiene la columna mesa. Ejecuta primero el SQL de la fase 1.');
@@ -48,6 +54,20 @@ class SocialController
             $currentProfile = $this->fetchSocialProfile($user->id);
             if (!$currentProfile || !$this->hasSocialProfile($currentProfile)) {
                 Response::error('Debes completar tu perfil social antes de activar el modo social.', 400);
+            }
+
+            if (!$this->hasCurrentSocialConsent($currentProfile)) {
+                if (!$acceptsSocialPrivacy) {
+                    Response::validationError([
+                        'accepts_social_privacy' => ['Acepta el aviso de privacidad social para activar el modo social'],
+                    ]);
+                }
+
+                if (!$this->hasSocialConsentColumns()) {
+                    Response::serverError('La base de datos aun no tiene las columnas de consentimiento social. Ejecuta la migracion 024.');
+                }
+
+                $shouldStoreConsent = true;
             }
         }
 
@@ -67,6 +87,11 @@ class SocialController
             $setClauses[] = 'mesa = :mesa';
             $params[':mesa'] = $isActive ? $mesa : null;
         }
+        if ($shouldStoreConsent) {
+            $setClauses[] = 'social_consent_accepted_at = NOW()';
+            $setClauses[] = 'social_consent_version = :social_consent_version';
+            $params[':social_consent_version'] = self::SOCIAL_CONSENT_VERSION;
+        }
 
         Database::rowCount(
             "UPDATE mobile_usuarios
@@ -76,7 +101,7 @@ class SocialController
         );
 
         $updated = Database::queryOne(
-            "SELECT id AS user_id, nombre, is_social_active, current_restaurante_id, social_updated_at" . ($this->hasMesaColumn() ? ", mesa" : "") . "
+            "SELECT id AS user_id, nombre, is_social_active, current_restaurante_id, social_updated_at" . ($this->hasSocialConsentColumns() ? ", social_consent_accepted_at, social_consent_version" : "") . ($this->hasMesaColumn() ? ", mesa" : "") . "
                FROM mobile_usuarios
               WHERE id = :id",
             [':id' => $user->id]
@@ -94,6 +119,9 @@ class SocialController
             'current_restaurante_id' => $updated['current_restaurante_id'] !== null ? (int)$updated['current_restaurante_id'] : null,
             'mesa' => $updated['mesa'] ?? null,
             'social_updated_at' => $updated['social_updated_at'],
+            'social_consent_accepted_at' => $updated['social_consent_accepted_at'] ?? null,
+            'social_consent_version' => $updated['social_consent_version'] ?? null,
+            'requires_social_consent' => !$this->hasCurrentSocialConsent($updated),
         ]);
     }
 
@@ -101,7 +129,7 @@ class SocialController
     {
         $user = AuthMiddleware::authenticate();
 
-        $sql = "SELECT id AS user_id, nombre, foto_url, edad, genero, sexualidad, descripcion, intereses, que_busca, redes_sociales" . ($this->hasMesaColumn() ? ", mesa" : "") . "
+        $sql = "SELECT id AS user_id, nombre, foto_url, edad, genero, sexualidad, descripcion, intereses, que_busca, redes_sociales" . ($this->hasSocialPhotosColumn() ? ", social_photos_json" : "") . ($this->hasMesaColumn() ? ", mesa" : "") . "
                   FROM mobile_usuarios
                  WHERE is_social_active = 1
                    AND current_restaurante_id = :restaurant_id
@@ -132,7 +160,7 @@ class SocialController
         $sql .= " ORDER BY social_updated_at DESC";
         $diners = Database::query($sql, $params);
 
-        Response::success(array_map([$this, 'normalizeProfileRow'], $diners));
+        Response::success(array_map(fn(array $row): array => $this->normalizeProfileRow($row, false), $diners));
     }
 
     public function getProfile(): void
@@ -158,6 +186,13 @@ class SocialController
 
         $updateData = [];
 
+        if (array_key_exists('nombre', $input)) {
+            $nombre = $this->sanitizeNullableString($input['nombre']);
+            if ($nombre === null) {
+                Response::validationError(['nombre' => ['El nombre es obligatorio']]);
+            }
+            $updateData['nombre'] = substr($nombre, 0, 100);
+        }
         if (array_key_exists('edad', $input)) {
             $updateData['edad'] = $input['edad'] !== null && $input['edad'] !== '' ? (int)$input['edad'] : null;
         }
@@ -213,13 +248,30 @@ class SocialController
         if (!in_array($ext, $allowed, true)) {
             Response::error('Formato no permitido. Use: jpg, jpeg, png, webp', 400);
         }
+        if ((int)($file['size'] ?? 0) > 5 * 1024 * 1024) {
+            Response::error('La imagen no debe pesar mas de 5 MB.', 400);
+        }
+
+        if (!$this->hasSocialPhotosColumn()) {
+            Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
+        }
+
+        $profile = $this->fetchSocialProfile($user->id);
+        if (!$profile) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        $currentPhotos = $this->normalizeSocialPhotos($profile['social_photos_json'] ?? null, $profile['foto_url'] ?? null);
+        if (count($currentPhotos) >= self::MAX_SOCIAL_PHOTOS) {
+            Response::error('Solo puedes tener hasta ' . self::MAX_SOCIAL_PHOTOS . ' fotos en tu perfil social.', 409);
+        }
 
         $uploadDir = __DIR__ . '/../../uploads/social/';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0755, true);
         }
 
-        $filename = 'social-' . $user->id . '-' . time() . '.' . $ext;
+        $filename = 'social-' . $user->id . '-' . time() . '-' . count($currentPhotos) . '.' . $ext;
         $destPath = $uploadDir . $filename;
 
         if (!move_uploaded_file($file['tmp_name'], $destPath)) {
@@ -228,12 +280,114 @@ class SocialController
 
         $baseUrl = rtrim($_ENV['APP_URL'] ?? 'https://amarerestaurant.club/api_restaurante', '/');
         $fotoUrl = $baseUrl . '/uploads/social/' . $filename;
+        $photos = $this->uniquePhotoList(array_merge($currentPhotos, [$fotoUrl]));
+        $primaryPhoto = $photos[0] ?? $fotoUrl;
 
-        if (!$this->updateUserAllowingNulls($user->id, ['foto_url' => $fotoUrl])) {
+        if (!$this->updateUserAllowingNulls($user->id, [
+            'foto_url' => $primaryPhoto,
+            'social_photos_json' => json_encode($photos, JSON_UNESCAPED_SLASHES),
+        ])) {
             Response::serverError('No se pudo actualizar la foto del perfil social');
         }
 
-        Response::success(['foto_url' => $fotoUrl]);
+        Response::success([
+            'foto_url' => $primaryPhoto,
+            'social_photos' => $photos,
+            'uploaded_photo_url' => $fotoUrl,
+        ]);
+    }
+
+    public function deletePhoto(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $photoUrl = $this->sanitizeNullableString($input['photo_url'] ?? $input['url'] ?? null);
+
+        if ($photoUrl === null) {
+            Response::validationError(['photo_url' => ['La foto es obligatoria']]);
+        }
+
+        if (!$this->hasSocialPhotosColumn()) {
+            Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
+        }
+
+        $profile = $this->fetchSocialProfile($user->id);
+        if (!$profile) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        $currentPhotos = $this->normalizeSocialPhotos($profile['social_photos_json'] ?? null, $profile['foto_url'] ?? null);
+        $photos = array_values(array_filter(
+            $currentPhotos,
+            fn(string $photo): bool => !$this->photoMatches($photo, $photoUrl)
+        ));
+
+        if (count($photos) === count($currentPhotos)) {
+            Response::notFound('Foto no encontrada en tu perfil social');
+        }
+
+        $primaryPhoto = $photos[0] ?? null;
+        if (!$this->updateUserAllowingNulls($user->id, [
+            'foto_url' => $primaryPhoto,
+            'social_photos_json' => !empty($photos) ? json_encode($photos, JSON_UNESCAPED_SLASHES) : null,
+        ])) {
+            Response::serverError('No se pudo eliminar la foto del perfil social');
+        }
+
+        Response::success([
+            'foto_url' => $primaryPhoto,
+            'social_photos' => $photos,
+        ], 'Foto eliminada');
+    }
+
+    public function setPrimaryPhoto(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $photoUrl = $this->sanitizeNullableString($input['photo_url'] ?? $input['url'] ?? null);
+
+        if ($photoUrl === null) {
+            Response::validationError(['photo_url' => ['La foto es obligatoria']]);
+        }
+
+        if (!$this->hasSocialPhotosColumn()) {
+            Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
+        }
+
+        $profile = $this->fetchSocialProfile($user->id);
+        if (!$profile) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        $photos = $this->normalizeSocialPhotos($profile['social_photos_json'] ?? null, $profile['foto_url'] ?? null);
+        $matchedPhoto = null;
+        foreach ($photos as $photo) {
+            if ($this->photoMatches($photo, $photoUrl)) {
+                $matchedPhoto = $photo;
+                break;
+            }
+        }
+
+        if ($matchedPhoto === null) {
+            Response::notFound('Foto no encontrada en tu perfil social');
+        }
+
+        $orderedPhotos = $this->uniquePhotoList(array_merge(
+            [$matchedPhoto],
+            array_values(array_filter($photos, fn(string $photo): bool => !$this->photoMatches($photo, $matchedPhoto)))
+        ));
+
+        if (!$this->updateUserAllowingNulls($user->id, [
+            'foto_url' => $orderedPhotos[0] ?? null,
+            'social_photos_json' => json_encode($orderedPhotos, JSON_UNESCAPED_SLASHES),
+        ])) {
+            Response::serverError('No se pudo actualizar la foto principal');
+        }
+
+        Response::success([
+            'foto_url' => $orderedPhotos[0] ?? null,
+            'social_photos' => $orderedPhotos,
+        ], 'Foto principal actualizada');
     }
 
     public function publicProfile(int $userId): void
@@ -241,7 +395,7 @@ class SocialController
         AuthMiddleware::authenticate();
 
         $profile = Database::queryOne(
-            "SELECT id AS user_id, nombre, foto_url, edad, sexualidad, genero, descripcion, intereses, que_busca, redes_sociales" . ($this->hasMesaColumn() ? ", mesa" : "") . "
+            "SELECT id AS user_id, nombre, foto_url, edad, sexualidad, genero, descripcion, intereses, que_busca, redes_sociales" . ($this->hasSocialPhotosColumn() ? ", social_photos_json" : "") . ($this->hasMesaColumn() ? ", mesa" : "") . "
                FROM mobile_usuarios
               WHERE id = :id
                 AND is_social_active = 1",
@@ -252,7 +406,7 @@ class SocialController
             Response::notFound('Usuario no encontrado o sin perfil social publico');
         }
 
-        Response::success($this->normalizeProfileRow($profile));
+        Response::success($this->normalizeProfileRow($profile, false));
     }
 
     public function giftProducts(): void
@@ -445,6 +599,11 @@ class SocialController
                 'mesa_label' => $mesa['label'],
                 'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
                 'recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
+                'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                'recipient_mesa' => $recipientMesa,
+                'giftName' => $giftProduct['nombre'] ?? 'Regalo',
+                'recipientName' => $recipient['nombre'] ?? 'Comensal',
+                'mesaLabel' => $mesa['label'],
             ], 'Regalo enviado al equipo de meseros.', 201);
         } catch (\Throwable $exception) {
             if ($pdo->inTransaction()) {
@@ -579,8 +738,8 @@ class SocialController
     private function fetchSocialProfile(int $userId): ?array
     {
         return Database::queryOne(
-            "SELECT id AS user_id, nombre, foto_url, edad, sexualidad, genero, descripcion, intereses, que_busca, redes_sociales,
-                    is_social_active, current_restaurante_id, social_updated_at" . ($this->hasMesaColumn() ? ", mesa" : "") . "
+            "SELECT id AS user_id, nombre, foto_url, edad, sexualidad, genero, descripcion, intereses, que_busca, redes_sociales" . ($this->hasSocialPhotosColumn() ? ", social_photos_json" : "") . ",
+                    is_social_active, current_restaurante_id, social_updated_at" . ($this->hasSocialConsentColumns() ? ", social_consent_accepted_at, social_consent_version" : "") . ($this->hasMesaColumn() ? ", mesa" : "") . "
                FROM mobile_usuarios
               WHERE id = :id
               LIMIT 1",
@@ -588,12 +747,16 @@ class SocialController
         );
     }
 
-    private function normalizeProfileRow(array $row): array
+    private function normalizeProfileRow(array $row, bool $includeConsent = true): array
     {
-        return [
+        $socialPhotos = $this->normalizeSocialPhotos($row['social_photos_json'] ?? null, $row['foto_url'] ?? null);
+        $primaryPhoto = $row['foto_url'] ?? ($socialPhotos[0] ?? null);
+
+        $result = [
             'user_id' => (int)($row['user_id'] ?? $row['id'] ?? 0),
             'nombre' => $row['nombre'] ?? '',
-            'foto_url' => $row['foto_url'] ?? null,
+            'foto_url' => $primaryPhoto,
+            'social_photos' => $socialPhotos,
             'edad' => isset($row['edad']) && $row['edad'] !== null ? (int)$row['edad'] : null,
             'sexualidad' => $row['sexualidad'] ?? null,
             'genero' => $row['genero'] ?? null,
@@ -610,6 +773,14 @@ class SocialController
             'social_updated_at' => $row['social_updated_at'] ?? null,
             'has_social_profile' => $this->hasSocialProfile($row),
         ];
+
+        if ($includeConsent) {
+            $result['social_consent_accepted_at'] = $row['social_consent_accepted_at'] ?? null;
+            $result['social_consent_version'] = $row['social_consent_version'] ?? null;
+            $result['requires_social_consent'] = !$this->hasCurrentSocialConsent($row);
+        }
+
+        return $result;
     }
 
     private function hasSocialProfile(array $profile): bool
@@ -619,6 +790,13 @@ class SocialController
             && !empty($profile['sexualidad'])
             && !empty($profile['genero'])
             && !empty(trim((string)($profile['descripcion'] ?? '')));
+    }
+
+    private function hasCurrentSocialConsent(array $profile): bool
+    {
+        return !empty($profile['social_consent_accepted_at'])
+            && isset($profile['social_consent_version'])
+            && (string)$profile['social_consent_version'] === self::SOCIAL_CONSENT_VERSION;
     }
 
     private function sanitizeNullableString(mixed $value): ?string
@@ -634,7 +812,9 @@ class SocialController
     private function updateUserAllowingNulls(int $userId, array $data): bool
     {
         $allowedKeys = [
+            'nombre',
             'foto_url',
+            'social_photos_json',
             'edad',
             'sexualidad',
             'genero',
@@ -689,6 +869,119 @@ class SocialController
 
         $hasMesaColumn = $result !== null;
         return $hasMesaColumn;
+    }
+
+    private function hasSocialPhotosColumn(): bool
+    {
+        static $hasSocialPhotosColumn = null;
+
+        if ($hasSocialPhotosColumn !== null) {
+            return $hasSocialPhotosColumn;
+        }
+
+        $result = Database::queryOne(
+            "SELECT 1
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'mobile_usuarios'
+                AND COLUMN_NAME = 'social_photos_json'
+              LIMIT 1"
+        );
+
+        $hasSocialPhotosColumn = $result !== null;
+        return $hasSocialPhotosColumn;
+    }
+
+    private function hasSocialConsentColumns(): bool
+    {
+        static $hasSocialConsentColumns = null;
+
+        if ($hasSocialConsentColumns !== null) {
+            return $hasSocialConsentColumns;
+        }
+
+        $result = Database::queryOne(
+            "SELECT COUNT(*) AS total
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'mobile_usuarios'
+                AND COLUMN_NAME IN ('social_consent_accepted_at', 'social_consent_version')"
+        );
+
+        $hasSocialConsentColumns = (int)($result['total'] ?? 0) === 2;
+        return $hasSocialConsentColumns;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function normalizeSocialPhotos(mixed $jsonValue, ?string $fallbackPhoto): array
+    {
+        $photos = [];
+
+        if (is_string($jsonValue) && trim($jsonValue) !== '') {
+            $decoded = json_decode($jsonValue, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $photo) {
+                    if (!is_string($photo)) {
+                        continue;
+                    }
+                    $trimmed = trim($photo);
+                    if ($trimmed !== '') {
+                        $photos[] = $trimmed;
+                    }
+                }
+            }
+        }
+
+        if (empty($photos) && $fallbackPhoto !== null && trim($fallbackPhoto) !== '') {
+            $photos[] = trim($fallbackPhoto);
+        }
+
+        return array_slice($this->uniquePhotoList($photos), 0, self::MAX_SOCIAL_PHOTOS);
+    }
+
+    /**
+     * @param array<int, string> $photos
+     * @return array<int, string>
+     */
+    private function uniquePhotoList(array $photos): array
+    {
+        $result = [];
+
+        foreach ($photos as $photo) {
+            $trimmed = trim($photo);
+            if ($trimmed === '' || in_array($trimmed, $result, true)) {
+                continue;
+            }
+
+            $result[] = $trimmed;
+        }
+
+        return array_values($result);
+    }
+
+    private function photoMatches(string $storedPhoto, string $requestedPhoto): bool
+    {
+        if ($storedPhoto === $requestedPhoto) {
+            return true;
+        }
+
+        return $this->normalizePhotoComparisonValue($storedPhoto) === $this->normalizePhotoComparisonValue($requestedPhoto);
+    }
+
+    private function normalizePhotoComparisonValue(string $photo): string
+    {
+        $value = trim($photo);
+        $path = parse_url($value, PHP_URL_PATH);
+        $candidate = is_string($path) && $path !== '' ? $path : $value;
+        $uploadsPosition = strpos($candidate, '/uploads/');
+
+        if ($uploadsPosition !== false) {
+            $candidate = substr($candidate, $uploadsPosition + 1);
+        }
+
+        return ltrim(rawurldecode($candidate), '/');
     }
 
     private function detectGiftProductsTable(): ?string

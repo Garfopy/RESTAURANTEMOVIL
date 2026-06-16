@@ -65,6 +65,8 @@ $routes = [
     ['GET', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'getProfile']],
     ['PUT', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'updateProfile']],
     ['POST', '/users/social-profile/photo', ['Amare\Api\Controllers\SocialController', 'uploadPhoto']],
+    ['DELETE', '/users/social-profile/photo', ['Amare\Api\Controllers\SocialController', 'deletePhoto']],
+    ['POST', '/users/social-profile/photo/primary', ['Amare\Api\Controllers\SocialController', 'setPrimaryPhoto']],
     ['POST', '/users/social-photo', ['Amare\Api\Controllers\SocialController', 'uploadPhoto']],
     ['GET', '/users/:id/public-profile', ['Amare\Api\Controllers\SocialController', 'publicProfile']],
     ['GET', '/restaurants/:id/active-diners', ['Amare\Api\Controllers\SocialController', 'activeDiners']],

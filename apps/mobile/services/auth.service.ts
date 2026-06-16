@@ -45,6 +45,7 @@ function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
     email: user?.email ?? '',
     telefono: user?.telefono ?? null,
     foto_url: user?.foto_url ?? null,
+    social_photos: user?.social_photos ?? [],
     google_id: user?.google_id ?? null,
     activo: user?.activo ?? true,
     created_at: user?.created_at ?? '',
@@ -61,6 +62,9 @@ function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
     modo_social: user?.modo_social ?? user?.is_social_active ?? false,
     current_restaurante_id: user?.current_restaurante_id ?? null,
     mesa: user?.mesa ?? null,
+    social_consent_accepted_at: user?.social_consent_accepted_at ?? null,
+    social_consent_version: user?.social_consent_version ?? null,
+    requires_social_consent: user?.requires_social_consent ?? null,
   };
 }
 
