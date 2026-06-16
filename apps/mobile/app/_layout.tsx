@@ -20,6 +20,7 @@ import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
+import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
@@ -82,6 +83,7 @@ export default function RootLayout() {
       await hydrateTheme();
       await hydrateFromStorage();
       await hydrateCart();
+      await hydrateTableSession();
 
       // Si se restauró un token, validarlo con el servidor
       const { isAuthenticated, token } = useUserStore.getState();
@@ -121,6 +123,7 @@ export default function RootLayout() {
                   <Stack.Screen name="(auth)" />
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
+                  <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />

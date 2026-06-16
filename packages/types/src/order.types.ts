@@ -10,6 +10,8 @@ export type EstadoPedido =
 
 export interface PedidoItem {
   id: number;
+  pedido_id?: number;
+  pedido_folio?: string | null;
   platillo_id: number;
   origen?: 'menu' | 'store';
   platillo_nombre: string;
@@ -47,6 +49,9 @@ export interface Pedido {
   created_at: string;
   updated_at: string;
   cuenta_abierta?: boolean | number;
+  consumo_id?: string | null;
+  es_consumo?: boolean;
+  pedidos_count?: number;
   salida_qr_generado_at?: string | null;
   salida_validado_at?: string | null;
 }

@@ -60,6 +60,17 @@ export default function OrderDetailScreen() {
     order?.tipo_pedido === 'eat_in' &&
     Number(order?.cuenta_abierta ?? 0) === 1 &&
     !order?.salida_qr_generado_at;
+  const isEatInConsumption =
+    order?.tipo_pedido === 'eat_in' &&
+    (order?.es_consumo ||
+      Boolean(order?.consumo_id) ||
+      Number(order?.pedidos_count ?? 0) > 1 ||
+      Number(order?.cuenta_abierta ?? 0) === 1);
+  const accountStatusLabel = order?.salida_validado_at
+    ? 'Cuenta cerrada'
+    : order?.salida_qr_generado_at
+      ? 'Cuenta pagada'
+      : 'Cuenta abierta';
 
   async function handlePayOpenAccount() {
     if (!order) return;
@@ -105,15 +116,43 @@ export default function OrderDetailScreen() {
             {new Date(order?.created_at ?? '').toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
           </Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: status.color + '15' }]}>
-          <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: (isEatInConsumption ? Colors.primary || '#111827' : status.color) + '15' }]}>
+          <Text style={[styles.statusText, { color: isEatInConsumption ? Colors.primary || '#111827' : status.color }]}>
+            {isEatInConsumption ? accountStatusLabel : status.label}
+          </Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {isEatInConsumption ? (
+          <View style={styles.card}>
+            <View style={styles.trackingRow}>
+              <View style={[styles.iconContainer, { backgroundColor: Colors.primary || '#111827' }]}>
+                <Ionicons name="restaurant-outline" size={24} color="#FFF" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.trackingTitle}>Consumo en restaurante</Text>
+                <Text style={styles.trackingDesc}>
+                  {accountStatusLabel} en {order?.mesa_nombre || (order?.mesa_id ? `Mesa ${order.mesa_id}` : 'tu mesa')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.accountStats}>
+              <View style={styles.accountStat}>
+                <Text style={styles.accountStatLabel}>Tandas enviadas</Text>
+                <Text style={styles.accountStatValue}>{Number(order?.pedidos_count ?? 1)}</Text>
+              </View>
+              <View style={styles.accountStat}>
+                <Text style={styles.accountStatLabel}>Total acumulado</Text>
+                <Text style={styles.accountStatValue}>${Number(order?.total || 0).toFixed(2)}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
         
         {/* SECCIÓN DE TRACKING VISUAL */}
-        <View style={styles.card}>
+        {!isEatInConsumption ? <View style={styles.card}>
           <View style={styles.trackingRow}>
             {order?.estado === 'en_camino' ? (
               <View style={styles.lottieContainer}>
@@ -146,18 +185,28 @@ export default function OrderDetailScreen() {
               );
             })}
           </View>
-        </View>
+        </View> : null}
 
         {/* DETALLES DE ENTREGA */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Detalles de entrega</Text>
+          <Text style={styles.sectionTitle}>{isEatInConsumption ? 'Detalles del consumo' : 'Detalles de entrega'}</Text>
         </View>
         <View style={styles.card}>
           <View style={styles.detailItem}>
-            <Ionicons name={order?.tipo_pedido === 'delivery' ? "location-outline" : "storefront-outline"} size={20} color="#6B7280" />
+            <Ionicons
+              name={order?.tipo_pedido === 'delivery' ? "location-outline" : order?.tipo_pedido === 'eat_in' ? 'restaurant-outline' : "storefront-outline"}
+              size={20}
+              color="#6B7280"
+            />
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.detailLabel}>{order?.tipo_pedido === 'delivery' ? 'Dirección de envío' : 'Recoges en sucursal'}</Text>
-              <Text style={styles.detailValue}>{order?.direccion_entrega || order?.restaurante_nombre}</Text>
+              <Text style={styles.detailLabel}>
+                {order?.tipo_pedido === 'delivery' ? 'Direccion de envio' : order?.tipo_pedido === 'eat_in' ? 'Mesa' : 'Recoges en sucursal'}
+              </Text>
+              <Text style={styles.detailValue}>
+                {order?.tipo_pedido === 'eat_in'
+                  ? `${order?.mesa_nombre || (order?.mesa_id ? `Mesa ${order.mesa_id}` : 'Mesa escaneada')} · ${order?.restaurante_nombre}`
+                  : order?.direccion_entrega || order?.restaurante_nombre}
+              </Text>
             </View>
           </View>
           {order?.notas && (
@@ -344,6 +393,31 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
     borderWidth: 1,
     borderColor: '#F3F4F6',
+  },
+  accountStats: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  accountStat: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  accountStatLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  accountStatValue: {
+    fontSize: 18,
+    color: '#111827',
+    fontWeight: '800',
+    marginTop: 4,
   },
   
   trackingRow: { flexDirection: 'row', alignItems: 'center' },

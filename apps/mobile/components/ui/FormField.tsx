@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, TextInput, Text, TouchableOpacity, StyleSheet, Platform, ViewStyle, TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
@@ -22,6 +22,17 @@ interface FormFieldProps {
   testID?: string;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  containerStyle?: ViewStyle;
+  labelStyle?: TextStyle;
+  inputWrapperStyle?: ViewStyle;
+  inputStyle?: TextStyle;
+  placeholderTextColor?: string;
+  iconColor?: string;
+  errorIconColor?: string;
+  focusedBorderColor?: string;
+  focusedBackgroundColor?: string;
+  errorInputWrapperStyle?: ViewStyle;
+  errorTextStyle?: TextStyle;
 }
 
 export function FormField({
@@ -42,6 +53,17 @@ export function FormField({
   testID,
   accessibilityLabel,
   accessibilityHint,
+  containerStyle,
+  labelStyle,
+  inputWrapperStyle,
+  inputStyle,
+  placeholderTextColor,
+  iconColor,
+  errorIconColor,
+  focusedBorderColor,
+  focusedBackgroundColor,
+  errorInputWrapperStyle,
+  errorTextStyle,
 }: FormFieldProps) {
   const [isFocused, setIsFocused] = useState(false);
   const theme = useThemeColors();
@@ -49,29 +71,34 @@ export function FormField({
   const hasError = !!error;
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+    <View style={[styles.container, containerStyle]}>
+      {label ? <Text style={[styles.label, labelStyle]}>{label}</Text> : null}
       <View
         style={[
           styles.inputWrapper,
-          isFocused && { borderColor: theme.primary, backgroundColor: '#FAFAFA' },
+          inputWrapperStyle,
+          isFocused && {
+            borderColor: focusedBorderColor ?? theme.primary,
+            backgroundColor: focusedBackgroundColor ?? '#FAFAFA',
+          },
           hasError && styles.inputWrapperError,
+          hasError && errorInputWrapperStyle,
         ]}
       >
         {icon && (
           <Ionicons
             name={icon as any}
             size={20}
-            color={hasError ? Colors.error || '#DC2626' : isFocused ? theme.primary : Colors.textMuted}
+            color={hasError ? errorIconColor ?? Colors.error ?? '#DC2626' : isFocused ? focusedBorderColor ?? theme.primary : iconColor ?? Colors.textMuted}
             style={styles.icon}
           />
         )}
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputStyle]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={Colors.textMuted || '#9CA3AF'}
+          placeholderTextColor={placeholderTextColor ?? Colors.textMuted ?? '#9CA3AF'}
           keyboardType={keyboardType}
           secureTextEntry={secureTextEntry}
           autoCapitalize={autoCapitalize}
@@ -100,7 +127,7 @@ export function FormField({
             <Ionicons
               name={secureTextEntry ? 'eye-off-outline' : 'eye-outline'}
               size={20}
-              color={Colors.textMuted}
+              color={iconColor ?? Colors.textMuted}
             />
           </TouchableOpacity>
         )}
@@ -110,10 +137,10 @@ export function FormField({
           <Ionicons
             name="alert-circle"
             size={14}
-            color={Colors.error || '#DC2626'}
+            color={errorIconColor ?? Colors.error ?? '#DC2626'}
             style={styles.errorIcon}
           />
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={[styles.errorText, errorTextStyle]}>{error}</Text>
         </View>
       )}
     </View>

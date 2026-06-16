@@ -34,6 +34,59 @@ const ESTADO_LABEL: Record<string, string> = {
   cancelado: 'Cancelado',
 };
 
+function isEatInConsumption(order: Pedido) {
+  return (
+    order.tipo_pedido === 'eat_in' &&
+    (order.es_consumo || Boolean(order.consumo_id) || Number(order.pedidos_count ?? 0) > 1 || Number(order.cuenta_abierta ?? 0) === 1)
+  );
+}
+
+function getOrderStatusLabel(order: Pedido) {
+  if (order.tipo_pedido !== 'eat_in') {
+    return ESTADO_LABEL[order.estado] ?? order.estado;
+  }
+
+  if (order.salida_validado_at) return 'Cerrada';
+  if (order.salida_qr_generado_at) return 'Pagada';
+  if (Number(order.cuenta_abierta ?? 0) === 1 || isEatInConsumption(order)) return 'Cuenta abierta';
+
+  return ESTADO_LABEL[order.estado] ?? order.estado;
+}
+
+function getOrderStatusColor(order: Pedido) {
+  if (order.tipo_pedido === 'eat_in') {
+    if (order.salida_validado_at) return Colors.success || '#10B981';
+    if (order.salida_qr_generado_at) return Colors.info || '#6366F1';
+    return Colors.primary || '#111827';
+  }
+
+  return ESTADO_COLOR[order.estado] || '#6B7280';
+}
+
+function getOrderTitle(order: Pedido) {
+  if (isEatInConsumption(order)) {
+    return order.mesa_nombre ? `Consumo en ${order.mesa_nombre}` : 'Consumo en mesa';
+  }
+
+  return order.folio ?? `Pedido #${order.id}`;
+}
+
+function getOrderModeMeta(order: Pedido) {
+  if (order.tipo_pedido === 'delivery') {
+    return { icon: 'bicycle-outline' as const, label: 'A domicilio' };
+  }
+
+  if (order.tipo_pedido === 'eat_in') {
+    const count = Number(order.pedidos_count ?? 0);
+    return {
+      icon: 'restaurant-outline' as const,
+      label: count > 1 ? `Comer aqui · ${count} tandas` : 'Comer aqui',
+    };
+  }
+
+  return { icon: 'bag-handle-outline' as const, label: 'Para llevar' };
+}
+
 export default function OrdersScreen() {
   const router = useRouter();
   const { data: orders, isLoading } = useOrders();
@@ -85,7 +138,8 @@ export default function OrdersScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
-            const estadoColor = ESTADO_COLOR[item.estado] || '#6B7280';
+            const estadoColor = getOrderStatusColor(item);
+            const modeMeta = getOrderModeMeta(item);
             return (
               <TouchableOpacity
                 style={styles.card}
@@ -102,14 +156,14 @@ export default function OrdersScreen() {
                   </View>
                   <View style={[styles.badge, { backgroundColor: `${estadoColor}12` }]}>
                     <Text style={[styles.badgeText, { color: estadoColor }]}>
-                      {ESTADO_LABEL[item.estado] ?? item.estado}
+                      {getOrderStatusLabel(item)}
                     </Text>
                   </View>
                 </View>
 
                 {/* Contenido Central */}
                 <View style={styles.cardTop}>
-                  <Text style={styles.folio}>{item.folio ?? `Pedido #${item.id}`}</Text>
+                  <Text style={styles.folio}>{getOrderTitle(item)}</Text>
                   <Text style={styles.total}>${item.total?.toFixed(2) ?? '—'} MXN</Text>
                 </View>
 
@@ -117,12 +171,12 @@ export default function OrdersScreen() {
                 <View style={styles.cardFooter}>
                   <View style={styles.detailRow}>
                     <Ionicons 
-                      name={item.tipo_pedido === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline'} 
+                      name={modeMeta.icon}
                       size={15} 
                       color="#6B7280" 
                     />
                     <Text style={styles.detailText}>
-                      {item.tipo_pedido === 'delivery' ? 'A domicilio' : 'Para llevar'}
+                      {modeMeta.label}
                     </Text>
                     <Text style={styles.dot}>•</Text>
                     <Text style={styles.fecha}>

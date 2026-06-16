@@ -28,3 +28,11 @@ export interface Coordenadas {
   lat: number;
   lng: number;
 }
+
+export interface TableScanResult {
+  restaurante_id: number;
+  mesa_id: number;
+  mesa_label: string;
+  mesa_value: string;
+  branch: Sucursal;
+}

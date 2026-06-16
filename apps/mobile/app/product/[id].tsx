@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
 import { useCartStore } from '../../store/cart.store';
+import { useTableSessionStore } from '../../store/table-session.store';
 import { useFavorites } from '../../hooks/useFavorites'; // ✅ NUEVO
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -36,6 +37,8 @@ export default function ProductScreen() {
   );
 
   const addItem = useCartStore((s) => s.addItem);
+  const tipoPedido = useCartStore((s) => s.tipoPedido);
+  const tableSession = useTableSessionStore((s) => s.session);
 
   // ✅ FAVORITOS (UN SOLO SISTEMA)
   const { data: favorites, toggle } = useFavorites();
@@ -131,6 +134,14 @@ export default function ProductScreen() {
 
   function handleAddToCart() {
     if (!platillo) return;
+    if (tipoPedido === 'eat_in' && !tableSession) {
+      router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+      return;
+    }
+    if (tipoPedido === 'eat_in' && tableSession && platillo.restaurante_id !== tableSession.restauranteId) {
+      router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+      return;
+    }
     addItem(platillo, cantidad, modsSel, notas.trim());
     router.back();
   }

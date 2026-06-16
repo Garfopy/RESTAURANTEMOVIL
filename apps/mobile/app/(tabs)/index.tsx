@@ -22,6 +22,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { useUserStore } from '../../store/user.store';
 import { useBranchStore } from '../../store/branch.store';
 import { useCartStore } from '../../store/cart.store';
+import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranches } from '../../hooks/useBranches';
 import { useFeaturedDishes, useCategories } from '../../hooks/useMenu';
 import { getNearestBranches } from '../../services/branches.service';
@@ -65,6 +66,7 @@ export default function HomeScreen() {
   const user = useUserStore((s) => s.user);
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
   const { tipoPedido, setTipoPedido, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
+  const tableSession = useTableSessionStore((s) => s.session);
   
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [availableTypes, setAvailableTypes] = useState<TipoPedido[]>(['delivery', 'pickup']);
@@ -99,17 +101,20 @@ export default function HomeScreen() {
     const enabledTypes = getEnabledOrderTypes(sucursales);
 
     if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
-      const eatInBranch = sucursales.find((item) => item.tipos_entrega.includes('eat_in'));
-      if (eatInBranch && !branch) {
-        seleccionar(eatInBranch);
+      if (tableSession?.branch) {
+        if (!branch || branch.id !== tableSession.branch.id) {
+          seleccionar(tableSession.branch);
+        }
+        setTipoPedido('eat_in');
+      } else {
+        router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
       }
-      setTipoPedido('eat_in');
       return;
     }
 
     setAvailableTypes(enabledTypes);
     openDeliveryFlow();
-  }, [tipoPedido, sucursales, branch, seleccionar, setTipoPedido]);
+  }, [tipoPedido, sucursales, branch, seleccionar, setTipoPedido, tableSession, router]);
 
   async function openDeliveryFlow() {
     const enabledTypes = getEnabledOrderTypes(sucursales);
@@ -145,6 +150,12 @@ export default function HomeScreen() {
     if (tipo === 'pickup') {
       setTipoPedido('pickup');
       setSelectingPickupBranch(true);
+      return;
+    }
+
+    if (tipo === 'eat_in') {
+      closeDeliveryFlow();
+      router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
       return;
     }
 
@@ -234,7 +245,7 @@ export default function HomeScreen() {
   function getOrderModeLabel() {
     if (tipoPedido === 'delivery') return 'Delivery';
     if (tipoPedido === 'pickup') return 'Pickup';
-    if (tipoPedido === 'eat_in') return 'Comer aqui';
+    if (tipoPedido === 'eat_in') return tableSession?.mesaLabel ? `Comer aqui · ${tableSession.mesaLabel}` : 'Comer aqui';
     return 'Elegir entrega';
   }
 

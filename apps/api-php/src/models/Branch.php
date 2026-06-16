@@ -8,6 +8,8 @@ use Amare\Api\Config\Database;
 
 class Branch
 {
+    private const DEFAULT_LOGO = 'public/uploads/restaurantes/rest_logo_1_1781280185.png';
+
     public static function getAll(): array
     {
         $sql = self::baseSelect() . " WHERE r.activo = 1 ORDER BY r.nombre";
@@ -74,6 +76,7 @@ class Branch
         $branch['reservas_habilitadas'] = (bool)$branch['reservas_habilitadas'];
         $branch['activo'] = (bool)$branch['activo'];
         $branch['tipos_entrega'] = json_decode((string)$branch['tipos_entrega'], true) ?: ['delivery', 'pickup'];
+        $branch['logo'] = !empty($branch['logo']) ? $branch['logo'] : self::DEFAULT_LOGO;
 
         return $branch;
     }

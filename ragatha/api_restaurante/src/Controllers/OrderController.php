@@ -8,6 +8,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\Order;
+use Amare\Api\Models\Product;
 
 class OrderController
 {
@@ -44,12 +45,51 @@ class OrderController
         Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
 
         $order = Order::findById($id);
+        $exitPass = null;
+        if (($order['tipo_pedido'] ?? null) === 'eat_in') {
+            $exitPass = Order::ensureExitPass($id, $user->id);
+        }
+
         Response::success([
             'ok' => true,
             'pedido_id' => $order['id'],
             'folio' => $order['folio'],
             'metodo_pago' => $metodo,
+            'exit_pass' => $exitPass,
         ], 'Pago confirmado exitosamente');
+    }
+
+    public function exitPass(int $id): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $exitPass = Order::getExitPass($id, $user->id);
+
+        if (!$exitPass) {
+            Response::notFound('Pase de salida no encontrado');
+        }
+
+        Response::success(['exit_pass' => $exitPass]);
+    }
+
+    public function scanExitPass(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = ValidationMiddleware::getAllInput();
+        $payload = trim((string)($input['payload'] ?? $input['token'] ?? ''));
+
+        if ($payload === '') {
+            Response::validationError(['payload' => ['El QR de salida es obligatorio']]);
+        }
+
+        $exitPass = Order::validateExitPass($payload, $user->id);
+        if (!$exitPass) {
+            Response::notFound('QR de salida invalido o expirado');
+        }
+
+        Response::success([
+            'ok' => true,
+            'exit_pass' => $exitPass,
+        ], 'Salida validada y mesa liberada');
     }
 
     public function show(int $id): void
@@ -91,13 +131,22 @@ class OrderController
         // a lo que espera la DB (platillo_id, cantidad, precio_unit, notas)
         $items = [];
         foreach ($input['items'] as $item) {
+            $platilloId = (int)($item['product_id'] ?? $item['platillo_id'] ?? 0);
+            $origen = $item['origen'] ?? 'menu';
+
+            if ($origen === 'menu' && !Product::belongsToRestaurant($platilloId, (int)$input['restaurante_id'])) {
+                Response::validationError([
+                    'items' => ["El platillo {$platilloId} no pertenece a la sucursal seleccionada"]
+                ]);
+            }
+
             $items[] = [
-                'platillo_id' => $item['product_id'] ?? $item['platillo_id'],
+                'platillo_id' => $platilloId,
                 'cantidad' => $item['quantity'] ?? $item['cantidad'],
                 'precio_unit' => $item['unit_price'] ?? $item['precio_unit'],
                 'notas' => $item['options'] ?? $item['notas'] ?? null,
                 'modificadores' => $item['modificadores'] ?? [],
-                'origen' => $item['origen'] ?? 'menu'
+                'origen' => $origen
             ];
         }
 
@@ -109,6 +158,10 @@ class OrderController
                 'subtotal' => $input['subtotal'],
                 'total' => $input['total'],
                 'notes' => $input['notas'] ?? null,
+                'direccion_id' => $input['direccion_id'] ?? null,
+                'direccion_entrega' => $input['direccion_entrega'] ?? null,
+                'mesa_id' => $input['mesa_id'] ?? null,
+                'payment_intent_id' => $input['payment_intent_id'] ?? null,
                 'items' => $items
             ]);
         } catch (\RuntimeException $e) {

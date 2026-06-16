@@ -8,22 +8,31 @@ use Amare\Api\Config\Database;
 
 class Branch
 {
+    private const DEFAULT_LOGO = 'public/uploads/restaurantes/rest_logo_1_1781280185.png';
+
     public static function getAll(): array
     {
         $sql = "SELECT id, nombre, slug, descripcion, lat, lng,
-                       imagen_banner, telefono, horarios_json,
+                       logo, imagen_banner, telefono, horarios_json,
                        mesas_habilitadas, reservas_habilitadas, activo
                 FROM rest_restaurantes WHERE activo = 1 ORDER BY nombre";
-        return Database::query($sql);
+        return array_map([self::class, 'normalize'], Database::query($sql));
     }
 
     public static function findById(int $id): ?array
     {
         $sql = "SELECT id, nombre, slug, descripcion, lat, lng,
-                       imagen_banner, telefono, horarios_json,
+                       logo, imagen_banner, telefono, horarios_json,
                        mesas_habilitadas, reservas_habilitadas, activo
                 FROM rest_restaurantes WHERE id = :id AND activo = 1 LIMIT 1";
-        return Database::queryOne($sql, [':id' => $id]);
+        $branch = Database::queryOne($sql, [':id' => $id]);
+        return $branch ? self::normalize($branch) : null;
+    }
+
+    private static function normalize(array $branch): array
+    {
+        $branch['logo'] = !empty($branch['logo']) ? $branch['logo'] : self::DEFAULT_LOGO;
+        return $branch;
     }
 
     public static function create(array $data): int

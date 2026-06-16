@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, Image, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../../theme';
+import { DEFAULT_RESTAURANT_LOGO_PATH } from '../../constants/branding';
+import { formatImageUrl } from '../../services/api';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const logoUri = formatImageUrl(DEFAULT_RESTAURANT_LOGO_PATH);
 
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.7)).current;
@@ -31,13 +33,18 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor="#24272D" />
       <View style={styles.container}>
         <Animated.View style={[styles.logoArea, logoStyle]}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="restaurant" size={54} color={Colors.primary} />
+          <View style={styles.logoWrap}>
+            {logoUri ? (
+              <Image source={{ uri: logoUri }} style={styles.logoImage} resizeMode="contain" />
+            ) : (
+              <Ionicons name="restaurant" size={64} color="#E9DDC8" />
+            )}
           </View>
-          <Text style={styles.appName}>Restaurante 1</Text>
-          <Text style={styles.tagline}>Gastronomia premium a tu puerta</Text>
+          <Text style={styles.appName}>AMARE</Text>
+          <Text style={styles.tagline}>Restaurant Club</Text>
         </Animated.View>
 
         <Animated.View style={[styles.buttons, btnsStyle]}>
@@ -46,7 +53,7 @@ export default function LoginScreen() {
             onPress={() => router.push('/(auth)/email-login')}
             activeOpacity={0.88}
           >
-            <Ionicons name="mail-outline" size={20} color={Colors.white} />
+            <Ionicons name="mail-outline" size={20} color="#24272D" />
             <Text style={styles.emailLabel}>Entrar con correo</Text>
           </TouchableOpacity>
 
@@ -64,86 +71,80 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#24272D',
   },
   container: {
     flex: 1,
     paddingHorizontal: 28,
     justifyContent: 'center',
     paddingBottom: Platform.OS === 'ios' ? 30 : 40,
+    backgroundColor: '#24272D',
   },
   logoArea: {
     alignItems: 'center',
-    marginBottom: 70,
+    marginBottom: 52,
   },
-  logoCircle: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: '#FFF8E8',
-    borderWidth: 2,
-    borderColor: Colors.accent,
+  logoWrap: {
+    width: 320,
+    height: 270,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 8,
+    marginBottom: 18,
+  },
+  logoImage: {
+    width: 310,
+    height: 260,
   },
   appName: {
     fontFamily: 'PlayfairDisplay_700Bold',
-    fontSize: 42,
-    color: Colors.text,
-    letterSpacing: 1,
+    fontSize: 46,
+    color: '#F2EBDD',
+    letterSpacing: 0,
     marginBottom: 8,
   },
   tagline: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: 16,
+    color: '#D8CDBB',
     textAlign: 'center',
     lineHeight: 22,
     paddingHorizontal: 20,
+    fontWeight: '600',
   },
   buttons: {
-    gap: 14,
+    gap: 13,
   },
   emailBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    backgroundColor: Colors.primary,
-    borderRadius: 18,
+    backgroundColor: '#E9DDC8',
+    borderRadius: 16,
     paddingVertical: 18,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 6,
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 6,
   },
   emailLabel: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '800',
+    color: '#24272D',
   },
   registerLink: {
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 12,
   },
   registerText: {
-    color: '#6B7280',
+    color: '#D8CDBB',
     fontSize: 14,
   },
   registerBold: {
-    color: Colors.primary,
-    fontWeight: '700',
+    color: '#F4E8D2',
+    fontWeight: '800',
   },
 });

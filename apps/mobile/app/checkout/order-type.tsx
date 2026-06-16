@@ -16,6 +16,7 @@ import * as Location from 'expo-location';
 import { apiClient, getApiError } from '../../services/api';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
+import { useTableSessionStore } from '../../store/table-session.store';
 import { createOrder, createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing } from '../../theme';
@@ -39,16 +40,21 @@ type AddressData = {
   cp?: string | null;
 };
 
-type RestaurantTable = {
-  id: number;
-  label: string;
-  value: string;
-};
+function getSelectedExtras(item: ReturnType<typeof useCartStore.getState>['items'][number]) {
+  return item.modificadores_seleccionados.flatMap((mod) =>
+    mod.opciones.map((opcion) => ({
+      key: `${mod.modificador_id}-${opcion.opcion_id}`,
+      nombre: opcion.opcion_nombre,
+      precio: Number(opcion.precio_extra || 0),
+    }))
+  );
+}
 
 export default function OrderTypeScreen() {
   const router = useRouter();
   const { items, total, tipoPedido, restauranteId, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
+  const tableSession = useTableSessionStore((s) => s.session);
 
   const resolvedRestaurantId =
     restauranteId ??
@@ -67,21 +73,12 @@ export default function OrderTypeScreen() {
   const [addressData, setAddressData] = useState<AddressData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
-  const [tablesLoading, setTablesLoading] = useState(false);
   const [ubicacionVisual, setUbicacionVisual] = useState('');
   const [coords, setCoords] = useState<Region | null>(null);
-  const [tables, setTables] = useState<RestaurantTable[]>([]);
-  const [selectedTable, setSelectedTable] = useState<RestaurantTable | null>(null);
 
   useEffect(() => {
     cargarDirecciones();
   }, []);
-
-  useEffect(() => {
-    if (tipoPedido === 'eat_in' && resolvedRestaurantId) {
-      cargarMesas(Number(resolvedRestaurantId));
-    }
-  }, [resolvedRestaurantId, tipoPedido]);
 
   useEffect(() => {
     if (!tipoPedido) {
@@ -114,11 +111,11 @@ export default function OrderTypeScreen() {
     }
 
     setUbicacionVisual(
-      selectedTable
-        ? `${selectedBranch?.nombre || 'Sucursal'} · ${selectedTable.label}`
+      tableSession
+        ? `${selectedBranch?.nombre || 'Sucursal'} · ${tableSession.mesaLabel}`
         : selectedBranch?.nombre || 'Comer aqui'
     );
-  }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, selectedTable, tipoPedido]);
+  }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, tableSession, tipoPedido]);
 
   async function cargarDirecciones() {
     try {
@@ -133,22 +130,6 @@ export default function OrderTypeScreen() {
       }
     } catch (err) {
       console.error('Error al cargar direcciones:', err);
-    }
-  }
-
-  async function cargarMesas(branchId: number) {
-    try {
-      setTablesLoading(true);
-      const res = await apiClient.get(`/restaurants/${branchId}/tables`);
-      const data = Array.isArray(res.data?.data) ? res.data.data : [];
-      setTables(data);
-      if (!selectedTable && data.length === 1) {
-        setSelectedTable(data[0]);
-      }
-    } catch (err) {
-      console.error('Error al cargar mesas:', err);
-    } finally {
-      setTablesLoading(false);
     }
   }
 
@@ -317,8 +298,23 @@ export default function OrderTypeScreen() {
       return;
     }
 
-    if (tipoPedido === 'eat_in' && tables.length > 0 && !selectedTable) {
-      Alert.alert('Mesa requerida', 'Selecciona tu mesa para abrir la cuenta.');
+    if (tipoPedido === 'eat_in' && !tableSession) {
+      Alert.alert('Mesa requerida', 'Escanea el QR de tu mesa para poder pedir.', [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Escanear QR', onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } }) },
+      ]);
+      return;
+    }
+
+    if (tipoPedido === 'eat_in' && tableSession && Number(resolvedRestaurantId) !== tableSession.restauranteId) {
+      Alert.alert(
+        'Mesa de otra sucursal',
+        'La mesa escaneada pertenece a otra sucursal. Escanea el QR de esta mesa o vacia el carrito para cambiar de sucursal.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Escanear QR', onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } }) },
+        ]
+      );
       return;
     }
 
@@ -333,7 +329,7 @@ export default function OrderTypeScreen() {
         const order = await createOrder({
           restaurante_id: Number(resolvedRestaurantId),
           tipo_pedido: 'eat_in',
-          mesa_id: selectedTable?.id,
+          mesa_id: tableSession?.mesaId,
           direccion_entrega: ubicacionVisual,
           items: items.map((i) => ({
             platillo_id: i.platillo.id,
@@ -350,7 +346,7 @@ export default function OrderTypeScreen() {
               })),
             })),
           })),
-          notas: selectedTable ? `Cuenta abierta · ${selectedTable.label}` : 'Cuenta abierta',
+          notas: tableSession ? `Cuenta abierta · ${tableSession.mesaLabel}` : 'Cuenta abierta',
         });
 
         clear();
@@ -378,8 +374,8 @@ export default function OrderTypeScreen() {
           tipoPedido,
           direccionId: finalAddressId ? String(finalAddressId) : '',
           direccionEntrega: ubicacionVisual,
-          mesaId: selectedTable ? String(selectedTable.id) : '',
-          mesaLabel: selectedTable?.label ?? '',
+          mesaId: tableSession ? String(tableSession.mesaId) : '',
+          mesaLabel: tableSession?.mesaLabel ?? '',
         },
       });
     } catch (err) {
@@ -418,7 +414,9 @@ export default function OrderTypeScreen() {
         icon: 'restaurant-outline' as const,
         title: 'Comer aqui',
         subtitle: 'Pedido en restaurante',
-        detail: ubicacionVisual || selectedBranch?.nombre || 'Sucursal seleccionada',
+        detail: tableSession
+          ? `${tableSession.mesaLabel} · ${selectedBranch?.nombre || 'Sucursal seleccionada'}`
+          : 'Escanea el QR de tu mesa',
       };
     }
 
@@ -473,42 +471,25 @@ export default function OrderTypeScreen() {
 
             <View style={styles.locationBox}>
               <Text style={styles.locationAddress}>
-                Tu pedido quedara asociado a tu mesa. Al pagar se generara un QR de salida para que hostess cierre tu visita.
+                Tu pedido quedara asociado a la mesa escaneada. Al pagar se generara un QR de salida para que hostess cierre tu visita.
               </Text>
 
-              {tablesLoading ? (
-                <View style={styles.locationLoading}>
-                  <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
-                  <Text style={styles.locationTextMuted}>Cargando mesas...</Text>
-                </View>
-              ) : tables.length > 0 ? (
-                <View style={styles.tableGrid}>
-                  {tables.map((table) => {
-                    const isSelected = selectedTable?.id === table.id;
-                    return (
-                      <TouchableOpacity
-                        key={table.id}
-                        style={[styles.tableChip, isSelected && styles.tableChipActive]}
-                        onPress={() => setSelectedTable(table)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: isSelected }}
-                      >
-                        <Ionicons
-                          name="grid-outline"
-                          size={14}
-                          color={isSelected ? '#FFFFFF' : '#6B7280'}
-                        />
-                        <Text style={[styles.tableChipText, isSelected && styles.tableChipTextActive]}>
-                          {table.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+              {tableSession ? (
+                <View style={styles.scannedTableBox}>
+                  <Ionicons name="qr-code-outline" size={20} color={Colors.primary || '#111827'} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.scannedTableLabel}>{tableSession.mesaLabel}</Text>
+                    <Text style={styles.locationTextMuted}>{selectedBranch?.nombre || 'Sucursal seleccionada'}</Text>
+                  </View>
                 </View>
               ) : (
-                <Text style={styles.locationTextMuted}>
-                  No hay mesas cargadas para esta sucursal. La cuenta se abrira sin mesa asignada.
-                </Text>
+                <TouchableOpacity
+                  style={styles.scanTableButton}
+                  onPress={() => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } })}
+                >
+                  <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.scanTableButtonText}>Escanear QR de mesa</Text>
+                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -612,14 +593,29 @@ export default function OrderTypeScreen() {
         <View style={styles.summaryContainer}>
           <Text style={styles.summaryTitle}>Resumen del pedido</Text>
           <View style={styles.ticketBox}>
-            {items.map((item) => (
-              <View key={item.id} style={styles.summaryRow}>
-                <Text style={styles.summaryItem} numberOfLines={1}>
-                  <Text style={styles.itemQuantity}>{item.cantidad}x</Text> {item.platillo.nombre}
-                </Text>
-                <Text style={styles.summaryPrice}>${item.subtotal.toFixed(2)}</Text>
+            {items.map((item) => {
+              const selectedExtras = getSelectedExtras(item);
+
+              return (
+              <View key={item.id} style={styles.summaryItemBlock}>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryItem} numberOfLines={1}>
+                    <Text style={styles.itemQuantity}>{item.cantidad}x</Text> {item.platillo.nombre}
+                  </Text>
+                  <Text style={styles.summaryPrice}>${item.subtotal.toFixed(2)}</Text>
+                </View>
+                {selectedExtras.length > 0 ? (
+                  <View style={styles.summaryExtras}>
+                    {selectedExtras.map((extra) => (
+                      <Text key={extra.key} style={styles.summaryExtraText} numberOfLines={1}>
+                        + {extra.nombre}{extra.precio > 0 ? ` $${extra.precio.toFixed(2)}` : ''}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
               </View>
-            ))}
+              );
+            })}
             <View style={styles.divider} />
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total a pagar</Text>
@@ -636,7 +632,7 @@ export default function OrderTypeScreen() {
           fullWidth
           size="lg"
           loading={loading}
-          disabled={!tipoPedido || loadingLocation || (tipoPedido === 'eat_in' && tables.length > 0 && !selectedTable)}
+          disabled={!tipoPedido || loadingLocation || (tipoPedido === 'eat_in' && !tableSession)}
           style={styles.actionButton}
           accessibilityLabel="Continuar al pago"
           testID="checkout-continue-btn"
@@ -752,33 +748,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4B5563',
   },
-  tableGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  tableChip: {
+  scannedTableBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 18,
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  tableChipActive: {
+  scannedTableLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  scanTableButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
     backgroundColor: Colors.primary || '#111827',
-    borderColor: Colors.primary || '#111827',
   },
-  tableChipText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#4B5563',
-  },
-  tableChipTextActive: {
+  scanTableButtonText: {
     color: '#FFFFFF',
+    fontWeight: '800',
   },
   locationBox: {
     backgroundColor: '#F9FAFB',
@@ -866,6 +862,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 6,
   },
+  summaryItemBlock: {
+    paddingVertical: 4,
+  },
   summaryItem: {
     flex: 1,
     fontSize: 14,
@@ -880,6 +879,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#111827',
+  },
+  summaryExtras: {
+    marginLeft: 25,
+    gap: 2,
+    paddingRight: 8,
+    paddingBottom: 4,
+  },
+  summaryExtraText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
   },
   divider: {
     height: 1,

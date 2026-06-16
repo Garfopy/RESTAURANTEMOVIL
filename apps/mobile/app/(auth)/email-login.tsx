@@ -18,18 +18,20 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
 import { mapErrorToFriendly, validateEmail, validatePassword } from '../../services/error.service';
-import { Colors, Spacing } from '../../theme';
 
-// Definición local de colores para estilo Claro Premium (puedes mover esto a tu theme.ts)
-const PremiumColors = {
-  bg: '#FFFFFF',
-  text: '#1A1A1A', // Casi negro, más suave
-  textSecondary: '#666666',
-  border: '#E5E5E5',
-  inputBg: '#F9F9F9',
-  primary: '#000000', // O tu color de marca, pero negro/dorado/azul marino suelen verse premium
-  white: '#FFFFFF',
-  error: '#DC2626',
+const AuthColors = {
+  bg: '#24272D',
+  text: '#F2EBDD',
+  textSecondary: '#D8CDBB',
+  muted: '#B8AC99',
+  border: '#4B5058',
+  inputBg: '#2A2E35',
+  inputFocused: '#30353D',
+  accent: '#E9DDC8',
+  buttonText: '#24272D',
+  error: '#FCA5A5',
+  errorBg: '#3A2B2E',
+  errorBorder: '#B85C63',
 };
 
 export default function EmailLoginScreen() {
@@ -41,53 +43,41 @@ export default function EmailLoginScreen() {
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  // Estados de error/validación
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [focusedInput, setFocusedInput] = useState<'email' | 'password' | null>(null);
 
-  // Validar email en tiempo real (on-change)
+  const fieldTheme = {
+    labelStyle: styles.fieldLabel,
+    inputWrapperStyle: styles.fieldInput,
+    inputStyle: styles.fieldText,
+    placeholderTextColor: AuthColors.muted,
+    iconColor: AuthColors.muted,
+    errorIconColor: AuthColors.error,
+    focusedBorderColor: AuthColors.accent,
+    focusedBackgroundColor: AuthColors.inputFocused,
+    errorInputWrapperStyle: styles.fieldInputError,
+    errorTextStyle: styles.fieldErrorText,
+  };
+
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    if (value.trim()) {
-      const error = validateEmail(value);
-      setEmailError(error);
-    } else {
-      setEmailError(null);
-    }
+    setEmailError(value.trim() ? validateEmail(value) : null);
   };
 
-  // Validar contraseña en tiempo real
   const handlePasswordChange = (value: string) => {
     setPassword(value);
-    if (value.trim()) {
-      const error = validatePassword(value);
-      setPasswordError(error);
-    } else {
-      setPasswordError(null);
-    }
+    setPasswordError(value.trim() ? validatePassword(value) : null);
   };
 
-  // Validar al perder el foco
   const handleEmailBlur = () => {
-    setFocusedInput(null);
-    if (email.trim()) {
-      const error = validateEmail(email);
-      setEmailError(error);
-    }
+    if (email.trim()) setEmailError(validateEmail(email));
   };
 
   const handlePasswordBlur = () => {
-    setFocusedInput(null);
-    if (password.trim()) {
-      const error = validatePassword(password);
-      setPasswordError(error);
-    }
+    if (password.trim()) setPasswordError(validatePassword(password));
   };
 
   async function handleLogin() {
-    // Validar campos antes de enviar
     const emailErr = validateEmail(email);
     const passwordErr = validatePassword(password);
 
@@ -104,7 +94,6 @@ export default function EmailLoginScreen() {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const sesion = await loginWithEmail({ email: email.trim().toLowerCase(), password });
       await login(sesion);
-      // router.replace('/home');
     } catch (err: unknown) {
       const friendlyError = mapErrorToFriendly(err);
       toast.error(friendlyError.message, { icon: friendlyError.icon });
@@ -115,44 +104,37 @@ export default function EmailLoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
+      <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Header con botón atrás */}
           <View style={styles.header}>
             <TouchableOpacity
               style={styles.backBtn}
               onPress={() => router.back()}
-              accessibilityLabel="Volver atrás"
+              accessibilityLabel="Volver atras"
               accessibilityRole="button"
               testID="back-btn"
             >
-              <Ionicons name="chevron-back" size={24} color={PremiumColors.text} />
+              <Ionicons name="chevron-back" size={24} color={AuthColors.text} />
             </TouchableOpacity>
           </View>
 
-          {/* Títulos */}
           <View style={styles.titleContainer}>
             <Text style={styles.title}>Bienvenido</Text>
             <Text style={styles.subtitle}>Ingresa tus credenciales para continuar</Text>
           </View>
 
-          {/* Formulario */}
           <View style={styles.form}>
-            {/* Input Email */}
             <FormField
-              label="Correo electrónico"
+              {...fieldTheme}
+              label="Correo electronico"
               value={email}
               onChangeText={handleEmailChange}
               onBlur={handleEmailBlur}
-              onFocus={() => setFocusedInput('email')}
               placeholder="ejemplo@correo.com"
               error={emailError}
               keyboardType="email-address"
@@ -160,67 +142,63 @@ export default function EmailLoginScreen() {
               autoComplete="email"
               icon="mail-outline"
               testID="email-input"
-              accessibilityLabel="Correo electrónico"
-              accessibilityHint="Ingresa tu dirección de correo electrónico"
+              accessibilityLabel="Correo electronico"
+              accessibilityHint="Ingresa tu direccion de correo electronico"
             />
 
-            {/* Input Password */}
-            <View style={{ gap: 8 }}>
+            <View style={styles.passwordBlock}>
               <View style={styles.labelRow}>
-                <Text style={styles.label}>Contraseña</Text>
+                <Text style={styles.label}>Contrasena</Text>
                 <TouchableOpacity
-                  onPress={() => {/* Navegar a recuperar */}}
-                  accessibilityLabel="¿Olvidaste tu contraseña?"
+                  onPress={() => {}}
+                  accessibilityLabel="Olvidaste tu contrasena"
                   accessibilityRole="link"
                   testID="forgot-password-link"
                 >
-                  <Text style={styles.forgotPassword}>¿Olvidaste tu contraseña?</Text>
+                  <Text style={styles.forgotPassword}>Olvidaste tu contrasena?</Text>
                 </TouchableOpacity>
               </View>
               <FormField
+                {...fieldTheme}
                 label=""
                 value={password}
                 onChangeText={handlePasswordChange}
                 onBlur={handlePasswordBlur}
-                onFocus={() => setFocusedInput('password')}
-                placeholder="••••••••"
+                placeholder="********"
                 error={passwordError}
                 secureTextEntry={!showPass}
                 autoComplete="password"
                 icon="lock-closed-outline"
                 onToggleSecure={() => setShowPass((v) => !v)}
                 testID="password-input"
-                accessibilityLabel="Contraseña"
-                accessibilityHint="Ingresa tu contraseña"
+                accessibilityLabel="Contrasena"
+                accessibilityHint="Ingresa tu contrasena"
               />
             </View>
 
-            {/* Botón de Acción */}
             <Button
-              label="Iniciar sesión"
+              label="Iniciar sesion"
               onPress={handleLogin}
               loading={loading}
               fullWidth
               size="lg"
               style={styles.signInButton}
               textStyle={styles.signInButtonText}
-              accessibilityLabel="Iniciar sesión"
+              accessibilityLabel="Iniciar sesion"
               testID="login-btn"
             />
 
-            {/* Footer opcional */}
             <View style={styles.footer}>
-              <Text style={styles.footerText}>¿No tienes una cuenta?</Text>
+              <Text style={styles.footerText}>No tienes una cuenta?</Text>
               <TouchableOpacity
-                onPress={() => router.push('/register')}
+                onPress={() => router.push('/(auth)/register')}
                 accessibilityLabel="Ir a registro"
                 accessibilityRole="link"
                 testID="signup-link"
               >
-                <Text style={styles.signUpLink}> Regístrate</Text>
+                <Text style={styles.signUpLink}> Registrate</Text>
               </TouchableOpacity>
             </View>
-
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -229,14 +207,18 @@ export default function EmailLoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   safe: {
     flex: 1,
-    backgroundColor: PremiumColors.bg,
+    backgroundColor: AuthColors.bg,
   },
   container: {
     flexGrow: 1,
-    paddingHorizontal: 24, // Spacing['2xl'] aproximado
+    paddingHorizontal: 24,
     paddingBottom: 40,
+    backgroundColor: AuthColors.bg,
   },
   header: {
     height: 60,
@@ -247,32 +229,35 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     justifyContent: 'center',
-    alignItems: 'flex-start',
-    marginLeft: -5, // Ajuste visual para alinear icono
+    alignItems: 'center',
+    marginLeft: -8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(233,221,200,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.14)',
   },
   titleContainer: {
     marginTop: 20,
     marginBottom: 40,
   },
   title: {
-    // Si PlayfairDisplay no carga bien en claro, una sans-serif bold también se ve premium
     fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif-condensed',
     fontWeight: '700',
     fontSize: 34,
-    color: PremiumColors.text,
-    letterSpacing: 0.5,
+    color: AuthColors.text,
+    letterSpacing: 0,
   },
   subtitle: {
     fontSize: 16,
-    color: PremiumColors.textSecondary,
+    color: AuthColors.textSecondary,
     marginTop: 8,
     fontWeight: '400',
     letterSpacing: 0.1,
   },
   form: {
-    gap: 24, // Aumentamos el espacio entre elementos
+    gap: 24,
   },
-  inputWrapper: {
+  passwordBlock: {
     gap: 8,
   },
   labelRow: {
@@ -283,74 +268,52 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: PremiumColors.text,
+    color: AuthColors.text,
     letterSpacing: 0.2,
+    marginLeft: 4,
   },
   forgotPassword: {
     fontSize: 13,
-    color: PremiumColors.textSecondary,
-    fontWeight: '500',
+    color: AuthColors.accent,
+    fontWeight: '600',
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: PremiumColors.inputBg,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: PremiumColors.border,
-    paddingHorizontal: 16,
-    height: 56, // Altura fija ligeramente mayor para sensación premium
-    // Sutil sombra en iOS para profundidad
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    // Elevación en Android
-    elevation: 1,
+  fieldLabel: {
+    color: AuthColors.text,
   },
-  inputContainerFocused: {
-    borderColor: PremiumColors.primary,
-    backgroundColor: PremiumColors.white,
-    borderWidth: 1.5,
+  fieldInput: {
+    backgroundColor: AuthColors.inputBg,
+    borderColor: AuthColors.border,
+    borderRadius: 14,
+    minHeight: 56,
   },
-  inputIcon: {
-    marginRight: 12,
+  fieldInputError: {
+    backgroundColor: AuthColors.errorBg,
+    borderColor: AuthColors.errorBorder,
   },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: PremiumColors.text,
-    height: '100%',
-    fontWeight: '400',
+  fieldText: {
+    color: AuthColors.text,
   },
-  passwordInput: {
-    paddingRight: 40,
-  },
-  eyeBtn: {
-    position: 'absolute',
-    right: 16,
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
+  fieldErrorText: {
+    color: AuthColors.error,
   },
   signInButton: {
     marginTop: 16,
-    backgroundColor: PremiumColors.primary, // Negro
+    backgroundColor: AuthColors.accent,
     height: 56,
-    borderRadius: 12,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: PremiumColors.primary,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 6,
   },
   signInButtonText: {
-    color: PremiumColors.white,
+    color: AuthColors.buttonText,
     fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   footer: {
     flexDirection: 'row',
@@ -360,11 +323,11 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 15,
-    color: PremiumColors.textSecondary,
+    color: AuthColors.textSecondary,
   },
   signUpLink: {
     fontSize: 15,
-    color: PremiumColors.primary,
-    fontWeight: '700',
+    color: AuthColors.accent,
+    fontWeight: '800',
   },
 });

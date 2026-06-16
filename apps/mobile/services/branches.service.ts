@@ -1,5 +1,6 @@
 import { apiClient, formatImageUrl } from './api';
 import type { Sucursal, TipoPedido } from '@amare/types';
+import { DEFAULT_RESTAURANT_LOGO_PATH } from '../constants/branding';
 
 export async function getBranches(): Promise<Sucursal[]> {
   const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>('/branches');
@@ -32,7 +33,7 @@ export function normalizeBranch(branch: Partial<Sucursal>): Sucursal {
     descripcion: branch.descripcion ?? null,
     direccion: branch.direccion ?? branch.descripcion ?? '',
     telefono: branch.telefono ?? null,
-    logo: branch.logo ?? null,
+    logo: formatImageUrl(branch.logo ?? DEFAULT_RESTAURANT_LOGO_PATH) ?? branch.logo ?? null,
     imagen_banner: formatImageUrl(branch.imagen_banner) ?? branch.imagen_banner ?? null,
     color_primario: branch.color_primario ?? '#111827',
     color_secundario: branch.color_secundario ?? '#FFFFFF',

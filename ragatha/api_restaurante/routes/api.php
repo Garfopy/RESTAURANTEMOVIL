@@ -32,8 +32,10 @@ $routes = [
     // Orders routes
     ['GET', '/orders', ['Amare\Api\Controllers\OrderController', 'index']],
     ['GET', '/orders/:id', ['Amare\Api\Controllers\OrderController', 'show']],
+    ['GET', '/orders/:id/exit-pass', ['Amare\Api\Controllers\OrderController', 'exitPass']],
     ['POST', '/orders', ['Amare\Api\Controllers\OrderController', 'store']],
     ['POST', '/orders/:id/confirm-payment', ['Amare\Api\Controllers\OrderController', 'confirmPayment']],
+    ['POST', '/orders/exit-pass/scan', ['Amare\Api\Controllers\OrderController', 'scanExitPass']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],
@@ -67,6 +69,7 @@ $routes = [
     ['GET', '/restaurants/:id/active-diners', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/active-users', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/tables', ['Amare\Api\Controllers\SocialController', 'restaurantTables']],
+    ['POST', '/restaurants/tables/scan', ['Amare\Api\Controllers\SocialController', 'scanTable']],
     ['GET', '/gift-products', ['Amare\Api\Controllers\SocialController', 'giftProducts']],
     ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'sendGift']],
     

@@ -11,6 +11,8 @@ use Amare\Api\Models\User;
 
 class SocialController
 {
+    private const DEFAULT_RESTAURANT_LOGO = 'public/uploads/restaurantes/rest_logo_1_1781280185.png';
+
     public function updateStatus(): void
     {
         $user = AuthMiddleware::authenticate();
@@ -464,10 +466,10 @@ class SocialController
 
         $columns = $this->getTableColumns('rest_mesas');
         $idColumn = $this->firstExistingColumn($columns, ['id']);
-        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo']);
+        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo', 'qr_codigo']);
         $restaurantColumn = $this->firstExistingColumn($columns, ['restaurante_id', 'sucursal_id', 'branch_id']);
         $activeColumn = $this->firstExistingColumn($columns, ['activo']);
-        $orderColumn = $this->firstExistingColumn($columns, ['orden', 'numero_mesa', 'numero', 'mesa', 'nombre', 'id']);
+        $orderColumn = $this->firstExistingColumn($columns, ['orden', 'numero_mesa', 'numero', 'mesa', 'nombre', 'qr_codigo', 'id']);
 
         if ($idColumn === null || $labelColumn === null) {
             Response::success([]);
@@ -508,6 +510,70 @@ class SocialController
         }
 
         Response::success($result);
+    }
+
+    public function scanTable(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $payload = trim((string)($input['payload'] ?? ''));
+        $restaurantHint = isset($input['restaurante_id']) && $input['restaurante_id'] !== null
+            ? (int)$input['restaurante_id']
+            : null;
+
+        if ($payload === '') {
+            Response::validationError(['payload' => ['El QR de mesa es obligatorio']]);
+        }
+
+        if (!$this->tableExists('rest_mesas')) {
+            Response::serverError('La base de datos aun no tiene rest_mesas configurado.');
+        }
+
+        if (!$this->hasMesaColumn()) {
+            Response::serverError('La base de datos aun no tiene la columna mesa. Ejecuta primero la migracion 018.');
+        }
+
+        $scanData = $this->parseTableQrPayload($payload);
+        $qrRestaurantId = $scanData['restaurante_id'] ?? null;
+        $restaurantId = $qrRestaurantId ?? $restaurantHint;
+        $tableId = $scanData['mesa_id'] ?? null;
+        $tableCode = $scanData['mesa'] ?? $scanData['codigo'] ?? null;
+        $hasStrongLookup = ($tableId !== null && $tableId > 0) || !empty($scanData['codigo']);
+
+        $mesa = $this->findScannedTable($restaurantId, $tableId, $tableCode);
+        if ($mesa === null && $restaurantId !== null && $qrRestaurantId === null && $hasStrongLookup) {
+            $mesa = $this->findScannedTable(null, $tableId, $tableCode);
+        }
+        if ($mesa === null) {
+            Response::notFound('Mesa no encontrada o QR invalido');
+        }
+
+        $restaurantId = (int)$mesa['restaurante_id'];
+        $branch = $this->findEatInBranch($restaurantId);
+        if ($branch === null) {
+            Response::error('Esta sucursal no tiene habilitado Comer aqui.', 409);
+        }
+
+        Database::rowCount(
+            "UPDATE mobile_usuarios
+                SET current_restaurante_id = :restaurant_id,
+                    mesa = :mesa,
+                    updated_at = NOW()
+              WHERE id = :user_id",
+            [
+                ':restaurant_id' => $restaurantId,
+                ':mesa' => $mesa['value'],
+                ':user_id' => $user->id,
+            ]
+        );
+
+        Response::success([
+            'restaurante_id' => $restaurantId,
+            'mesa_id' => (int)$mesa['id'],
+            'mesa_label' => $mesa['label'],
+            'mesa_value' => $mesa['value'],
+            'branch' => $branch,
+        ], 'Mesa escaneada correctamente');
     }
 
     private function fetchSocialProfile(int $userId): ?array
@@ -691,6 +757,310 @@ class SocialController
         return stripos($value, 'mesa') === 0 ? $value : 'Mesa ' . $value;
     }
 
+    /**
+     * @return array{restaurante_id?: int|null, mesa_id?: int|null, mesa?: string|null, codigo?: string|null}
+     */
+    private function parseTableQrPayload(string $payload): array
+    {
+        $payload = trim($payload);
+        $json = json_decode($payload, true);
+
+        if (is_array($json)) {
+            return [
+                'restaurante_id' => isset($json['restaurante_id']) ? (int)$json['restaurante_id'] : (isset($json['branch_id']) ? (int)$json['branch_id'] : null),
+                'mesa_id' => isset($json['mesa_id']) ? (int)$json['mesa_id'] : (isset($json['table_id']) ? (int)$json['table_id'] : null),
+                'mesa' => isset($json['mesa']) ? trim((string)$json['mesa']) : (isset($json['value']) ? trim((string)$json['value']) : null),
+                'codigo' => isset($json['code']) ? trim((string)$json['code']) : (isset($json['codigo']) ? trim((string)$json['codigo']) : null),
+            ];
+        }
+
+        $parts = array_map('trim', explode('|', $payload));
+        if (count($parts) >= 2 && strtoupper($parts[0]) === 'AMARE_TABLE') {
+            return [
+                'restaurante_id' => isset($parts[1]) && $parts[1] !== '' ? (int)$parts[1] : null,
+                'mesa_id' => isset($parts[2]) && $parts[2] !== '' ? (int)$parts[2] : null,
+                'mesa' => $parts[3] ?? null,
+                'codigo' => $parts[4] ?? null,
+            ];
+        }
+
+        $urlData = $this->parseTableQrUrl($payload);
+        if ($urlData !== null) {
+            return $urlData;
+        }
+
+        return ['mesa' => $payload, 'codigo' => $payload];
+    }
+
+    /**
+     * @return array{restaurante_id?: int|null, mesa_id?: int|null, mesa?: string|null, codigo?: string|null}|null
+     */
+    private function parseTableQrUrl(string $payload): ?array
+    {
+        if (!preg_match('/^https?:\/\//i', $payload)) {
+            return null;
+        }
+
+        $parts = parse_url($payload);
+        if (!is_array($parts)) {
+            return null;
+        }
+
+        $queryParams = [];
+        if (isset($parts['query'])) {
+            parse_str((string)$parts['query'], $queryParams);
+        }
+
+        $fragmentParams = [];
+        if (isset($parts['fragment'])) {
+            $fragment = (string)$parts['fragment'];
+            $fragmentQuery = parse_url($fragment, PHP_URL_QUERY);
+            parse_str((string)($fragmentQuery ?: $fragment), $fragmentParams);
+        }
+
+        $params = array_merge($fragmentParams, $queryParams);
+        $restaurantKeys = ['restaurante_id', 'restaurant_id', 'id_restaurante', 'branch_id', 'sucursal_id', 'id_sucursal', 'sucursal', 'branch', 'restaurant'];
+        $tableIdKeys = ['mesa_id', 'table_id', 'id_mesa', 'id_table'];
+        $mesaKeys = ['mesa', 'table', 'numero_mesa', 'numero', 'table_number'];
+        $codeKeys = ['codigo', 'code', 'qr', 'token'];
+
+        $restaurantId = $this->firstPositiveIntFromArray($params, $restaurantKeys);
+        $tableId = $this->firstPositiveIntFromArray($params, $tableIdKeys);
+        $mesa = $this->firstNonEmptyStringFromArray($params, $mesaKeys);
+        $codigo = $this->firstNonEmptyStringFromArray($params, $codeKeys);
+
+        $path = trim((string)($parts['path'] ?? ''), '/');
+        $fragmentPath = isset($parts['fragment']) ? trim((string)parse_url((string)$parts['fragment'], PHP_URL_PATH), '/') : '';
+        $pathParts = array_filter([$path, $fragmentPath], static fn(string $value): bool => $value !== '');
+        $segments = empty($pathParts) ? [] : array_values(array_filter(explode('/', implode('/', $pathParts)), static fn(string $segment): bool => $segment !== ''));
+
+        foreach ($segments as $index => $segment) {
+            $key = strtolower(urldecode($segment));
+            $next = isset($segments[$index + 1]) ? trim(urldecode($segments[$index + 1])) : null;
+
+            if ($next === null || $next === '') {
+                continue;
+            }
+
+            if ($restaurantId === null && in_array($key, ['restaurante', 'restaurante_id', 'restaurant', 'branch', 'branch_id', 'sucursal', 'sucursal_id'], true) && ctype_digit($next)) {
+                $restaurantId = (int)$next;
+                continue;
+            }
+
+            if ($tableId === null && in_array($key, ['mesa_id', 'table_id'], true) && ctype_digit($next)) {
+                $tableId = (int)$next;
+                continue;
+            }
+
+            if ($mesa === null && in_array($key, ['mesa', 'table'], true)) {
+                $mesa = $next;
+            }
+        }
+
+        $pathLooksLikeTable = $this->pathContainsAnySegment($segments, ['mesa', 'table']);
+        if ($tableId === null && $pathLooksLikeTable) {
+            $tableId = $this->firstPositiveIntFromArray($params, ['id']);
+        }
+
+        if ($restaurantId === null && $tableId === null && $mesa === null && $codigo === null) {
+            return null;
+        }
+
+        return [
+            'restaurante_id' => $restaurantId,
+            'mesa_id' => $tableId,
+            'mesa' => $mesa,
+            'codigo' => $codigo,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string> $keys
+     */
+    private function firstPositiveIntFromArray(array $source, array $keys): ?int
+    {
+        foreach ($keys as $key) {
+            if (!isset($source[$key]) || is_array($source[$key])) {
+                continue;
+            }
+
+            $value = trim((string)$source[$key]);
+            if ($value !== '' && ctype_digit($value) && (int)$value > 0) {
+                return (int)$value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string> $keys
+     */
+    private function firstNonEmptyStringFromArray(array $source, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (!isset($source[$key]) || is_array($source[$key])) {
+                continue;
+            }
+
+            $value = trim((string)$source[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string> $segments
+     * @param array<string> $needles
+     */
+    private function pathContainsAnySegment(array $segments, array $needles): bool
+    {
+        foreach ($segments as $segment) {
+            if (in_array(strtolower(urldecode($segment)), $needles, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function findScannedTable(?int $restaurantId, ?int $tableId, ?string $tableCode): ?array
+    {
+        if (!$this->tableExists('rest_mesas')) {
+            return null;
+        }
+
+        $columns = $this->getTableColumns('rest_mesas');
+        $idColumn = $this->firstExistingColumn($columns, ['id']);
+        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo', 'qr_codigo']);
+        $restaurantColumn = $this->firstExistingColumn($columns, ['restaurante_id', 'sucursal_id', 'branch_id']);
+        $activeColumn = $this->firstExistingColumn($columns, ['activo']);
+        $lookupColumns = array_values(array_filter([
+            $idColumn,
+            $this->firstExistingColumn($columns, ['numero_mesa']),
+            $this->firstExistingColumn($columns, ['numero']),
+            $this->firstExistingColumn($columns, ['mesa']),
+            $this->firstExistingColumn($columns, ['nombre']),
+            $this->firstExistingColumn($columns, ['codigo']),
+            $this->firstExistingColumn($columns, ['qr_codigo']),
+        ]));
+
+        if ($idColumn === null || $labelColumn === null) {
+            return null;
+        }
+
+        $fields = [
+            '*',
+            "`{$idColumn}` AS id",
+            "`{$labelColumn}` AS mesa_label",
+        ];
+        if ($restaurantColumn !== null) {
+            $fields[] = "`{$restaurantColumn}` AS restaurante_id";
+        }
+
+        $sql = "SELECT " . implode(', ', $fields) . " FROM rest_mesas WHERE 1 = 1";
+        $params = [];
+
+        if ($activeColumn !== null) {
+            $sql .= " AND `{$activeColumn}` = 1";
+        }
+        if ($restaurantId !== null && $restaurantColumn !== null) {
+            $sql .= " AND `{$restaurantColumn}` = :restaurant_id";
+            $params[':restaurant_id'] = $restaurantId;
+        }
+
+        if ($tableId !== null && $tableId > 0) {
+            $sql .= " AND `{$idColumn}` = :table_id";
+            $params[':table_id'] = $tableId;
+        }
+
+        $rows = Database::query($sql, $params);
+        $needle = $this->normalizeMesaMatchValue((string)($tableCode ?? ''));
+        $needleDigits = preg_replace('/\D+/', '', $needle);
+
+        foreach ($rows as $row) {
+            $rawLabel = trim((string)($row['mesa_label'] ?? ''));
+            if ($rawLabel === '') {
+                continue;
+            }
+
+            if ($tableId !== null && $tableId > 0) {
+                return [
+                    'id' => (int)$row['id'],
+                    'label' => $this->formatMesaLabel($rawLabel),
+                    'value' => $rawLabel,
+                    'restaurante_id' => (int)($row['restaurante_id'] ?? $restaurantId ?? 0),
+                ];
+            }
+
+            if ($needle === '') {
+                continue;
+            }
+
+            foreach ($lookupColumns as $lookupColumn) {
+                $candidateRaw = trim((string)($row[$lookupColumn] ?? ''));
+                if ($candidateRaw === '') {
+                    continue;
+                }
+                $candidate = $this->normalizeMesaMatchValue($candidateRaw);
+                $candidateDigits = preg_replace('/\D+/', '', $candidate);
+
+                if ($candidate === $needle || ($needleDigits !== '' && $candidateDigits === $needleDigits)) {
+                    return [
+                        'id' => (int)$row['id'],
+                        'label' => $this->formatMesaLabel($rawLabel),
+                        'value' => $rawLabel,
+                        'restaurante_id' => (int)($row['restaurante_id'] ?? $restaurantId ?? 0),
+                    ];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function findEatInBranch(int $restaurantId): ?array
+    {
+        $row = Database::queryOne(
+            "SELECT r.id, r.nombre, r.slug, r.descripcion, r.direccion, r.lat, r.lng,
+                    r.logo, r.imagen_banner, r.telefono, r.color_primario, r.color_secundario,
+                    r.horario_apertura, r.horario_cierre, r.horarios_json,
+                    r.mesas_habilitadas, r.reservas_habilitadas, r.activo,
+                    COALESCE(rc.tipos_entrega, '[\"delivery\",\"pickup\"]') AS tipos_entrega
+               FROM rest_restaurantes r
+               LEFT JOIN rest_configuracion rc ON rc.restaurante_id = r.id AND rc.activo = 1
+              WHERE r.id = :id
+                AND r.activo = 1
+              LIMIT 1",
+            [':id' => $restaurantId]
+        );
+
+        if (!$row) {
+            return null;
+        }
+
+        $types = json_decode((string)($row['tipos_entrega'] ?? '[]'), true) ?: [];
+        if (!in_array('eat_in', $types, true)) {
+            return null;
+        }
+
+        $row['id'] = (int)$row['id'];
+        $row['lat'] = $row['lat'] !== null ? (float)$row['lat'] : null;
+        $row['lng'] = $row['lng'] !== null ? (float)$row['lng'] : null;
+        $row['mesas_habilitadas'] = (bool)$row['mesas_habilitadas'];
+        $row['reservas_habilitadas'] = (bool)$row['reservas_habilitadas'];
+        $row['activo'] = (bool)$row['activo'];
+        $row['tipos_entrega'] = $types;
+        $row['logo'] = !empty($row['logo']) ? $row['logo'] : self::DEFAULT_RESTAURANT_LOGO;
+
+        return $row;
+    }
+
     private function resolveMesaForRestaurant(int $restaurantId, string $mesaValue): ?array
     {
         if (!$this->tableExists('rest_mesas')) {
@@ -699,7 +1069,7 @@ class SocialController
 
         $columns = $this->getTableColumns('rest_mesas');
         $idColumn = $this->firstExistingColumn($columns, ['id']);
-        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo']);
+        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo', 'qr_codigo']);
         $restaurantColumn = $this->firstExistingColumn($columns, ['restaurante_id', 'sucursal_id', 'branch_id']);
         $activeColumn = $this->firstExistingColumn($columns, ['activo']);
 

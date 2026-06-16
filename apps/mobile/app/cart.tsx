@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '../store/cart.store';
+import { useTableSessionStore } from '../store/table-session.store';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { OrderTypeSelector } from '../components/shared/OrderTypeSelector';
@@ -25,12 +26,28 @@ import { useThemeColors } from '../store/theme.store';
 
 const PLACEHOLDER_FOOD = require('../assets/placeholder-food.jpg');
 
+function getSelectedExtras(item: CarritoItem) {
+  return item.modificadores_seleccionados.flatMap((mod) =>
+    mod.opciones.map((opcion) => ({
+      key: `${mod.modificador_id}-${opcion.opcion_id}`,
+      nombre: opcion.opcion_nombre,
+      precio: Number(opcion.precio_extra || 0),
+    }))
+  );
+}
+
 export default function CartScreen() {
   const router = useRouter();
   const theme = useThemeColors();
   const { items, removeItem, updateQty, total, clear, tipoPedido, setTipoPedido } = useCartStore();
+  const tableSession = useTableSessionStore((s) => s.session);
 
   function handleCheckout() {
+    if (tipoPedido === 'eat_in' && !tableSession) {
+      router.push({ pathname: '/table-scanner', params: { returnTo: '/cart' } });
+      return;
+    }
+
     router.push('/checkout/order-type');
   }
 
@@ -135,6 +152,7 @@ function CartItemRow({
 }) {
   const [storedImageFailed, setStoredImageFailed] = useState(false);
   const [freshImageFailed, setFreshImageFailed] = useState(false);
+  const selectedExtras = getSelectedExtras(item);
 
   const storedImageUrl = useMemo(
     () => formatImageUrl(item.platillo.imagen),
@@ -202,6 +220,16 @@ function CartItemRow({
           <View style={styles.notesBadge}>
             <Ionicons name="document-text-outline" size={12} color="#6B7280" />
             <Text style={styles.itemNotas} numberOfLines={1}>{item.notas}</Text>
+          </View>
+        ) : null}
+
+        {selectedExtras.length > 0 ? (
+          <View style={styles.extrasList}>
+            {selectedExtras.map((extra) => (
+              <Text key={extra.key} style={styles.extraText} numberOfLines={1}>
+                + {extra.nombre}{extra.precio > 0 ? ` $${extra.precio.toFixed(2)}` : ''}
+              </Text>
+            ))}
           </View>
         ) : null}
 
@@ -294,7 +322,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#F3F4F6',
   },
-  itemInfo: { flex: 1, justifyContent: 'space-between', height: 76 },
+  itemInfo: { flex: 1, justifyContent: 'center', minHeight: 76, gap: 6 },
   itemTopLine: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -327,6 +355,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6B7280',
     fontWeight: '500',
+  },
+  extrasList: {
+    gap: 2,
+    paddingRight: 8,
+  },
+  extraText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
   },
   itemBottomLine: {
     flexDirection: 'row',

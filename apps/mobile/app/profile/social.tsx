@@ -24,11 +24,13 @@ import InputField from '../../components/ui/InputField';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import { Colors, Shadows } from '../../theme';
 import { useBranchStore } from '../../store/branch.store';
+import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
 
 type SelectOption = {
   label: string;
   value: string;
+  description?: string;
 };
 
 type MesaApiItem = {
@@ -129,12 +131,36 @@ const GENDER_OPTIONS: SelectOption[] = [
 ];
 
 const SEXUALITY_OPTIONS: SelectOption[] = [
-  { label: 'Heterosexual', value: 'Heterosexual' },
-  { label: 'Homosexual', value: 'Homosexual' },
-  { label: 'Bisexual', value: 'Bisexual' },
-  { label: 'Pansexual', value: 'Pansexual' },
-  { label: 'Asexual', value: 'Asexual' },
-  { label: 'Prefiero no decirlo', value: 'Prefiero no decirlo' },
+  {
+    label: 'Heterosexual',
+    value: 'Heterosexual',
+    description: 'Atraccion romantica o sexual hacia personas de un genero distinto al propio.',
+  },
+  {
+    label: 'Homosexual',
+    value: 'Homosexual',
+    description: 'Atraccion romantica o sexual hacia personas del mismo genero.',
+  },
+  {
+    label: 'Bisexual',
+    value: 'Bisexual',
+    description: 'Atraccion romantica o sexual hacia mas de un genero.',
+  },
+  {
+    label: 'Pansexual',
+    value: 'Pansexual',
+    description: 'Atraccion romantica o sexual hacia personas sin que el genero sea el factor principal.',
+  },
+  {
+    label: 'Asexual',
+    value: 'Asexual',
+    description: 'Poca o nula atraccion sexual. Puede existir atraccion romantica, afectiva o emocional.',
+  },
+  {
+    label: 'Prefiero no decirlo',
+    value: 'Prefiero no decirlo',
+    description: 'Puedes mantener esta informacion privada.',
+  },
 ];
 
 const LOOKING_FOR_OPTIONS: SelectOption[] = [
@@ -318,10 +344,38 @@ function ChoiceField({
 }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.value === value);
+  const hasDescriptions = options.some((option) => option.description);
+
+  function showOptionInfo() {
+    if (selected?.description) {
+      Alert.alert(selected.label, selected.description);
+      return;
+    }
+
+    const descriptionText = options
+      .filter((option) => option.description)
+      .map((option) => `${option.label}: ${option.description}`)
+      .join('\n\n');
+
+    Alert.alert(label, descriptionText || 'Selecciona una opcion para ver mas informacion.');
+  }
 
   return (
     <View style={styles.fieldBlock}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={styles.fieldLabelRow}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {hasDescriptions ? (
+          <TouchableOpacity
+            style={styles.fieldInfoButton}
+            activeOpacity={0.75}
+            onPress={showOptionInfo}
+            accessibilityLabel={`Informacion sobre ${label}`}
+            accessibilityRole="button"
+          >
+            <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
       <TouchableOpacity
         activeOpacity={0.75}
         onPress={() => setOpen((current) => !current)}
@@ -357,8 +411,14 @@ function ChoiceField({
           ))}
         </View>
       ) : null}
+      {selected?.description ? <Text style={styles.choiceDescription}>{selected.description}</Text> : null}
     </View>
   );
+}
+
+function getSexualityDescription(value?: string | null): string | null {
+  if (!value) return null;
+  return SEXUALITY_OPTIONS.find((option) => option.value === value)?.description ?? null;
 }
 
 export default function SocialProfileScreen() {
@@ -367,6 +427,7 @@ export default function SocialProfileScreen() {
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const selectedBranch = useBranchStore((state) => state.seleccionada);
+  const tableSession = useTableSessionStore((state) => state.session);
 
   const [form, setForm] = useState<SocialFormState>(EMPTY_FORM);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
@@ -789,7 +850,18 @@ export default function SocialProfileScreen() {
     }
 
     if (nextValue) {
-      await openMesaPrompt();
+      if (tableSession?.mesaValue) {
+        await persistSocialStatus(true, tableSession.mesaValue);
+        return;
+      }
+
+      Alert.alert('Escanea tu mesa', 'Para activar el modo social primero escanea el QR de tu mesa.', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Escanear QR',
+          onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social' } }),
+        },
+      ]);
       return;
     }
 
@@ -797,52 +869,16 @@ export default function SocialProfileScreen() {
   }
 
   async function openMesaPrompt() {
-    const prefilledMesa = normalizeMesaValue(user?.mesa) ?? mesaInput.trim();
-    setMesaInput(prefilledMesa);
-    setMesaModalVisible(true);
-
-    if (!selectedBranch?.id) {
-      setMesaOptions([]);
-      return;
-    }
-
-    try {
-      setMesaOptionsLoading(true);
-      const response = await apiClient.get<{ success?: boolean; data?: MesaApiItem[] } | MesaApiItem[]>(
-        `/restaurants/${selectedBranch.id}/tables`
-      );
-
-      const rawItems = Array.isArray(response.data)
-        ? response.data
-        : Array.isArray(response.data?.data)
-          ? response.data.data
-          : [];
-
-      const nextOptions = rawItems
-        .map((item) => ({
-          label: String(item.label ?? '').trim(),
-          value: String(item.value ?? '').trim(),
-        }))
-        .filter((item) => item.label && item.value);
-
-      setMesaOptions(nextOptions);
-
-      if (!prefilledMesa && nextOptions.length === 1) {
-        setMesaInput(nextOptions[0].value);
-      }
-    } catch {
-      setMesaOptions([]);
-    } finally {
-      setMesaOptionsLoading(false);
-    }
+    router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social' } });
   }
 
   async function persistSocialStatus(nextValue: boolean, mesaValue: string | null) {
     try {
       setStatusUpdating(true);
+      const socialRestaurantId = tableSession?.restauranteId ?? selectedBranch?.id ?? null;
       await apiClient.post('/users/social-status', {
         is_social_active: nextValue,
-        current_restaurante_id: nextValue ? selectedBranch?.id ?? null : null,
+        current_restaurante_id: nextValue ? socialRestaurantId : null,
         mesa: nextValue ? mesaValue : null,
       }, {
         _suppressConsoleError: nextValue,
@@ -861,7 +897,7 @@ export default function SocialProfileScreen() {
       updateProfile({
         is_social_active: nextValue,
         modo_social: nextValue,
-        current_restaurante_id: nextValue ? selectedBranch?.id ?? null : null,
+        current_restaurante_id: nextValue ? socialRestaurantId : null,
         mesa: nextValue ? normalizeMesaValue(mesaValue) : null,
       });
     } catch (error) {
@@ -1045,6 +1081,30 @@ export default function SocialProfileScreen() {
     }
   }
 
+  function showSexualityInfo(value?: string | null) {
+    if (!value) return;
+    const description = getSexualityDescription(value);
+    Alert.alert(value, description || 'Esta persona eligio compartir esta informacion en su perfil.');
+  }
+
+  function renderSexualityChip(value?: string | null) {
+    if (!value) return null;
+    const hasDescription = Boolean(getSexualityDescription(value));
+
+    return (
+      <TouchableOpacity
+        style={[styles.metaChip, styles.metaChipInteractive]}
+        activeOpacity={0.75}
+        onPress={() => showSexualityInfo(value)}
+        accessibilityRole="button"
+        accessibilityLabel={`Informacion sobre ${value}`}
+      >
+        <Text style={styles.metaChipText}>{value}</Text>
+        {hasDescription ? <Ionicons name="information-circle-outline" size={15} color={Colors.primary} /> : null}
+      </TouchableOpacity>
+    );
+  }
+
   function renderSwipeCard(
     diner: SocialDiner,
     options?: {
@@ -1096,11 +1156,7 @@ export default function SocialProfileScreen() {
                 <Text style={styles.metaChipText}>{diner.genero}</Text>
               </View>
             ) : null}
-            {diner.sexualidad ? (
-              <View style={styles.metaChip}>
-                <Text style={styles.metaChipText}>{diner.sexualidad}</Text>
-              </View>
-            ) : null}
+            {renderSexualityChip(diner.sexualidad)}
           </View>
 
           <Text style={styles.previewText} numberOfLines={3}>
@@ -1141,11 +1197,7 @@ export default function SocialProfileScreen() {
               <Text style={styles.metaChipText}>{diner.genero}</Text>
             </View>
           ) : null}
-          {diner.sexualidad ? (
-            <View style={styles.metaChip}>
-              <Text style={styles.metaChipText}>{diner.sexualidad}</Text>
-            </View>
-          ) : null}
+          {renderSexualityChip(diner.sexualidad)}
         </View>
 
         {diner.descripcion ? <Text style={styles.descriptionText}>{diner.descripcion}</Text> : null}
@@ -2137,6 +2189,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  metaChipInteractive: {
+    flexDirection: 'row',
+    gap: 5,
+  },
   metaChipText: {
     fontSize: 14,
     lineHeight: 18,
@@ -2389,13 +2445,25 @@ const styles = StyleSheet.create({
   fieldBlock: {
     marginBottom: 18,
   },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
   fieldLabel: {
     fontSize: 13,
     fontWeight: '700',
     color: '#374151',
-    marginBottom: 6,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
+  },
+  fieldInfoButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   helperText: {
     marginBottom: 10,
@@ -2423,6 +2491,12 @@ const styles = StyleSheet.create({
   choicePlaceholder: {
     color: '#9CA3AF',
     fontWeight: '400',
+  },
+  choiceDescription: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textMuted,
   },
   choiceList: {
     marginTop: 8,

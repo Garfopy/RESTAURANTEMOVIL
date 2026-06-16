@@ -18,18 +18,20 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
 import { mapErrorToFriendly, validateEmail, validatePassword, validateName } from '../../services/error.service';
-import { Colors, Spacing } from '../../theme';
 
-// Definición local de colores para estilo Claro Premium
-const PremiumColors = {
-  bg: '#FFFFFF',
-  text: '#1A1A1A',
-  textSecondary: '#666666',
-  border: '#E5E5E5',
-  inputBg: '#F9F9F9',
-  primary: '#000000',
-  white: '#FFFFFF',
-  error: '#DC2626',
+const AuthColors = {
+  bg: '#24272D',
+  text: '#F2EBDD',
+  textSecondary: '#D8CDBB',
+  muted: '#B8AC99',
+  border: '#4B5058',
+  inputBg: '#2A2E35',
+  inputFocused: '#30353D',
+  accent: '#E9DDC8',
+  buttonText: '#24272D',
+  error: '#FCA5A5',
+  errorBg: '#3A2B2E',
+  errorBorder: '#B85C63',
 };
 
 export default function RegisterScreen() {
@@ -42,48 +44,39 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  // Estados de validación
   const [nombreError, setNombreError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [focusedInput, setFocusedInput] = useState<'nombre' | 'email' | 'password' | null>(null);
 
-  // Validar nombre en tiempo real
+  const fieldTheme = {
+    labelStyle: styles.fieldLabel,
+    inputWrapperStyle: styles.fieldInput,
+    inputStyle: styles.fieldText,
+    placeholderTextColor: AuthColors.muted,
+    iconColor: AuthColors.muted,
+    errorIconColor: AuthColors.error,
+    focusedBorderColor: AuthColors.accent,
+    focusedBackgroundColor: AuthColors.inputFocused,
+    errorInputWrapperStyle: styles.fieldInputError,
+    errorTextStyle: styles.fieldErrorText,
+  };
+
   const handleNombreChange = (value: string) => {
     setNombre(value);
-    if (value.trim()) {
-      const error = validateName(value);
-      setNombreError(error);
-    } else {
-      setNombreError(null);
-    }
+    setNombreError(value.trim() ? validateName(value) : null);
   };
 
-  // Validar email en tiempo real
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    if (value.trim()) {
-      const error = validateEmail(value);
-      setEmailError(error);
-    } else {
-      setEmailError(null);
-    }
+    setEmailError(value.trim() ? validateEmail(value) : null);
   };
 
-  // Validar contraseña en tiempo real
   const handlePasswordChange = (value: string) => {
     setPassword(value);
-    if (value.trim()) {
-      const error = validatePassword(value);
-      setPasswordError(error);
-    } else {
-      setPasswordError(null);
-    }
+    setPasswordError(value.trim() ? validatePassword(value) : null);
   };
 
   async function handleRegister() {
-    // Validar campos antes de enviar
     const nombreErr = validateName(nombre);
     const emailErr = validateEmail(email);
     const passwordErr = validatePassword(password);
@@ -106,7 +99,7 @@ export default function RegisterScreen() {
         password,
       });
       await loginStore(sesion);
-      toast.success('¡Cuenta creada exitosamente!');
+      toast.success('Cuenta creada exitosamente');
     } catch (err: unknown) {
       const friendlyError = mapErrorToFriendly(err);
       toast.error(friendlyError.message, { icon: friendlyError.icon });
@@ -117,42 +110,35 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-      >
+      <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Botón de regreso */}
           <TouchableOpacity
             style={styles.back}
             onPress={() => router.back()}
-            accessibilityLabel="Volver atrás"
+            accessibilityLabel="Volver atras"
             accessibilityRole="button"
             testID="back-btn"
           >
-            <Ionicons name="chevron-back" size={24} color={PremiumColors.text} />
+            <Ionicons name="chevron-back" size={24} color={AuthColors.text} />
           </TouchableOpacity>
 
-          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>Crear cuenta</Text>
-            <Text style={styles.subtitle}>Regístrate para empezar a ordenar</Text>
+            <Text style={styles.subtitle}>Registrate para empezar a ordenar</Text>
           </View>
 
-          {/* Formulario */}
           <View style={styles.form}>
-            {/* Nombre */}
             <FormField
+              {...fieldTheme}
               label="Nombre completo"
               value={nombre}
               onChangeText={handleNombreChange}
-              onBlur={() => setFocusedInput(null)}
-              onFocus={() => setFocusedInput('nombre')}
+              onBlur={() => setNombreError(nombre.trim() ? validateName(nombre) : null)}
               placeholder="Tu nombre"
               error={nombreError}
               autoCapitalize="words"
@@ -162,13 +148,12 @@ export default function RegisterScreen() {
               accessibilityHint="Ingresa tu nombre completo"
             />
 
-            {/* Email */}
             <FormField
-              label="Correo electrónico"
+              {...fieldTheme}
+              label="Correo electronico"
               value={email}
               onChangeText={handleEmailChange}
-              onBlur={() => setFocusedInput(null)}
-              onFocus={() => setFocusedInput('email')}
+              onBlur={() => setEmailError(email.trim() ? validateEmail(email) : null)}
               placeholder="correo@ejemplo.com"
               error={emailError}
               keyboardType="email-address"
@@ -176,28 +161,26 @@ export default function RegisterScreen() {
               autoComplete="email"
               icon="mail-outline"
               testID="email-input"
-              accessibilityLabel="Correo electrónico"
-              accessibilityHint="Ingresa una dirección de correo válida"
+              accessibilityLabel="Correo electronico"
+              accessibilityHint="Ingresa una direccion de correo valida"
             />
 
-            {/* Contraseña */}
             <FormField
-              label="Contraseña"
+              {...fieldTheme}
+              label="Contrasena"
               value={password}
               onChangeText={handlePasswordChange}
-              onBlur={() => setFocusedInput(null)}
-              onFocus={() => setFocusedInput('password')}
-              placeholder="••••••••"
+              onBlur={() => setPasswordError(password.trim() ? validatePassword(password) : null)}
+              placeholder="********"
               error={passwordError}
               secureTextEntry={!showPassword}
               onToggleSecure={() => setShowPassword((v) => !v)}
               icon="lock-closed-outline"
               testID="password-input"
-              accessibilityLabel="Contraseña"
-              accessibilityHint="Ingresa una contraseña de al menos 8 caracteres"
+              accessibilityLabel="Contrasena"
+              accessibilityHint="Ingresa una contrasena de al menos 8 caracteres"
             />
 
-            {/* Botón de Registro */}
             <Button
               label="Crear cuenta"
               onPress={handleRegister}
@@ -210,17 +193,15 @@ export default function RegisterScreen() {
               testID="register-btn"
             />
 
-            {/* Link a Login */}
             <TouchableOpacity
               style={styles.loginLink}
               onPress={() => router.replace('/(auth)/email-login')}
-              accessibilityLabel="Ir a iniciar sesión"
+              accessibilityLabel="Ir a iniciar sesion"
               accessibilityRole="link"
               testID="login-link"
             >
               <Text style={styles.loginText}>
-                ¿Ya tienes cuenta?{' '}
-                <Text style={styles.loginBold}>Iniciar sesión</Text>
+                Ya tienes cuenta? <Text style={styles.loginBold}>Iniciar sesion</Text>
               </Text>
             </TouchableOpacity>
           </View>
@@ -231,21 +212,31 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   safe: {
     flex: 1,
-    backgroundColor: PremiumColors.bg,
+    backgroundColor: AuthColors.bg,
   },
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingBottom: 40,
+    paddingTop: Platform.OS === 'android' ? 10 : 0,
+    backgroundColor: AuthColors.bg,
   },
   back: {
     width: 40,
     height: 40,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 20,
+    marginLeft: -8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(233,221,200,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.14)',
   },
   header: {
     marginBottom: 40,
@@ -254,48 +245,67 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif-condensed',
     fontWeight: '700',
     fontSize: 34,
-    color: PremiumColors.text,
-    letterSpacing: 0.5,
+    color: AuthColors.text,
+    letterSpacing: 0,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: PremiumColors.textSecondary,
+    color: AuthColors.textSecondary,
     fontWeight: '400',
     letterSpacing: 0.1,
   },
   form: {
     gap: 24,
   },
+  fieldLabel: {
+    color: AuthColors.text,
+  },
+  fieldInput: {
+    backgroundColor: AuthColors.inputBg,
+    borderColor: AuthColors.border,
+    borderRadius: 14,
+    minHeight: 56,
+  },
+  fieldInputError: {
+    backgroundColor: AuthColors.errorBg,
+    borderColor: AuthColors.errorBorder,
+  },
+  fieldText: {
+    color: AuthColors.text,
+  },
+  fieldErrorText: {
+    color: AuthColors.error,
+  },
   submitButton: {
     marginTop: 16,
-    backgroundColor: PremiumColors.primary,
+    backgroundColor: AuthColors.accent,
     height: 56,
-    borderRadius: 12,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: PremiumColors.primary,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    elevation: 6,
   },
   submitButtonText: {
-    color: PremiumColors.white,
+    color: AuthColors.buttonText,
     fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   loginLink: {
     alignItems: 'center',
     marginTop: 24,
   },
   loginText: {
-    color: PremiumColors.textSecondary,
+    color: AuthColors.textSecondary,
     fontSize: 15,
   },
   loginBold: {
-    color: PremiumColors.primary,
-    fontWeight: '700',
+    color: AuthColors.accent,
+    fontWeight: '800',
   },
 });
