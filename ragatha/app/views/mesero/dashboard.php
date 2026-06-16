@@ -430,6 +430,7 @@ function pollListos() {
 
       const misMesas   = listos.filter(p => p.es_mi_zona && !p.reclamado_otro);
       const otrosMesas = listos.filter(p => !p.es_mi_zona || p.reclamado_otro);
+      const otrosRegalos = otrosMesas.filter(p => p.es_regalo_social);
       const cntMias    = misMesas.length;
       const cntTotal   = listos.length;
 
@@ -457,14 +458,21 @@ function pollListos() {
       // Sección "Otras mesas"
       const otrasSection = document.getElementById('otrasSection');
       if (otrosMesas.length) {
+        // Si hay regalos sociales fuera de mi zona, no los escondemos en una sección colapsada.
+        if (otrosRegalos.length > 0 || (misMesas.length === 0 && otrosMesas.length > 0)) {
+          otrasExpanded = true;
+        }
+
         document.getElementById('cnt-otras-text').textContent = `(${otrosMesas.length})`;
         document.getElementById('otrasList').innerHTML = otrosMesas.map(buildListoCard).join('');
         otrasSection.classList.remove('hidden');
         // Actualizar texto del botón preservando estado expand
         const btn = document.getElementById('btnOtras');
         btn.childNodes[0].textContent = (otrasExpanded ? '▼ ' : '▶ ') + `Otras mesas (${otrosMesas.length})`;
+        document.getElementById('otrasList').classList.toggle('hidden', !otrasExpanded);
       } else {
         otrasSection.classList.add('hidden');
+        otrasExpanded = false;
       }
 
       banner.classList.remove('hidden');

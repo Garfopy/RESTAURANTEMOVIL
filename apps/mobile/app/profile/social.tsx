@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +14,14 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -395,9 +402,9 @@ export default function SocialProfileScreen() {
   const [mesaOptions, setMesaOptions] = useState<SelectOption[]>([]);
   const [pendingActivationAfterBranch, setPendingActivationAfterBranch] = useState(false);
 
-  const carouselRef = useRef<FlatList<SocialDiner> | null>(null);
-  const isSwipingRef = useRef(false);
-  const suppressPhotoTapRef = useRef(false);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const rotate = useSharedValue(0);
 
   const interestOptions = useMemo(() => {
     const unique = new Set(DEFAULT_INTEREST_OPTIONS);
@@ -409,7 +416,8 @@ export default function SocialProfileScreen() {
     [filters]
   );
 
-  const carouselPageWidth = Math.max(width - 40, 280);
+  const SWIPE_THRESHOLD = width * 0.35;
+
   const safeCurrentIndex = diners.length > 0 ? moduloIndex(currentIndex, diners.length) : 0;
   const currentDinerBase = diners[safeCurrentIndex] ?? null;
   const currentDinerDetail = currentDinerBase ? dinerDetails[currentDinerBase.user_id] : undefined;
@@ -421,12 +429,47 @@ export default function SocialProfileScreen() {
         }
       : currentDinerBase;
   const selectedGift = giftProducts.find((item) => item.id === selectedGiftId) ?? null;
-  const carouselMiddleBlockStart = diners.length > 0 ? diners.length * 2 : 0;
-  const carouselData = useMemo(() => {
-    if (diners.length === 0) return [];
-    if (diners.length === 1) return diners;
-    return Array.from({ length: diners.length * 5 }, (_item, index) => diners[index % diners.length]);
-  }, [diners]);
+
+  function advanceToDiner(direction: 'next' | 'prev') {
+    const offset = direction === 'next' ? 1 : -1;
+    const nextIndex = moduloIndex(safeCurrentIndex + offset, diners.length);
+    setCurrentIndex(nextIndex);
+  }
+
+  const animatedCardStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+        { rotate: `${rotate.value}deg` },
+      ],
+    };
+  });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      translateX.value = event.translationX;
+      translateY.value = event.translationY;
+      rotate.value = (event.translationX / width) * 15;
+    })
+    .onEnd((event) => {
+      if (Math.abs(event.translationX) > SWIPE_THRESHOLD) {
+        const targetX = event.translationX > 0 ? width + 100 : -width - 100;
+        const direction = event.translationX > 0 ? 'prev' : 'next';
+        translateX.value = withTiming(targetX, { duration: 250 });
+        translateY.value = withTiming(event.translationY, { duration: 250 });
+        rotate.value = withTiming(event.translationX > 0 ? 20 : -20, { duration: 250 }, () => {
+          runOnJS(advanceToDiner)(direction);
+          translateX.value = 0;
+          translateY.value = 0;
+          rotate.value = 0;
+        });
+      } else {
+        translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
+        translateY.value = withSpring(0, { damping: 15, stiffness: 150 });
+        rotate.value = withSpring(0, { damping: 15, stiffness: 150 });
+      }
+    });
 
   useEffect(() => {
     let mounted = true;
@@ -622,17 +665,6 @@ export default function SocialProfileScreen() {
     };
   }, [currentDiner?.user_id, modoSocial]);
 
-  useEffect(() => {
-    if (carouselData.length === 0) return;
-
-    const targetIndex = diners.length > 1 ? carouselMiddleBlockStart + safeCurrentIndex : safeCurrentIndex;
-    const timer = setTimeout(() => {
-      carouselRef.current?.scrollToIndex({ index: targetIndex, animated: false });
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [carouselData.length, carouselMiddleBlockStart, diners.length, safeCurrentIndex]);
-
   function updateField<K extends keyof SocialFormState>(field: K, value: SocialFormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
   }
@@ -647,45 +679,7 @@ export default function SocialProfileScreen() {
     );
   }
 
-  function resetSwipeGuards() {
-    isSwipingRef.current = false;
-    setTimeout(() => {
-      suppressPhotoTapRef.current = false;
-    }, 120);
-  }
-
-  function handleCarouselMomentumEnd(offsetX: number) {
-    if (diners.length === 0) {
-      resetSwipeGuards();
-      return;
-    }
-
-    const physicalIndex = Math.round(offsetX / carouselPageWidth);
-    const logicalIndex = moduloIndex(physicalIndex, diners.length);
-    setCurrentIndex(logicalIndex);
-
-    if (diners.length > 1) {
-      const middleIndex = carouselMiddleBlockStart + logicalIndex;
-      if (Math.abs(physicalIndex - middleIndex) > diners.length) {
-        requestAnimationFrame(() => {
-          carouselRef.current?.scrollToIndex({ index: middleIndex, animated: false });
-        });
-      }
-    }
-
-    resetSwipeGuards();
-  }
-
-  function handleDinerCardPress(diner: SocialDiner) {
-    if (suppressPhotoTapRef.current || isSwipingRef.current) {
-      return;
-    }
-
-    const dinerIndex = diners.findIndex((item) => item.user_id === diner.user_id);
-    if (dinerIndex >= 0) {
-      setCurrentIndex(dinerIndex);
-    }
-
+  function handleDinerCardPress() {
     setDetailsVisible(true);
   }
 
@@ -1222,47 +1216,17 @@ export default function SocialProfileScreen() {
           {safeCurrentIndex + 1} / {diners.length}
         </Text>
 
-        <FlatList
-          ref={carouselRef}
-          data={carouselData}
-          horizontal
-          pagingEnabled
-          bounces={false}
-          scrollEnabled={diners.length > 1}
-          showsHorizontalScrollIndicator={false}
-          decelerationRate="fast"
-          initialScrollIndex={diners.length > 1 ? carouselMiddleBlockStart + safeCurrentIndex : safeCurrentIndex}
-          keyExtractor={(item, index) => `${item.user_id}-${index}`}
-          getItemLayout={(_data, index) => ({
-            length: carouselPageWidth,
-            offset: carouselPageWidth * index,
-            index,
-          })}
-          contentContainerStyle={styles.carouselListContent}
-          onScrollBeginDrag={() => {
-            isSwipingRef.current = true;
-            suppressPhotoTapRef.current = true;
-          }}
-          onMomentumScrollEnd={(event) => handleCarouselMomentumEnd(event.nativeEvent.contentOffset.x)}
-          onScrollEndDrag={(event) => {
-            if (diners.length <= 1) {
-              handleCarouselMomentumEnd(event.nativeEvent.contentOffset.x);
-            }
-          }}
-          onScrollToIndexFailed={(info) => {
-            const fallbackOffset = info.averageItemLength * info.index;
-            requestAnimationFrame(() => {
-              carouselRef.current?.scrollToOffset({ offset: fallbackOffset, animated: false });
-            });
-          }}
-          renderItem={({ item }) => (
-            <View style={[styles.carouselPage, { width: carouselPageWidth }]}>
-              {renderSwipeCard(item, {
-                onPress: () => handleDinerCardPress(item),
-              })}
-            </View>
+        <View style={styles.tinderCardContainer}>
+          {currentDiner && (
+            <GestureDetector gesture={panGesture}>
+              <Animated.View style={[styles.tinderCard, animatedCardStyle]}>
+                {renderSwipeCard(currentDiner, {
+                  onPress: () => handleDinerCardPress(),
+                })}
+              </Animated.View>
+            </GestureDetector>
           )}
-        />
+        </View>
 
         <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
           <Ionicons name="gift-outline" size={20} color={Colors.white} />
@@ -2032,11 +1996,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textSecondary,
   },
-  carouselListContent: {
-    paddingBottom: 18,
+  tinderCardContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  carouselPage: {
-    paddingRight: 0,
+  tinderCard: {
+    width: '100%',
+    height: '100%',
+    maxHeight: 620,
   },
   dinerCard: {
     minHeight: 560,
