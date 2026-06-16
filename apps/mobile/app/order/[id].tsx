@@ -104,6 +104,10 @@ export default function OrderDetailScreen() {
     }
   }
 
+  function handleOrderMore() {
+    router.replace('/(tabs)' as never);
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -222,7 +226,7 @@ export default function OrderDetailScreen() {
 
         {/* PRODUCTOS */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Tu pedido</Text>
+          <Text style={styles.sectionTitle}>{isEatInConsumption ? 'Productos pedidos' : 'Tu pedido'}</Text>
           <Text style={styles.itemCount}>{order?.items?.length} {order?.items?.length === 1 ? 'producto' : 'productos'}</Text>
         </View>
         <View style={styles.card}>
@@ -282,6 +286,9 @@ export default function OrderDetailScreen() {
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.productName} numberOfLines={2}>{item.platillo_nombre}</Text>
+                  {isEatInConsumption && item.pedido_folio ? (
+                    <Text style={styles.productBatch} numberOfLines={1}>Tanda {item.pedido_folio}</Text>
+                  ) : null}
                   {/* Desglose de precio */}
                   <View style={styles.priceBreakdown}>
                     <Text style={styles.productPrice}>Precio base: ${precioBase.toFixed(2)}</Text>
@@ -325,6 +332,17 @@ export default function OrderDetailScreen() {
             <Text style={styles.totalValue}>${order?.total?.toFixed(2)} MXN</Text>
           </View>
         </View>
+
+        {isOpenEatInAccount && (
+          <TouchableOpacity
+            style={styles.orderMoreButton}
+            onPress={handleOrderMore}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+            <Text style={styles.orderMoreText}>Pedir más</Text>
+          </TouchableOpacity>
+        )}
 
         {isOpenEatInAccount && (
           <TouchableOpacity
@@ -478,6 +496,7 @@ const styles = StyleSheet.create({
   },
   qtyText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
   productName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  productBatch: { fontSize: 11, color: '#6B7280', fontWeight: '700', marginBottom: 2 },
   priceBreakdown: { marginTop: 2 },
   productPrice: { fontSize: 13, color: '#6B7280' },
   extraItem: { fontSize: 12, color: '#8B5CF6', fontWeight: '500', marginLeft: 4, marginTop: 1 },
@@ -496,6 +515,26 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
   totalLabel: { fontSize: 16, fontWeight: '700', color: '#111827' },
   totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary },
+
+  orderMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    ...Shadows.sm,
+  },
+  orderMoreText: {
+    color: Colors.primary,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
 
   payAccountButton: {
     flexDirection: 'row',

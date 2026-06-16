@@ -627,7 +627,7 @@ export default function OrderTypeScreen() {
 
       <View style={styles.footer}>
         <Button
-          label={tipoPedido === 'eat_in' ? 'Abrir cuenta' : 'Continuar al pago'}
+          label={tipoPedido === 'eat_in' ? 'Pedir' : 'Continuar al pago'}
           onPress={handleContinue}
           fullWidth
           size="lg"
