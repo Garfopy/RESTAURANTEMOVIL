@@ -1199,6 +1199,11 @@ export default function SocialProfileScreen() {
   async function openGiftSelector() {
     if (!currentDiner) return;
 
+    if (detailsVisible) {
+      setDetailsVisible(false);
+      await new Promise((resolve) => setTimeout(resolve, Platform.OS === 'ios' ? 320 : 160));
+    }
+
     try {
       setGiftsVisible(true);
 
@@ -1420,6 +1425,11 @@ export default function SocialProfileScreen() {
             </View>
           </View>
         ) : null}
+
+        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
+          <Ionicons name="gift-outline" size={20} color={Colors.white} />
+          <Text style={styles.giftButtonText}>Enviar regalo</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -1485,10 +1495,6 @@ export default function SocialProfileScreen() {
           )}
         </View>
 
-        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
-          <Ionicons name="gift-outline" size={20} color={Colors.white} />
-          <Text style={styles.giftButtonText}>Enviar regalo</Text>
-        </TouchableOpacity>
       </View>
     );
   }
