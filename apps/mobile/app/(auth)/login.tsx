@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../theme';
@@ -34,10 +34,10 @@ export default function LoginScreen() {
       <View style={styles.container}>
         <Animated.View style={[styles.logoArea, logoStyle]}>
           <View style={styles.logoCircle}>
-            <Ionicons name="restaurant" size={54} color={Colors.primary} />
+            <Image source={require('../../assets/amare_icon.png')} style={styles.logoImage} />
           </View>
-          <Text style={styles.appName}>Restaurante 1</Text>
-          <Text style={styles.tagline}>Gastronomia premium a tu puerta</Text>
+          <Text style={styles.appName}>AMARE</Text>
+          <Text style={styles.tagline}>Restaurant Connecting Club</Text>
         </Animated.View>
 
         <Animated.View style={[styles.buttons, btnsStyle]}>
@@ -77,9 +77,9 @@ const styles = StyleSheet.create({
     marginBottom: 70,
   },
   logoCircle: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
     backgroundColor: '#FFF8E8',
     borderWidth: 2,
     borderColor: Colors.accent,
@@ -94,6 +94,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 8,
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: 150,
+    height: 150,
+    resizeMode: 'contain',
   },
   appName: {
     fontFamily: 'PlayfairDisplay_700Bold',
