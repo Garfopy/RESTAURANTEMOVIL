@@ -40,6 +40,11 @@ const queryClient = new QueryClient({
 
 const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_KEY ?? '';
 
+// Guard para detectar configuración incorrecta de Stripe
+if (!STRIPE_PUBLISHABLE_KEY) {
+  console.error('ERROR: EXPO_PUBLIC_STRIPE_KEY no está configurada');
+}
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
