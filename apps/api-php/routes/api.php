@@ -37,6 +37,15 @@ $routes = [
     ['POST', '/orders', ['Amare\Api\Controllers\OrderController', 'store']],
     ['POST', '/orders/:id/confirm-payment', ['Amare\Api\Controllers\OrderController', 'confirmPayment']],
     ['POST', '/orders/exit-pass/scan', ['Amare\Api\Controllers\OrderController', 'scanExitPass']],
+
+    // Waiter routes
+    ['GET', '/waiter/branches', ['Amare\Api\Controllers\WaiterController', 'branches']],
+    ['GET', '/waiter/tables', ['Amare\Api\Controllers\WaiterController', 'tables']],
+    ['POST', '/waiter/tables/:id/claim', ['Amare\Api\Controllers\WaiterController', 'claimTable']],
+    ['POST', '/waiter/tables/:id/release', ['Amare\Api\Controllers\WaiterController', 'releaseTable']],
+    ['GET', '/waiter/tables/:id/account', ['Amare\Api\Controllers\WaiterController', 'account']],
+    ['POST', '/waiter/tables/:id/orders', ['Amare\Api\Controllers\WaiterController', 'createOrder']],
+    ['POST', '/waiter/tables/:id/close', ['Amare\Api\Controllers\WaiterController', 'closeAccount']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],

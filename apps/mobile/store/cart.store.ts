@@ -4,12 +4,20 @@ import type { CarritoItem, Platillo, ModificadorSeleccionado, TipoPedido } from 
 
 const CART_KEY = 'amare_cart';
 
-function calcSubtotal(platillo: Platillo, mods: ModificadorSeleccionado[], cantidad: number): number {
-  const modExtra = mods.reduce(
-    (sum, mod) => sum + mod.opciones.reduce((s, o) => s + o.precio_extra, 0),
+function money(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getModExtraTotal(mods: ModificadorSeleccionado[]): number {
+  return mods.reduce(
+    (sum, mod) => sum + mod.opciones.reduce((s, o) => s + money(o.precio_extra), 0),
     0
   );
-  return (platillo.precio + modExtra) * cantidad;
+}
+
+function calcSubtotal(platillo: Platillo, mods: ModificadorSeleccionado[], cantidad: number): number {
+  return (money(platillo.precio) + getModExtraTotal(mods)) * cantidad;
 }
 
 interface CartState {
@@ -79,17 +87,14 @@ export const useCartStore = create<CartState>((set, get) => ({
       const { total, itemCount } = computeTotals(updated);
       set({ items: updated, restauranteId: platillo.restaurante_id, total, itemCount });
     } else {
-      const modExtraUnitario = mods.reduce(
-        (sum, mod) => sum + mod.opciones.reduce((s, o) => s + o.precio_extra, 0),
-        0
-      );
+      const modExtraUnitario = getModExtraTotal(mods);
       const newItem: CarritoItem = {
         id: `${platillo.id}-${Date.now()}`,
         platillo,
         cantidad,
         modificadores_seleccionados: mods,
         notas,
-        precio_unitario: platillo.precio + modExtraUnitario,
+        precio_unitario: money(platillo.precio) + modExtraUnitario,
         subtotal: calcSubtotal(platillo, mods, cantidad),
       };
       const updated = [...items, newItem];
@@ -146,7 +151,17 @@ export async function hydrateCart(): Promise<void> {
         items?.[0]?.platillo?.restaurante_id ??
         items?.[0]?.platillo?.restaurant_id ??
         null;
-      const restoredItems = items ?? [];
+      const restoredItems = (items ?? []).map((item: CarritoItem) => {
+        const mods = item.modificadores_seleccionados ?? [];
+        const precioUnitario = money(item.platillo?.precio) + getModExtraTotal(mods);
+
+        return {
+          ...item,
+          modificadores_seleccionados: mods,
+          precio_unitario: precioUnitario,
+          subtotal: precioUnitario * money(item.cantidad || 1),
+        };
+      });
       const { total, itemCount } = computeTotals(restoredItems);
       useCartStore.setState({
         items: restoredItems,

@@ -5,13 +5,15 @@ import { CartButton } from './CartButton';
 
 export function GlobalCartButton() {
   const segments = useSegments();
-  const { isAuthenticated, isLoading } = useUserStore();
+  const { isAuthenticated, isLoading, user } = useUserStore();
   const [rootSegment, childSegment] = segments;
 
   if (isLoading || !isAuthenticated) return null;
+  if (user?.rol === 'mesero') return null;
 
   if (
     rootSegment === '(auth)' ||
+    rootSegment === '(waiter)' ||
     rootSegment === 'branch-selector' ||
     rootSegment === 'cart' ||
     rootSegment === 'checkout' ||

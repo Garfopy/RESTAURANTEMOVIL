@@ -43,6 +43,7 @@ function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
     id: Number(user?.id ?? user?.user_id ?? 0),
     nombre: user?.nombre ?? '',
     email: user?.email ?? '',
+    rol: user?.rol ?? 'user',
     telefono: user?.telefono ?? null,
     foto_url: user?.foto_url ?? null,
     social_photos: user?.social_photos ?? [],

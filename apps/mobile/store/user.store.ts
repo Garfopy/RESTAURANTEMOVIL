@@ -4,6 +4,7 @@ import type { MobileUser, Sesion } from '@amare/types';
 import { API_BASE_URL } from '../constants/api';
 import { useCartStore } from './cart.store';
 import { useTableSessionStore } from './table-session.store';
+import { useWaiterCartStore } from './waiter-cart.store';
 
 const TOKEN_KEY = 'amare_auth_token';
 const API_SOURCE_KEY = 'amare_auth_api_url';
@@ -81,4 +82,5 @@ function normalizeApiBase(url: string): string {
 function clearSessionState(): void {
   useTableSessionStore.getState().clearSession();
   useCartStore.getState().clear();
+  useWaiterCartStore.getState().clear();
 }

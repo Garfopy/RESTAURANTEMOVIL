@@ -48,19 +48,23 @@ if (!STRIPE_PUBLISHABLE_KEY) {
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading } = useUserStore();
+  const { isAuthenticated, isLoading, user } = useUserStore();
 
   useEffect(() => {
     if (isLoading) return;
 
     const inAuth = segments[0] === '(auth)';
+    const inWaiter = segments[0] === '(waiter)';
+    const isWaiter = user?.rol === 'mesero';
 
     if (!isAuthenticated && !inAuth) {
       router.replace('/(auth)/login');
-    } else if (isAuthenticated && inAuth) {
+    } else if (isAuthenticated && isWaiter && !inWaiter) {
+      router.replace('/(waiter)' as never);
+    } else if (isAuthenticated && !isWaiter && (inAuth || inWaiter)) {
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, isLoading, segments, user?.rol]);
 
   return <>{children}</>;
 }
@@ -127,6 +131,7 @@ export default function RootLayout() {
                 <Stack screenOptions={{ headerShown: false }}>
                   <Stack.Screen name="(auth)" />
                   <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="(waiter)" />
                   <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />

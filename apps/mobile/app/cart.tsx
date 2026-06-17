@@ -36,11 +36,31 @@ function getSelectedExtras(item: CarritoItem) {
   );
 }
 
+function getItemCostBreakdown(item: CarritoItem) {
+  const selectedExtras = getSelectedExtras(item);
+  const baseUnit = Number(item.platillo.precio || 0);
+  const extrasUnit = selectedExtras.reduce((sum, extra) => sum + extra.precio, 0);
+  const unitTotal = baseUnit + extrasUnit;
+  const lineTotal = unitTotal * item.cantidad;
+
+  return {
+    selectedExtras,
+    baseUnit,
+    extrasUnit,
+    unitTotal,
+    lineTotal,
+  };
+}
+
 export default function CartScreen() {
   const router = useRouter();
   const theme = useThemeColors();
-  const { items, removeItem, updateQty, total, clear, tipoPedido, setTipoPedido } = useCartStore();
+  const { items, removeItem, updateQty, clear, tipoPedido, setTipoPedido } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const displayTotal = useMemo(
+    () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
+    [items]
+  );
 
   function handleCheckout() {
     if (tipoPedido === 'eat_in' && !tableSession) {
@@ -104,7 +124,7 @@ export default function CartScreen() {
             <View style={styles.summaryBox}>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>${total.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>${displayTotal.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Costos de gestión</Text>
@@ -113,7 +133,7 @@ export default function CartScreen() {
               <View style={styles.divider} />
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Total final</Text>
-                <Text style={styles.totalValue}>${total.toFixed(2)} MXN</Text>
+                <Text style={styles.totalValue}>${displayTotal.toFixed(2)} MXN</Text>
               </View>
             </View>
           </View>
@@ -152,7 +172,13 @@ function CartItemRow({
 }) {
   const [storedImageFailed, setStoredImageFailed] = useState(false);
   const [freshImageFailed, setFreshImageFailed] = useState(false);
-  const selectedExtras = getSelectedExtras(item);
+  const {
+    selectedExtras,
+    baseUnit,
+    extrasUnit,
+    unitTotal,
+    lineTotal,
+  } = getItemCostBreakdown(item);
 
   const storedImageUrl = useMemo(
     () => formatImageUrl(item.platillo.imagen),
@@ -213,7 +239,7 @@ function CartItemRow({
           <Text style={styles.itemNombre} numberOfLines={1}>
             {item.platillo.nombre}
           </Text>
-          <Text style={styles.itemSubtotal}>${item.subtotal.toFixed(2)}</Text>
+          <Text style={styles.itemSubtotal}>${lineTotal.toFixed(2)}</Text>
         </View>
 
         {item.notas ? (
@@ -223,18 +249,40 @@ function CartItemRow({
           </View>
         ) : null}
 
-        {selectedExtras.length > 0 ? (
-          <View style={styles.extrasList}>
-            {selectedExtras.map((extra) => (
-              <Text key={extra.key} style={styles.extraText} numberOfLines={1}>
-                + {extra.nombre}{extra.precio > 0 ? ` $${extra.precio.toFixed(2)}` : ''}
-              </Text>
-            ))}
+        <View style={styles.priceBreakdown}>
+          <View style={styles.breakdownRow}>
+            <Text style={styles.breakdownLabel}>Plato base</Text>
+            <Text style={styles.breakdownValue}>${baseUnit.toFixed(2)} c/u</Text>
           </View>
-        ) : null}
+
+          {selectedExtras.length > 0 ? (
+            <View style={styles.extrasList}>
+              {selectedExtras.map((extra) => (
+                <View key={extra.key} style={styles.breakdownRow}>
+                  <Text style={styles.extraText} numberOfLines={1}>+ {extra.nombre}</Text>
+                  <Text style={styles.extraPrice}>+${extra.precio.toFixed(2)} c/u</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={[styles.breakdownRow, styles.unitTotalRow]}>
+            <Text style={styles.unitTotalLabel}>Total del plato</Text>
+            <Text style={styles.unitTotalValue}>${unitTotal.toFixed(2)} c/u</Text>
+          </View>
+
+          {item.cantidad > 1 ? (
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Total por {item.cantidad}</Text>
+              <Text style={styles.breakdownValue}>${lineTotal.toFixed(2)}</Text>
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.itemBottomLine}>
-          <Text style={styles.itemPrecio}>${item.precio_unitario.toFixed(2)} c/u</Text>
+          <Text style={styles.itemPrecio}>
+            {extrasUnit > 0 ? `Incluye extras por $${extrasUnit.toFixed(2)}` : 'Sin extras'}
+          </Text>
 
           <View style={styles.qtyPillContainer}>
             <TouchableOpacity
@@ -356,14 +404,56 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontWeight: '500',
   },
-  extrasList: {
-    gap: 2,
-    paddingRight: 8,
+  priceBreakdown: {
+    gap: 4,
+    paddingRight: 4,
+    marginTop: 2,
   },
-  extraText: {
+  breakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  breakdownLabel: {
     fontSize: 12,
     color: '#6B7280',
     fontWeight: '600',
+  },
+  breakdownValue: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+  extrasList: {
+    gap: 3,
+  },
+  extraText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+  extraPrice: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '800',
+  },
+  unitTotalRow: {
+    marginTop: 2,
+    paddingTop: 5,
+    borderTopWidth: 1,
+    borderTopColor: '#EEF0F4',
+  },
+  unitTotalLabel: {
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '800',
+  },
+  unitTotalValue: {
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '900',
   },
   itemBottomLine: {
     flexDirection: 'row',

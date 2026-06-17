@@ -50,11 +50,30 @@ function getSelectedExtras(item: ReturnType<typeof useCartStore.getState>['items
   );
 }
 
+function getItemCostBreakdown(item: ReturnType<typeof useCartStore.getState>['items'][number]) {
+  const selectedExtras = getSelectedExtras(item);
+  const baseUnit = Number(item.platillo.precio || 0);
+  const extrasUnit = selectedExtras.reduce((sum, extra) => sum + extra.precio, 0);
+  const unitTotal = baseUnit + extrasUnit;
+  const lineTotal = unitTotal * item.cantidad;
+
+  return {
+    selectedExtras,
+    baseUnit,
+    unitTotal,
+    lineTotal,
+  };
+}
+
 export default function OrderTypeScreen() {
   const router = useRouter();
-  const { items, total, tipoPedido, restauranteId, clear } = useCartStore();
+  const { items, tipoPedido, restauranteId, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const orderTotal = useMemo(
+    () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
+    [items]
+  );
 
   const resolvedRestaurantId =
     restauranteId ??
@@ -334,7 +353,7 @@ export default function OrderTypeScreen() {
           items: items.map((i) => ({
             platillo_id: i.platillo.id,
             cantidad: i.cantidad,
-            precio_unit: i.precio_unitario,
+            precio_unit: getItemCostBreakdown(i).unitTotal,
             notas: i.notas,
             modificadores: i.modificadores_seleccionados.map((m) => ({
               modificador_id: m.modificador_id,
@@ -361,7 +380,7 @@ export default function OrderTypeScreen() {
       }
 
       const { client_secret, id: intentId } = await createPaymentIntent({
-        amount: total,
+        amount: orderTotal,
         currency: 'mxn',
       });
 
@@ -594,7 +613,12 @@ export default function OrderTypeScreen() {
           <Text style={styles.summaryTitle}>Resumen del pedido</Text>
           <View style={styles.ticketBox}>
             {items.map((item) => {
-              const selectedExtras = getSelectedExtras(item);
+              const {
+                selectedExtras,
+                baseUnit,
+                unitTotal,
+                lineTotal,
+              } = getItemCostBreakdown(item);
 
               return (
               <View key={item.id} style={styles.summaryItemBlock}>
@@ -602,24 +626,34 @@ export default function OrderTypeScreen() {
                   <Text style={styles.summaryItem} numberOfLines={1}>
                     <Text style={styles.itemQuantity}>{item.cantidad}x</Text> {item.platillo.nombre}
                   </Text>
-                  <Text style={styles.summaryPrice}>${item.subtotal.toFixed(2)}</Text>
+                  <Text style={styles.summaryPrice}>${lineTotal.toFixed(2)}</Text>
                 </View>
-                {selectedExtras.length > 0 ? (
-                  <View style={styles.summaryExtras}>
-                    {selectedExtras.map((extra) => (
-                      <Text key={extra.key} style={styles.summaryExtraText} numberOfLines={1}>
-                        + {extra.nombre}{extra.precio > 0 ? ` $${extra.precio.toFixed(2)}` : ''}
-                      </Text>
-                    ))}
+
+                <View style={styles.summaryBreakdown}>
+                  <View style={styles.summaryBreakdownRow}>
+                    <Text style={styles.summaryBreakdownLabel}>Plato base</Text>
+                    <Text style={styles.summaryBreakdownValue}>${baseUnit.toFixed(2)} c/u</Text>
                   </View>
-                ) : null}
+
+                  {selectedExtras.map((extra) => (
+                    <View key={extra.key} style={styles.summaryBreakdownRow}>
+                      <Text style={styles.summaryExtraText} numberOfLines={1}>+ {extra.nombre}</Text>
+                      <Text style={styles.summaryExtraPrice}>+${extra.precio.toFixed(2)} c/u</Text>
+                    </View>
+                  ))}
+
+                  <View style={[styles.summaryBreakdownRow, styles.summaryUnitTotalRow]}>
+                    <Text style={styles.summaryUnitTotalLabel}>Total del plato</Text>
+                    <Text style={styles.summaryUnitTotalValue}>${unitTotal.toFixed(2)} c/u</Text>
+                  </View>
+                </View>
               </View>
               );
             })}
             <View style={styles.divider} />
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total a pagar</Text>
-              <Text style={styles.totalValue}>${total.toFixed(2)} MXN</Text>
+              <Text style={styles.totalValue}>${orderTotal.toFixed(2)} MXN</Text>
             </View>
           </View>
         </View>
@@ -880,16 +914,52 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#111827',
   },
-  summaryExtras: {
+  summaryBreakdown: {
     marginLeft: 25,
-    gap: 2,
+    gap: 3,
     paddingRight: 8,
-    paddingBottom: 4,
+    paddingTop: 2,
+    paddingBottom: 6,
   },
-  summaryExtraText: {
+  summaryBreakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  summaryBreakdownLabel: {
     fontSize: 12,
     color: '#6B7280',
     fontWeight: '600',
+  },
+  summaryBreakdownValue: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+  summaryExtraText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+  },
+  summaryExtraPrice: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '800',
+  },
+  summaryUnitTotalRow: {
+    marginTop: 2,
+  },
+  summaryUnitTotalLabel: {
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '800',
+  },
+  summaryUnitTotalValue: {
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '900',
   },
   divider: {
     height: 1,

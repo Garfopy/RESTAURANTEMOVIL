@@ -114,13 +114,12 @@ class Order
         return ($order['tipo_pedido'] ?? null) === 'eat_in' && self::columnExists('rest_pedidos', 'consumo_id');
     }
 
-    private static function resolveOpenConsumptionId(int $restaurantId, int $userId, ?int $mesaId): string
+    private static function resolveOpenConsumptionId(int $restaurantId, int $userId, ?int $mesaId, bool $byTableOnly = false): string
     {
         if ($mesaId !== null && self::columnExists('rest_pedidos', 'cuenta_abierta')) {
             $sql = "SELECT consumo_id
                       FROM rest_pedidos
                      WHERE restaurante_id = :restaurant_id
-                       AND mobile_usuario_id = :user_id
                        AND mesa_id = :mesa_id
                        AND tipo_pedido = 'eat_in'
                        AND consumo_id IS NOT NULL
@@ -128,9 +127,13 @@ class Order
                        AND cuenta_abierta = 1";
             $params = [
                 ':restaurant_id' => $restaurantId,
-                ':user_id' => $userId,
                 ':mesa_id' => $mesaId,
             ];
+
+            if (!$byTableOnly) {
+                $sql .= ' AND mobile_usuario_id = :user_id';
+                $params[':user_id'] = $userId;
+            }
 
             if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
                 $sql .= ' AND salida_qr_generado_at IS NULL';
@@ -444,6 +447,10 @@ class Order
                 'subtotal' => $data['subtotal'],
                 'total' => $data['total'],
                 'tipo_pedido' => $data['order_type'],
+                'pedido_origen' => $data['pedido_origen'] ?? 'cliente',
+                'mesero_usuario_id' => $data['mesero_usuario_id'] ?? null,
+                'mesero_nombre' => $data['mesero_nombre'] ?? null,
+                'cliente_nombre' => $data['cliente_nombre'] ?? null,
                 'notas' => $data['notes'] ?? null,
                 'created_at' => date('Y-m-d H:i:s'),
             ];
@@ -473,7 +480,8 @@ class Order
                 $pedidoData['consumo_id'] = self::resolveOpenConsumptionId(
                     (int)$data['restaurante_id'],
                     (int)$data['user_id'],
-                    !empty($data['mesa_id']) ? (int)$data['mesa_id'] : null
+                    !empty($data['mesa_id']) ? (int)$data['mesa_id'] : null,
+                    (bool)($data['consumo_por_mesa'] ?? false)
                 );
             }
 

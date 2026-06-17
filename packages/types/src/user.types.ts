@@ -2,6 +2,7 @@ export interface MobileUser {
   id: number;
   nombre: string;
   email: string;
+  rol?: 'user' | 'admin' | 'mesero' | string | null;
   telefono: string | null;
   foto_url: string | null;
   social_photos?: string[];
