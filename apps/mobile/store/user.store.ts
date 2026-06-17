@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { MobileUser, Sesion } from '@amare/types';
 import { API_BASE_URL } from '../constants/api';
+import { useCartStore } from './cart.store';
+import { useTableSessionStore } from './table-session.store';
 
 const TOKEN_KEY = 'amare_auth_token';
 const API_SOURCE_KEY = 'amare_auth_api_url';
@@ -25,6 +27,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   isLoading: true,
 
   login: async (sesion: Sesion) => {
+    clearSessionState();
     await SecureStore.setItemAsync(TOKEN_KEY, sesion.token);
     await SecureStore.setItemAsync(API_SOURCE_KEY, normalizeApiBase(API_BASE_URL));
     set({ user: sesion.user, token: sesion.token, isAuthenticated: true });
@@ -33,6 +36,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   logout: async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(API_SOURCE_KEY);
+    clearSessionState();
     set({ user: null, token: null, isAuthenticated: false, isLoading: false });
   },
 
@@ -72,4 +76,9 @@ export const useUserStore = create<UserState>((set, get) => ({
 
 function normalizeApiBase(url: string): string {
   return url.trim().replace(/\/+$/, '').toLowerCase();
+}
+
+function clearSessionState(): void {
+  useTableSessionStore.getState().clearSession();
+  useCartStore.getState().clear();
 }

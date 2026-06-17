@@ -123,7 +123,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   },
 
   clear: () => {
-    set({ items: [], restauranteId: null, total: 0, itemCount: 0 });
+    set({ items: [], restauranteId: null, tipoPedido: null, total: 0, itemCount: 0 });
     AsyncStorage.removeItem(CART_KEY).catch(() => {});
   },
 
