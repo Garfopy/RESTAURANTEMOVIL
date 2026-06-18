@@ -22,11 +22,12 @@ import { Colors, Spacing } from '../theme';
 
 export default function TableScannerScreen() {
   const router = useRouter();
-  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const { returnTo, activateSocial } = useLocalSearchParams<{ returnTo?: string; activateSocial?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanLocked, setScanLocked] = useState(false);
   const scanLockedRef = useRef(false);
+  const hasNavigatedRef = useRef(false);
 
   const seleccionar = useBranchStore((s) => s.seleccionar);
   const { itemCount, restauranteId: cartRestaurantId, clear, setTipoPedido } = useCartStore();
@@ -68,6 +69,9 @@ export default function TableScannerScreen() {
 
   function handleResolvedTable(table: TableScanResult) {
     const applyTable = () => {
+      if (hasNavigatedRef.current) return;
+      hasNavigatedRef.current = true;
+
       setTableSession(table);
       seleccionar(table.branch);
       setTipoPedido('eat_in');
@@ -75,6 +79,10 @@ export default function TableScannerScreen() {
         current_restaurante_id: table.restaurante_id,
         mesa: table.mesa_value,
       });
+      if (activateSocial === '1' && destination === '/profile/social') {
+        router.replace({ pathname: '/profile/social', params: { activateSocial: '1' } } as never);
+        return;
+      }
       router.replace(destination as never);
     };
 

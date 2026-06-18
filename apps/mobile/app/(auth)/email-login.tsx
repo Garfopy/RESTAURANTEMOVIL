@@ -17,7 +17,7 @@ import { useUserStore } from '../../store/user.store';
 import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
-import { mapErrorToFriendly, validateEmail, validatePassword } from '../../services/error.service';
+import { mapErrorToFriendly, validateLoginIdentifier, validatePassword } from '../../services/error.service';
 
 const AuthColors = {
   bg: '#24272D',
@@ -61,7 +61,7 @@ export default function EmailLoginScreen() {
 
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    setEmailError(value.trim() ? validateEmail(value) : null);
+    setEmailError(value.trim() ? validateLoginIdentifier(value) : null);
   };
 
   const handlePasswordChange = (value: string) => {
@@ -70,7 +70,7 @@ export default function EmailLoginScreen() {
   };
 
   const handleEmailBlur = () => {
-    if (email.trim()) setEmailError(validateEmail(email));
+    if (email.trim()) setEmailError(validateLoginIdentifier(email));
   };
 
   const handlePasswordBlur = () => {
@@ -78,7 +78,7 @@ export default function EmailLoginScreen() {
   };
 
   async function handleLogin() {
-    const emailErr = validateEmail(email);
+    const emailErr = validateLoginIdentifier(email);
     const passwordErr = validatePassword(password);
 
     setEmailError(emailErr);
@@ -92,7 +92,8 @@ export default function EmailLoginScreen() {
     setLoading(true);
     try {
       await new Promise((resolve) => setTimeout(resolve, 500));
-      const sesion = await loginWithEmail({ email: email.trim().toLowerCase(), password });
+      const identifier = email.trim();
+      const sesion = await loginWithEmail({ email: identifier.includes('@') ? identifier.toLowerCase() : identifier, password });
       await login(sesion);
     } catch (err: unknown) {
       const friendlyError = mapErrorToFriendly(err);
@@ -131,19 +132,19 @@ export default function EmailLoginScreen() {
           <View style={styles.form}>
             <FormField
               {...fieldTheme}
-              label="Correo electronico"
+              label="Correo o telefono"
               value={email}
               onChangeText={handleEmailChange}
               onBlur={handleEmailBlur}
-              placeholder="ejemplo@correo.com"
+              placeholder="correo@ejemplo.com o 55 1234 5678"
               error={emailError}
-              keyboardType="email-address"
+              keyboardType="default"
               autoCapitalize="none"
-              autoComplete="email"
-              icon="mail-outline"
+              autoComplete="username"
+              icon="person-circle-outline"
               testID="email-input"
-              accessibilityLabel="Correo electronico"
-              accessibilityHint="Ingresa tu direccion de correo electronico"
+              accessibilityLabel="Correo o telefono"
+              accessibilityHint="Ingresa tu correo electronico o telefono"
             />
 
             <View style={styles.passwordBlock}>

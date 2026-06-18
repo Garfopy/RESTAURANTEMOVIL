@@ -29,6 +29,12 @@ class User
         return Database::queryOne($sql, [':email' => $email]);
     }
 
+    public static function findByPhone(string $phone): ?array
+    {
+        $sql = "SELECT * FROM mobile_usuarios WHERE telefono = :telefono LIMIT 1";
+        return Database::queryOne($sql, [':telefono' => $phone]);
+    }
+
     public static function findById(int $id): ?array
     {
         $sql = "SELECT id, nombre, email, rol, telefono, foto_url, google_id, activo, created_at, updated_at,
@@ -140,6 +146,20 @@ class User
         $sql = "SELECT COUNT(*) as count FROM mobile_usuarios WHERE email = :email";
         $params = [':email' => $email];
         
+        if ($excludeId !== null) {
+            $sql .= " AND id != :exclude_id";
+            $params[':exclude_id'] = $excludeId;
+        }
+
+        $result = Database::queryOne($sql, $params);
+        return ($result['count'] ?? 0) > 0;
+    }
+
+    public static function existsByPhone(string $phone, ?int $excludeId = null): bool
+    {
+        $sql = "SELECT COUNT(*) as count FROM mobile_usuarios WHERE telefono = :telefono";
+        $params = [':telefono' => $phone];
+
         if ($excludeId !== null) {
             $sql .= " AND id != :exclude_id";
             $params[':exclude_id'] = $excludeId;

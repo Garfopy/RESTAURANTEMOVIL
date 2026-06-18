@@ -17,7 +17,13 @@ import { useUserStore } from '../../store/user.store';
 import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
-import { mapErrorToFriendly, validateEmail, validatePassword, validateName } from '../../services/error.service';
+import {
+  mapErrorToFriendly,
+  validateName,
+  validateOptionalEmail,
+  validatePassword,
+  validatePhone,
+} from '../../services/error.service';
 
 const AuthColors = {
   bg: '#24272D',
@@ -40,11 +46,13 @@ export default function RegisterScreen() {
   const toast = useToast();
 
   const [nombre, setNombre] = useState('');
+  const [telefono, setTelefono] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [nombreError, setNombreError] = useState<string | null>(null);
+  const [telefonoError, setTelefonoError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
@@ -68,7 +76,12 @@ export default function RegisterScreen() {
 
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    setEmailError(value.trim() ? validateEmail(value) : null);
+    setEmailError(validateOptionalEmail(value));
+  };
+
+  const handleTelefonoChange = (value: string) => {
+    setTelefono(value);
+    setTelefonoError(value.trim() ? validatePhone(value) : null);
   };
 
   const handlePasswordChange = (value: string) => {
@@ -78,14 +91,16 @@ export default function RegisterScreen() {
 
   async function handleRegister() {
     const nombreErr = validateName(nombre);
-    const emailErr = validateEmail(email);
+    const telefonoErr = validatePhone(telefono);
+    const emailErr = validateOptionalEmail(email);
     const passwordErr = validatePassword(password);
 
     setNombreError(nombreErr);
+    setTelefonoError(telefonoErr);
     setEmailError(emailErr);
     setPasswordError(passwordErr);
 
-    if (nombreErr || emailErr || passwordErr) {
+    if (nombreErr || telefonoErr || emailErr || passwordErr) {
       toast.error('Por favor, corrige los errores en el formulario');
       return;
     }
@@ -95,7 +110,8 @@ export default function RegisterScreen() {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const sesion = await register({
         nombre: nombre.trim(),
-        email: email.trim().toLowerCase(),
+        telefono: telefono.trim(),
+        email: email.trim() ? email.trim().toLowerCase() : undefined,
         password,
       });
       await loginStore(sesion);
@@ -150,10 +166,26 @@ export default function RegisterScreen() {
 
             <FormField
               {...fieldTheme}
-              label="Correo electronico"
+              label="Telefono"
+              value={telefono}
+              onChangeText={handleTelefonoChange}
+              onBlur={() => setTelefonoError(telefono.trim() ? validatePhone(telefono) : 'Telefono es requerido')}
+              placeholder="55 1234 5678"
+              error={telefonoError}
+              keyboardType="phone-pad"
+              autoComplete="off"
+              icon="call-outline"
+              testID="phone-input"
+              accessibilityLabel="Telefono"
+              accessibilityHint="Ingresa tu numero telefonico"
+            />
+
+            <FormField
+              {...fieldTheme}
+              label="Correo electronico (opcional)"
               value={email}
               onChangeText={handleEmailChange}
-              onBlur={() => setEmailError(email.trim() ? validateEmail(email) : null)}
+              onBlur={() => setEmailError(validateOptionalEmail(email))}
               placeholder="correo@ejemplo.com"
               error={emailError}
               keyboardType="email-address"

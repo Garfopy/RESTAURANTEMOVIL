@@ -66,7 +66,7 @@ export interface EmailLoginPayload {
 
 export interface RegisterPayload {
   nombre: string;
-  email: string;
+  email?: string | null;
   password: string;
-  telefono?: string;
+  telefono: string;
 }

@@ -26,6 +26,7 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     direccion_id: payload.direccion_id ?? null,
     direccion_entrega: payload.direccion_entrega ?? null,
     mesa_id: payload.mesa_id ?? null,
+    consumo_por_mesa: payload.consumo_por_mesa ?? (payload.tipo_pedido === 'eat_in' && payload.mesa_id != null),
     payment_intent_id: payload.payment_intent_id ?? null,
     notas: payload.notas ?? null,
   });

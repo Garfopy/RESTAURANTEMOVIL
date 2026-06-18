@@ -229,6 +229,35 @@ export function validateEmail(email: string): string | null {
 /**
  * Valida contraseña
  */
+export function validateOptionalEmail(email: string): string | null {
+  if (!email.trim()) {
+    return null;
+  }
+  return validateEmail(email);
+}
+
+export function validatePhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) {
+    return 'Telefono es requerido';
+  }
+  if (digits.length < 10 || digits.length > 15) {
+    return 'Telefono debe tener entre 10 y 15 digitos';
+  }
+  return null;
+}
+
+export function validateLoginIdentifier(value: string): string | null {
+  const clean = value.trim();
+  if (!clean) {
+    return 'Correo o telefono es requerido';
+  }
+  if (clean.includes('@')) {
+    return validateEmail(clean);
+  }
+  return validatePhone(clean);
+}
+
 export function validatePassword(password: string, minLength: number = 8): string | null {
   if (!password) {
     return 'Contraseña es requerida';

@@ -87,6 +87,7 @@ function parseSesion(response: AuthResponse): Sesion {
 export async function loginWithEmail(payload: EmailLoginPayload): Promise<Sesion> {
   const { data } = await apiClient.post<AuthResponse>('/auth/login', {
     email: payload.email,
+    identifier: payload.email,
     password: payload.password,
   });
   return parseSesion(data);
@@ -104,7 +105,7 @@ export async function register(payload: RegisterPayload): Promise<Sesion> {
   const { data } = await apiClient.post<AuthResponse>('/auth/register', {
     name: payload.nombre,
     nombre: payload.nombre,
-    email: payload.email,
+    email: payload.email ?? null,
     password: payload.password,
     phone: payload.telefono ?? null,
     telefono: payload.telefono ?? null,

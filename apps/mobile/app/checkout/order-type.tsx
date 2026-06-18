@@ -28,6 +28,10 @@ type SavedAddress = {
   numero?: string;
   colonia?: string;
   ciudad?: string;
+  cp?: string | null;
+  lat?: number | string | null;
+  lng?: number | string | null;
+  instrucciones?: string | null;
   es_principal?: boolean;
 };
 
@@ -67,7 +71,7 @@ function getItemCostBreakdown(item: ReturnType<typeof useCartStore.getState>['it
 
 export default function OrderTypeScreen() {
   const router = useRouter();
-  const { items, tipoPedido, restauranteId, clear } = useCartStore();
+  const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
   const tableSession = useTableSessionStore((s) => s.session);
   const orderTotal = useMemo(
@@ -98,6 +102,34 @@ export default function OrderTypeScreen() {
   useEffect(() => {
     cargarDirecciones();
   }, []);
+
+  useEffect(() => {
+    if (tipoPedido !== 'delivery' || !deliveryAddress || direccionSeleccionada || addressData) {
+      return;
+    }
+
+    const storedAddress: SavedAddress = {
+      id: deliveryAddress.id ?? 'delivery-selected',
+      alias: deliveryAddress.alias ?? 'Direccion',
+      calle: deliveryAddress.text,
+      ciudad: '',
+      lat: deliveryAddress.lat ?? null,
+      lng: deliveryAddress.lng ?? null,
+      instrucciones: deliveryAddress.instrucciones ?? null,
+    };
+
+    setDireccionSeleccionada(storedAddress);
+    setUbicacionVisual(deliveryAddress.text);
+
+    if (Number.isFinite(Number(deliveryAddress.lat)) && Number.isFinite(Number(deliveryAddress.lng))) {
+      setCoords({
+        latitude: Number(deliveryAddress.lat),
+        longitude: Number(deliveryAddress.lng),
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+    }
+  }, [addressData, deliveryAddress, direccionSeleccionada, tipoPedido]);
 
   useEffect(() => {
     if (!tipoPedido) {
@@ -142,9 +174,14 @@ export default function OrderTypeScreen() {
       if (res.data.success || res.data.ok) {
         const addresses = Array.isArray(res.data.data) ? res.data.data : [];
         setDireccionesGuardadas(addresses);
-        const principal = addresses.find((d: SavedAddress) => d.es_principal) || addresses[0];
+        const stored =
+          deliveryAddress?.id != null
+            ? addresses.find((d: SavedAddress) => String(d.id) === String(deliveryAddress.id))
+            : null;
+        const principal = stored || addresses.find((d: SavedAddress) => d.es_principal) || addresses[0];
         if (principal) {
           setDireccionSeleccionada(principal);
+          setUbicacionVisual(formatAddress(principal));
         }
       }
     } catch (err) {
@@ -228,6 +265,7 @@ export default function OrderTypeScreen() {
           onPress: (nuevaDireccion: string | undefined) => {
             if (nuevaDireccion && nuevaDireccion.trim() !== '') {
               setDireccionSeleccionada(null);
+              setDeliveryAddress(null);
               setShowMap(false);
               setUbicacionVisual(nuevaDireccion);
               setAddressData((prev) =>
@@ -247,6 +285,7 @@ export default function OrderTypeScreen() {
   function handleRegionChangeComplete(region: Region) {
     if (tipoPedido === 'delivery') {
       setDireccionSeleccionada(null);
+      setDeliveryAddress(null);
       setCoords(region);
       actualizarDireccionTexto(region.latitude, region.longitude);
     }
@@ -297,7 +336,11 @@ export default function OrderTypeScreen() {
             cp: addressData.cp,
             es_principal: direccionesGuardadas.length === 0,
           });
-          resolve(res.data.data?.id || null);
+          const saved = res.data.data;
+          if (saved) {
+            setDeliveryAddress(addressToSelection(saved));
+          }
+          resolve(saved?.id || null);
         } catch (err) {
           console.error('Error al guardar direccion:', err);
           resolve(null);
@@ -407,6 +450,17 @@ export default function OrderTypeScreen() {
   function formatAddress(address: SavedAddress) {
     const street = [address.calle, address.numero].filter(Boolean).join(' ');
     return [street, address.colonia, address.ciudad].filter(Boolean).join(', ');
+  }
+
+  function addressToSelection(address: SavedAddress) {
+    return {
+      id: address.id,
+      alias: address.alias ?? null,
+      text: formatAddress(address),
+      lat: address.lat == null ? null : Number(address.lat),
+      lng: address.lng == null ? null : Number(address.lng),
+      instrucciones: address.instrucciones ?? null,
+    };
   }
 
   function getModeMeta() {
@@ -527,6 +581,7 @@ export default function OrderTypeScreen() {
                       onPress={() => {
                         setDireccionSeleccionada(dir);
                         setUbicacionVisual(formatAddress(dir));
+                        setDeliveryAddress(addressToSelection(dir));
                         setShowMap(false);
                       }}
                       accessibilityLabel={`Seleccionar direccion: ${dir.alias || 'guardada'}`}
@@ -544,6 +599,7 @@ export default function OrderTypeScreen() {
                     style={styles.addressChip}
                     onPress={() => {
                       setDireccionSeleccionada(null);
+                      setDeliveryAddress(null);
                       setShowMap(true);
                       obtenerUbicacionGPS();
                     }}

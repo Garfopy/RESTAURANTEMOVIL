@@ -36,7 +36,9 @@ import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
 import { useToast } from '../../context/ToastContext';
+import { DeliveryAddressModal } from '../../components/modals/DeliveryAddressModal';
 import type { Platillo, Categoria, TipoPedido, Sucursal } from '@amare/types';
+import type { DeliveryAddressSelection } from '../../store/cart.store';
 
 const HOME_BANNERS = [
   {
@@ -78,10 +80,11 @@ export default function HomeScreen() {
   const user = useUserStore((s) => s.user);
   const toast = useToast();
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
-  const { tipoPedido, setTipoPedido, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
+  const { tipoPedido, setTipoPedido, setDeliveryAddress, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
   
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const [showDeliveryAddressModal, setShowDeliveryAddressModal] = useState(false);
   const [availableTypes, setAvailableTypes] = useState<TipoPedido[]>(['delivery', 'pickup']);
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [detectedCoords, setDetectedCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -313,6 +316,14 @@ export default function HomeScreen() {
       const enabledTypes = getEnabledOrderTypes(sucursales);
       let modalTypes = enabledTypes;
 
+      if (enabledTypes.includes('eat_in') && tableSession?.branch) {
+        if (!branch || branch.id !== tableSession.branch.id) {
+          seleccionar(tableSession.branch);
+        }
+        setTipoPedido('eat_in');
+        return;
+      }
+
       if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
         if (tableSession?.branch) {
           if (!branch || branch.id !== tableSession.branch.id) {
@@ -366,7 +377,7 @@ export default function HomeScreen() {
 
   async function openDeliveryFlow(prefetchLocation = true) {
     const enabledTypes = getEnabledOrderTypes(sucursales);
-    let nextAvailableTypes = enabledTypes.length ? enabledTypes : ['delivery', 'pickup'];
+    let nextAvailableTypes: TipoPedido[] = enabledTypes.length ? enabledTypes : ['delivery', 'pickup'];
 
     if (enabledTypes.includes('eat_in')) {
       const nearbyBranch = await evaluateNearbyBranch();
@@ -410,6 +421,14 @@ export default function HomeScreen() {
   }
 
   async function handleInitialTypeSelect(tipo: TipoPedido) {
+    if (tipo === 'delivery') {
+      setShowTypeModal(false);
+      setSelectingPickupBranch(false);
+      setPickupListExpanded(true);
+      setShowDeliveryAddressModal(true);
+      return;
+    }
+
     if (tipo === 'pickup') {
       setTipoPedido('pickup');
       setSelectingPickupBranch(true);
@@ -464,8 +483,57 @@ export default function HomeScreen() {
     }
   }
 
-  function selectBranchForType(nextBranch: Sucursal, tipo: TipoPedido) {
+  async function handleDeliveryAddressConfirm(address: DeliveryAddressSelection) {
+    setShowDeliveryAddressModal(false);
+
+    try {
+      let targetBranch: Sucursal | undefined;
+      const hasCoords = Number.isFinite(Number(address.lat)) && Number.isFinite(Number(address.lng));
+
+      if (hasCoords) {
+        const nearest = await getNearestBranches(Number(address.lat), Number(address.lng), 'delivery');
+        targetBranch = nearest[0];
+      }
+
+      if (!targetBranch) {
+        const compatible = sucursales.filter((item) => item.tipos_entrega.includes('delivery'));
+        if (compatible.length === 1) {
+          targetBranch = compatible[0];
+        }
+      }
+
+      if (targetBranch) {
+        selectBranchForType(targetBranch, 'delivery', address);
+        return;
+      }
+
+      setDeliveryAddress(address);
+      setTipoPedido('delivery');
+      closeDeliveryFlow();
+      Alert.alert(
+        'Selecciona sucursal',
+        'Guardamos tu direccion, pero no pudimos detectar una sucursal cercana. Elige una manualmente.',
+        [
+          {
+            text: 'Elegir sucursal',
+            onPress: () => router.push({ pathname: '/branch-selector', params: { tipoPedido: 'delivery' } }),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error seleccionando sucursal por domicilio:', error);
+      setDeliveryAddress(address);
+      setTipoPedido('delivery');
+      closeDeliveryFlow();
+      router.push({ pathname: '/branch-selector', params: { tipoPedido: 'delivery' } });
+    }
+  }
+
+  function selectBranchForType(nextBranch: Sucursal, tipo: TipoPedido, deliveryAddress?: DeliveryAddressSelection) {
     const applySelection = () => {
+      if (tipo === 'delivery' && deliveryAddress) {
+        setDeliveryAddress(deliveryAddress);
+      }
       seleccionar(nextBranch);
       setTipoPedido(tipo);
       closeDeliveryFlow();
@@ -881,6 +949,11 @@ export default function HomeScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      <DeliveryAddressModal
+        visible={showDeliveryAddressModal}
+        onDismiss={() => setShowDeliveryAddressModal(false)}
+        onConfirm={handleDeliveryAddressConfirm}
+      />
     </SafeAreaView>
   );
 }

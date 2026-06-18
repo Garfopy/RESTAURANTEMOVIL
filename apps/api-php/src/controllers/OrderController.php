@@ -161,6 +161,7 @@ class OrderController
                 'direccion_id' => $input['direccion_id'] ?? null,
                 'direccion_entrega' => $input['direccion_entrega'] ?? null,
                 'mesa_id' => $input['mesa_id'] ?? null,
+                'consumo_por_mesa' => !empty($input['consumo_por_mesa']),
                 'payment_intent_id' => $input['payment_intent_id'] ?? null,
                 'items' => $items
             ]);

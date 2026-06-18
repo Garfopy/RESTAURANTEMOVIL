@@ -15,7 +15,6 @@ class AuthController
     {
         $rules = [
             'name' => 'required|min:3|max:100',
-            'email' => 'required|email|max:100',
             'password' => 'required|min:6|max:100'
         ];
 
@@ -26,16 +25,34 @@ class AuthController
         }
 
         $input = ValidationMiddleware::getAllInput();
+        $email = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
+        $phone = preg_replace('/\D+/', '', (string)($input['phone'] ?? $input['telefono'] ?? ''));
 
-        if (User::existsByEmail($input['email'])) {
+        if ($phone === '') {
+            Response::validationError(['phone' => ['El telefono es requerido']]);
+        }
+
+        if (strlen($phone) < 10 || strlen($phone) > 15) {
+            Response::validationError(['phone' => ['El telefono debe tener entre 10 y 15 digitos']]);
+        }
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::validationError(['email' => ['El email no es valido']]);
+        }
+
+        if ($email !== '' && User::existsByEmail($email)) {
             Response::error('El email ya está registrado', 409);
+        }
+
+        if (User::existsByPhone($phone)) {
+            Response::error('El telefono ya esta registrado', 409);
         }
 
         $userId = User::create([
             'nombre' => $input['name'],
-            'email' => $input['email'],
+            'email' => $email !== '' ? $email : null,
             'password_hash' => password_hash($input['password'], PASSWORD_DEFAULT),
-            'telefono' => $input['phone'] ?? null
+            'telefono' => $phone
         ]);
 
         if (!$userId) {
@@ -61,7 +78,6 @@ class AuthController
     public function login(): void
     {
         $rules = [
-            'email' => 'required|email',
             'password' => 'required'
         ];
 
@@ -72,7 +88,15 @@ class AuthController
         }
 
         $input = ValidationMiddleware::getAllInput();
-        $user = User::findByEmail($input['email']);
+        $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? ''));
+
+        if ($identifier === '') {
+            Response::validationError(['identifier' => ['Correo o telefono es requerido']]);
+        }
+
+        $user = str_contains($identifier, '@')
+            ? User::findByEmail(strtolower($identifier))
+            : User::findByPhone(preg_replace('/\D+/', '', $identifier));
 
         if (!$user || !isset($user['password_hash']) || !User::verifyPassword($input['password'], $user['password_hash'])) {
             Response::unauthorized('Credenciales inválidas');

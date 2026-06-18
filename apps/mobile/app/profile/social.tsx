@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Linking,
   Modal,
   Platform,
@@ -23,7 +25,7 @@ import Animated, {
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -509,6 +511,7 @@ function getSexualityDescription(value?: string | null): string | null {
 
 export default function SocialProfileScreen() {
   const router = useRouter();
+  const { activateSocial } = useLocalSearchParams<{ activateSocial?: string }>();
   const { width } = useWindowDimensions();
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
@@ -543,6 +546,7 @@ export default function SocialProfileScreen() {
   const [matches, setMatches] = useState<SocialDiner[]>([]);
   const [receivedLikes, setReceivedLikes] = useState<SocialDiner[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
   const [focusedDiner, setFocusedDiner] = useState<SocialDiner | null>(null);
   const [giftProducts, setGiftProducts] = useState<GiftProduct[]>([]);
@@ -558,6 +562,8 @@ export default function SocialProfileScreen() {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const rotate = useSharedValue(0);
+  const detailPhotoScrollRef = useRef<ScrollView | null>(null);
+  const socialScanActivationHandledRef = useRef(false);
 
   const interestOptions = useMemo(() => {
     const unique = new Set(DEFAULT_INTEREST_OPTIONS);
@@ -602,6 +608,27 @@ export default function SocialProfileScreen() {
 
     const offset = direction === 'next' ? 1 : -1;
     setCurrentIndex((previous) => moduloIndex(previous + offset, diners.length));
+  }
+
+  function isLikedOrMatched(diner: SocialDiner): boolean {
+    return diner.relationship_status === 'liked' || diner.relationship_status === 'matched';
+  }
+
+  function scrollDetailPhoto(direction: 'next' | 'prev') {
+    if (detailPhotos.length <= 1) return;
+
+    const offset = direction === 'next' ? 1 : -1;
+    const nextIndex = moduloIndex(detailPhotoIndex + offset, detailPhotos.length);
+    setDetailPhotoIndex(nextIndex);
+    detailPhotoScrollRef.current?.scrollTo({ x: nextIndex * detailImageWidth, animated: true });
+  }
+
+  function handleDetailPhotoScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const x = event.nativeEvent.contentOffset.x;
+    const nextIndex = Math.round(x / detailImageWidth);
+    if (nextIndex !== detailPhotoIndex) {
+      setDetailPhotoIndex(nextIndex);
+    }
   }
 
   function updateDinerRelationship(
@@ -667,6 +694,11 @@ export default function SocialProfileScreen() {
     });
 
   useEffect(() => {
+    setDetailPhotoIndex(0);
+    detailPhotoScrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [detailDiner?.user_id]);
+
+  useEffect(() => {
     setModoSocial(userSocialActive);
 
     if (!userSocialActive) {
@@ -686,6 +718,15 @@ export default function SocialProfileScreen() {
       setMesaInput(nextMesa);
     }
   }, [userSocialActive, user?.requires_social_consent, user?.mesa]);
+
+  useEffect(() => {
+    if (activateSocial !== '1' || socialScanActivationHandledRef.current || !tableSession?.mesaValue || modoSocial) {
+      return;
+    }
+
+    socialScanActivationHandledRef.current = true;
+    void requestSocialActivation(tableSession.mesaValue);
+  }, [activateSocial, tableSession?.mesaValue, modoSocial]);
 
   useEffect(() => {
     let mounted = true;
@@ -1268,7 +1309,8 @@ export default function SocialProfileScreen() {
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Escanear QR',
-          onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social' } }),
+          onPress: () =>
+            router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social', activateSocial: '1' } }),
         },
       ]);
       return;
@@ -1278,7 +1320,7 @@ export default function SocialProfileScreen() {
   }
 
   async function openMesaPrompt() {
-    router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social' } });
+    router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social', activateSocial: '1' } });
   }
 
   async function persistSocialStatus(nextValue: boolean, mesaValue: string | null, acceptsSocialPrivacy = false) {
@@ -1574,6 +1616,13 @@ export default function SocialProfileScreen() {
             </LinearGradient>
           )}
 
+          {isLikedOrMatched(diner) ? (
+            <View style={styles.likedBadge}>
+              <Ionicons name="heart" size={16} color={Colors.white} />
+              <Text style={styles.likedBadgeText}>{diner.relationship_status === 'matched' ? 'Match' : 'Like enviado'}</Text>
+            </View>
+          ) : null}
+
           <LinearGradient colors={['transparent', 'rgba(26,26,46,0.72)']} style={styles.dinerImageOverlay}>
             <Text style={styles.dinerImageName}>{diner.nombre}</Text>
             <Text style={styles.dinerImageHint}>
@@ -1751,6 +1800,18 @@ export default function SocialProfileScreen() {
         </Text>
 
         <View style={styles.tinderCardContainer}>
+          {diners.length > 1 ? (
+            <TouchableOpacity
+              style={[styles.profileArrowButton, styles.profileArrowLeft]}
+              activeOpacity={0.82}
+              onPress={() => advanceToDiner('prev')}
+              accessibilityRole="button"
+              accessibilityLabel="Perfil anterior"
+            >
+              <Ionicons name="chevron-back" size={24} color={Colors.text} />
+            </TouchableOpacity>
+          ) : null}
+
           {currentDiner && (
             <GestureDetector gesture={panGesture}>
               <Animated.View style={[styles.tinderCard, animatedCardStyle]}>
@@ -1760,6 +1821,18 @@ export default function SocialProfileScreen() {
               </Animated.View>
             </GestureDetector>
           )}
+
+          {diners.length > 1 ? (
+            <TouchableOpacity
+              style={[styles.profileArrowButton, styles.profileArrowRight]}
+              activeOpacity={0.82}
+              onPress={() => advanceToDiner('next')}
+              accessibilityRole="button"
+              accessibilityLabel="Siguiente perfil"
+            >
+              <Ionicons name="chevron-forward" size={24} color={Colors.text} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.discoveryActions}>
@@ -2511,10 +2584,12 @@ export default function SocialProfileScreen() {
                     {detailPhotos.length > 0 ? (
                       <>
                         <ScrollView
+                          ref={detailPhotoScrollRef}
                           horizontal
                           pagingEnabled
                           showsHorizontalScrollIndicator={false}
                           style={styles.detailPhotoCarousel}
+                          onMomentumScrollEnd={handleDetailPhotoScroll}
                         >
                           {detailPhotos.map((photo, index) => (
                             <Image
@@ -2528,10 +2603,32 @@ export default function SocialProfileScreen() {
                         </ScrollView>
 
                         {detailPhotos.length > 1 ? (
-                          <View style={styles.detailPhotoCount}>
-                            <Ionicons name="images-outline" size={14} color={Colors.white} />
-                            <Text style={styles.detailPhotoCountText}>{detailPhotos.length}</Text>
-                          </View>
+                          <>
+                            <TouchableOpacity
+                              style={[styles.detailPhotoArrow, styles.detailPhotoArrowLeft]}
+                              activeOpacity={0.82}
+                              onPress={() => scrollDetailPhoto('prev')}
+                              accessibilityRole="button"
+                              accessibilityLabel="Foto anterior"
+                            >
+                              <Ionicons name="chevron-back" size={24} color={Colors.white} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.detailPhotoArrow, styles.detailPhotoArrowRight]}
+                              activeOpacity={0.82}
+                              onPress={() => scrollDetailPhoto('next')}
+                              accessibilityRole="button"
+                              accessibilityLabel="Siguiente foto"
+                            >
+                              <Ionicons name="chevron-forward" size={24} color={Colors.white} />
+                            </TouchableOpacity>
+                            <View style={styles.detailPhotoCount}>
+                              <Ionicons name="images-outline" size={14} color={Colors.white} />
+                              <Text style={styles.detailPhotoCountText}>
+                                {detailPhotoIndex + 1}/{detailPhotos.length}
+                              </Text>
+                            </View>
+                          </>
                         ) : null}
                       </>
                     ) : (
@@ -2997,11 +3094,32 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
   tinderCard: {
     width: '100%',
     height: '100%',
     maxHeight: 620,
+  },
+  profileArrowButton: {
+    position: 'absolute',
+    top: '45%',
+    zIndex: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1,
+    borderColor: '#E7EAF0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.card,
+  },
+  profileArrowLeft: {
+    left: 8,
+  },
+  profileArrowRight: {
+    right: 8,
   },
   discoveryActions: {
     flexDirection: 'row',
@@ -3063,6 +3181,24 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  likedBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    minHeight: 34,
+    borderRadius: 999,
+    backgroundColor: 'rgba(225, 29, 72, 0.92)',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    zIndex: 2,
+  },
+  likedBadgeText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.white,
   },
   dinerImageOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3229,12 +3365,30 @@ const styles = StyleSheet.create({
   detailHeroImageWrap: {
     height: 360,
     backgroundColor: '#E8EBF3',
+    position: 'relative',
   },
   detailPhotoCarousel: {
     flex: 1,
   },
   detailHeroImage: {
     height: '100%',
+  },
+  detailPhotoArrow: {
+    position: 'absolute',
+    top: '45%',
+    zIndex: 4,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(17, 24, 39, 0.52)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailPhotoArrowLeft: {
+    left: 12,
+  },
+  detailPhotoArrowRight: {
+    right: 12,
   },
   detailPhotoCount: {
     position: 'absolute',
