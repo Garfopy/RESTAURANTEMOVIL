@@ -134,7 +134,14 @@ export default function RootLayout() {
                   <Stack.Screen name="(waiter)" />
                   <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="product/[id]" options={{ presentation: 'modal' }} />
+                  <Stack.Screen
+                    name="product/[id]"
+                    options={{
+                      presentation: 'transparentModal',
+                      animation: 'slide_from_bottom',
+                      contentStyle: { backgroundColor: 'transparent' },
+                    }}
+                  />
                   <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
                   <Stack.Screen name="cart" options={{ presentation: 'modal' }} />

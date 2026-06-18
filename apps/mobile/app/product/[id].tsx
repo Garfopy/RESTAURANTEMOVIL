@@ -5,17 +5,18 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
+  Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
 import { useCartStore } from '../../store/cart.store';
 import { useTableSessionStore } from '../../store/table-session.store';
-import { useFavorites } from '../../hooks/useFavorites'; // ✅ NUEVO
+import { useFavorites } from '../../hooks/useFavorites';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
@@ -26,6 +27,7 @@ import type {
 
 export default function ProductScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { id, restauranteId } = useLocalSearchParams<{
     id: string;
     restauranteId: string;
@@ -39,40 +41,14 @@ export default function ProductScreen() {
   const addItem = useCartStore((s) => s.addItem);
   const tipoPedido = useCartStore((s) => s.tipoPedido);
   const tableSession = useTableSessionStore((s) => s.session);
-
-  // ✅ FAVORITOS (UN SOLO SISTEMA)
   const { data: favorites, toggle } = useFavorites();
 
   const isFav = favorites?.some((f: any) => f.id === platillo?.id);
-
   const [cantidad, setCantidad] = useState(1);
-  const [notas, setNotas] = useState('');
   const [modsSel, setModsSel] = useState<ModificadorSeleccionado[]>([]);
 
-  if (isError) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.notFound}>
-          <Ionicons name="restaurant-outline" size={44} color={Colors.textMuted} />
-          <Text style={styles.notFoundTitle}>Platillo no disponible</Text>
-          <Text style={styles.notFoundText}>Este platillo no pertenece a la sucursal seleccionada.</Text>
-          <Button label="Volver al menu" onPress={() => router.back()} />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (isLoading || !platillo) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <Skeleton height={280} borderRadius={0} />
-        <View style={{ padding: Spacing.base, gap: 12 }}>
-          <Skeleton height={28} width="60%" />
-          <Skeleton height={16} />
-          <Skeleton height={16} width="80%" />
-        </View>
-      </SafeAreaView>
-    );
+  function closeSheet() {
+    router.back();
   }
 
   function toggleOpcion(
@@ -119,8 +95,9 @@ export default function ProductScreen() {
               },
             ];
 
-        if (nuevasOpciones.length === 0)
+        if (nuevasOpciones.length === 0) {
           return prev.filter((m) => m.modificador_id !== modId);
+        }
 
         return [
           ...prev.filter((m) => m.modificador_id !== modId),
@@ -134,219 +111,372 @@ export default function ProductScreen() {
 
   function handleAddToCart() {
     if (!platillo) return;
+
     if (tipoPedido === 'eat_in' && !tableSession) {
-      router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+      router.push({
+        pathname: '/table-scanner',
+        params: { returnTo: '/(tabs)' },
+      });
       return;
     }
-    if (tipoPedido === 'eat_in' && tableSession && platillo.restaurante_id !== tableSession.restauranteId) {
-      router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+
+    if (
+      tipoPedido === 'eat_in' &&
+      tableSession &&
+      platillo.restaurante_id !== tableSession.restauranteId
+    ) {
+      router.push({
+        pathname: '/table-scanner',
+        params: { returnTo: '/(tabs)' },
+      });
       return;
     }
-    addItem(platillo, cantidad, modsSel, notas.trim());
-    router.back();
+
+    addItem(platillo, cantidad, modsSel, '');
+    closeSheet();
   }
 
-  return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-        {/* Imagen */}
-        <View style={styles.imageContainer}>
-          <Image
-            source={
-              formatImageUrl(platillo.imagen) ??
-              require('../../assets/placeholder-food.jpg')
-            }
-            style={styles.image}
-            contentFit="cover"
-          />
-
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={22} color={Colors.text} />
-          </TouchableOpacity>
-
-          {/* ❤️ FAVORITO (YA CORREGIDO) */}
-          <TouchableOpacity
-            style={styles.favBtn}
-            onPress={() => toggle(platillo.id)}
-          >
+  if (isError) {
+    return (
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.backdrop} onPress={closeSheet} />
+        <View style={styles.sheetHost} pointerEvents="box-none">
+          <View style={styles.errorSheet}>
             <Ionicons
-              name={isFav ? 'heart' : 'heart-outline'}
-              size={22}
-              color={isFav ? Colors.error : Colors.text}
+              name="restaurant-outline"
+              size={44}
+              color={Colors.textMuted}
             />
-          </TouchableOpacity>
-        </View>
-
-        {/* Info */}
-        <View style={styles.info}>
-          <Text style={styles.nombre}>{platillo.nombre}</Text>
-
-          {platillo.descripcion && (
-            <Text style={styles.descripcion}>
-              {platillo.descripcion}
+            <Text style={styles.notFoundTitle}>Platillo no disponible</Text>
+            <Text style={styles.notFoundText}>
+              Este platillo no pertenece a la sucursal seleccionada.
             </Text>
-          )}
-
-          <Text style={styles.precio}>
-            ${platillo.precio.toFixed(2)}
-          </Text>
-
-          {/* Modificadores */}
-          {platillo.modificadores?.map((mod) => (
-            <View key={mod.id} style={styles.modGroup}>
-              <Text style={styles.modTitle}>
-                {mod.nombre}
-                {mod.requerido && (
-                  <Text style={styles.req}> *</Text>
-                )}
-              </Text>
-
-              <Text style={styles.modSubtitle}>
-                {mod.tipo === 'radio'
-                  ? 'Elige una opción'
-                  : 'Selecciona las que quieras'}
-              </Text>
-
-              {mod.opciones.map((opcion) => {
-                const selMod = modsSel.find(
-                  (m) => m.modificador_id === mod.id
-                );
-
-                const isSelected =
-                  selMod?.opciones.some(
-                    (o) => o.opcion_id === opcion.id
-                  ) ?? false;
-
-                return (
-                  <TouchableOpacity
-                    key={opcion.id}
-                    style={styles.opcionRow}
-                    onPress={() =>
-                      toggleOpcion(
-                        mod.id,
-                        mod.nombre,
-                        opcion,
-                        mod.tipo as 'radio' | 'checkbox'
-                      )
-                    }
-                  >
-                    <View
-                      style={[
-                        styles.checkBox,
-                        isSelected && styles.checkBoxActive,
-                      ]}
-                    >
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark"
-                          size={12}
-                          color={Colors.white}
-                        />
-                      )}
-                    </View>
-
-                    <Text style={styles.opcionNombre}>
-                      {opcion.nombre}
-                    </Text>
-
-                    {(opcion.precio_extra ?? 0) > 0 && (
-                      <Text style={styles.opcionPrecio}>
-                        +${opcion.precio_extra!.toFixed(2)}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ))}
+            <Button label="Volver al menu" onPress={closeSheet} fullWidth />
+          </View>
         </View>
-      </ScrollView>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <View style={styles.qtyRow}>
-          <TouchableOpacity
-            onPress={() =>
-              setCantidad((c) => Math.max(1, c - 1))
-            }
-            style={styles.qtyBtn}
-          >
-            <Ionicons
-              name="remove"
-              size={18}
-              color={Colors.text}
-            />
-          </TouchableOpacity>
-
-          <Text style={styles.qty}>{cantidad}</Text>
-
-          <TouchableOpacity
-            onPress={() => setCantidad((c) => c + 1)}
-            style={styles.qtyBtn}
-          >
-            <Ionicons name="add" size={18} color={Colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        <Button
-          label={`Agregar · $${(
-            platillo.precio * cantidad
-          ).toFixed(2)}`}
-          onPress={handleAddToCart}
-          style={{ flex: 1 }}
-          size="lg"
-          disabled={!platillo.disponible}
-        />
       </View>
-    </SafeAreaView>
+    );
+  }
+
+  if (isLoading || !platillo) {
+    return (
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.backdrop} onPress={closeSheet} />
+        <View style={styles.sheetHost} pointerEvents="box-none">
+          <View style={styles.sheet}>
+            <View style={styles.grabber} />
+            <Skeleton height={260} borderRadius={0} />
+            <View style={styles.loadingContent}>
+              <Skeleton height={30} width="60%" />
+              <Skeleton height={42} width={140} borderRadius={999} />
+              <Skeleton height={18} />
+              <Skeleton height={18} width="84%" />
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  const total = platillo.precio * cantidad;
+  const footerPadding = Math.max(insets.bottom, 18);
+
+  return (
+    <View style={styles.modalRoot}>
+      <Pressable style={styles.backdrop} onPress={closeSheet} />
+
+      <View style={styles.sheetHost} pointerEvents="box-none">
+        <View style={styles.sheet}>
+          <View style={styles.grabber} />
+
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View style={styles.imageContainer}>
+              <Image
+                source={
+                  formatImageUrl(platillo.imagen) ??
+                  require('../../assets/placeholder-food.jpg')
+                }
+                style={styles.image}
+                contentFit="cover"
+              />
+
+              <TouchableOpacity
+                style={[styles.iconBtn, styles.favoriteBtn]}
+                onPress={() => toggle(platillo.id)}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={isFav ? 'heart' : 'heart-outline'}
+                  size={21}
+                  color={isFav ? Colors.error : Colors.text}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.iconBtn, styles.closeBtn]}
+                onPress={closeSheet}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="close" size={22} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.content}>
+              <Text style={styles.nombre}>{platillo.nombre}</Text>
+
+              <View style={styles.pricePill}>
+                <Ionicons name="cash-outline" size={16} color={Colors.text} />
+                <Text style={styles.heroPrice}>${platillo.precio.toFixed(2)}</Text>
+              </View>
+
+              {platillo.descripcion ? (
+                <Text style={styles.heroDescription}>{platillo.descripcion}</Text>
+              ) : null}
+
+              {platillo.modificadores?.map((mod) => (
+                <View key={mod.id} style={styles.modGroup}>
+                  <Text style={styles.modTitle}>
+                    {mod.nombre}
+                    {mod.requerido ? <Text style={styles.req}> *</Text> : null}
+                  </Text>
+
+                  <Text style={styles.modSubtitle}>
+                    {mod.tipo === 'radio'
+                      ? 'Elige una opcion'
+                      : 'Selecciona las que quieras'}
+                  </Text>
+
+                  {mod.opciones.map((opcion) => {
+                    const selMod = modsSel.find(
+                      (m) => m.modificador_id === mod.id
+                    );
+
+                    const isSelected =
+                      selMod?.opciones.some(
+                        (o) => o.opcion_id === opcion.id
+                      ) ?? false;
+
+                    return (
+                      <TouchableOpacity
+                        key={opcion.id}
+                        style={styles.opcionRow}
+                        onPress={() =>
+                          toggleOpcion(
+                            mod.id,
+                            mod.nombre,
+                            opcion,
+                            mod.tipo as 'radio' | 'checkbox'
+                          )
+                        }
+                        activeOpacity={0.8}
+                      >
+                        <View
+                          style={[
+                            styles.checkBox,
+                            isSelected && styles.checkBoxActive,
+                          ]}
+                        >
+                          {isSelected ? (
+                            <Ionicons
+                              name="checkmark"
+                              size={12}
+                              color={Colors.white}
+                            />
+                          ) : null}
+                        </View>
+
+                        <Text style={styles.opcionNombre}>{opcion.nombre}</Text>
+
+                        {(opcion.precio_extra ?? 0) > 0 ? (
+                          <Text style={styles.opcionPrecio}>
+                            +${opcion.precio_extra!.toFixed(2)}
+                          </Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+
+          <View style={[styles.footer, { paddingBottom: footerPadding }]}>
+            <View style={styles.qtyRow}>
+              <TouchableOpacity
+                onPress={() => setCantidad((c) => Math.max(1, c - 1))}
+                style={styles.qtyBtn}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="remove" size={18} color={Colors.text} />
+              </TouchableOpacity>
+
+              <Text style={styles.qty}>{cantidad}</Text>
+
+              <TouchableOpacity
+                onPress={() => setCantidad((c) => c + 1)}
+                style={styles.qtyBtn}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={18} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <Button
+              label={`Agregar · $${total.toFixed(2)}`}
+              onPress={handleAddToCart}
+              style={styles.addButton}
+              size="lg"
+              disabled={!platillo.disponible}
+            />
+          </View>
+        </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.background },
-  imageContainer: { width: '100%', height: 280, position: 'relative' },
-  image: { width: '100%', height: '100%' },
-  backBtn: {
+  modalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(18, 16, 18, 0.46)',
+  },
+  sheetHost: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    alignSelf: 'stretch',
+    maxHeight: '92%',
+    backgroundColor: '#FFFDFC',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+    ...Shadows.md,
+  },
+  errorSheet: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 24,
+    gap: 12,
+    backgroundColor: '#FFFDFC',
+    borderRadius: 28,
+    alignItems: 'center',
+    ...Shadows.md,
+  },
+  grabber: {
+    alignSelf: 'center',
+    width: 52,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#DDD8D5',
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  scroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  scrollContent: {
+    paddingBottom: 8,
+  },
+  loadingContent: {
+    paddingHorizontal: Spacing.base,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.xl,
+    gap: 12,
+  },
+  imageContainer: {
+    width: '100%',
+    height: 320,
+    position: 'relative',
+    backgroundColor: '#EFE8DE',
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+  },
+  iconBtn: {
     position: 'absolute',
     top: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.sm,
+  },
+  favoriteBtn: {
     left: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.sm,
   },
-  favBtn: {
-    position: 'absolute',
-    top: 16,
+  closeBtn: {
     right: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    width: 40,
-    height: 40,
+  },
+  content: {
+    paddingHorizontal: Spacing.base,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.base,
+    gap: 16,
+  },
+  nombre: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 28,
+    color: Colors.text,
+    lineHeight: 34,
+  },
+  pricePill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.sm,
+    alignSelf: 'flex-start',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#F4EFE7',
+    borderWidth: 1,
+    borderColor: '#E8DED1',
   },
-  info: { padding: Spacing.base, gap: Spacing.sm },
-  nombre: { fontFamily: 'PlayfairDisplay_700Bold', fontSize: 26, color: Colors.text },
-  descripcion: { ...Typography.body, color: Colors.textMuted, lineHeight: 22 },
-  precio: { ...Typography.priceLG, color: Colors.primary, fontWeight: '700' },
+  heroPrice: {
+    ...Typography.body,
+    color: Colors.text,
+    fontWeight: '800',
+  },
+  heroDescription: {
+    ...Typography.body,
+    color: Colors.textMuted,
+    fontSize: 17,
+    lineHeight: 29,
+  },
   modGroup: {
-    marginTop: Spacing.base,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
+    backgroundColor: '#FAF8F5',
+    borderWidth: 1,
+    borderColor: '#ECE4D8',
+    borderRadius: 18,
     padding: Spacing.md,
-    gap: 6,
+    gap: 8,
   },
-  modTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  req: { color: Colors.error },
-  modSubtitle: { fontSize: 12, color: Colors.textMuted, marginBottom: 4 },
+  modTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  req: {
+    color: Colors.error,
+  },
+  modSubtitle: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 4,
+  },
   opcionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -362,40 +492,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkBoxActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  opcionNombre: { flex: 1, fontSize: 14, color: Colors.text },
-  opcionPrecio: { fontSize: 13, color: Colors.textMuted, fontWeight: '600' },
+  checkBoxActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  opcionNombre: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.text,
+  },
+  opcionPrecio: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     gap: Spacing.sm,
     paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.md,
-    paddingBottom: 28,
-    backgroundColor: Colors.background,
+    paddingTop: Spacing.sm,
+    backgroundColor: '#FFFDFC',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    ...Shadows.md,
+    borderTopColor: '#EFE7DD',
   },
   qtyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
+    justifyContent: 'space-between',
+    minWidth: 112,
     paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: '#F6F2EC',
+    borderWidth: 1,
+    borderColor: '#E8DED1',
   },
-  qtyBtn: { padding: 6 },
-  qty: { fontSize: 16, fontWeight: '700', color: Colors.text, minWidth: 24, textAlign: 'center' },
-  notFound: {
+  qtyBtn: {
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+  },
+  qty: {
+    minWidth: 26,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  addButton: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.sm,
+    borderRadius: 18,
   },
   notFoundTitle: {
     ...Typography.h3,

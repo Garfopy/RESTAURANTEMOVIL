@@ -35,6 +35,7 @@ import { SearchBar } from '../../components/ui/SearchBar';
 import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
+import { useToast } from '../../context/ToastContext';
 import type { Platillo, Categoria, TipoPedido, Sucursal } from '@amare/types';
 
 const HOME_BANNERS = [
@@ -61,10 +62,21 @@ const HOME_BANNERS = [
   },
 ];
 
+const AUTO_SELECT_DISTANCE_METERS = 15;
+const CONFIRM_SELECT_DISTANCE_METERS = 50;
+const MIN_DISTANCE_GAP_METERS = 30;
+
+type NearbyBranchState =
+  | { kind: 'inside'; branch: Sucursal; distanceMeters: number }
+  | { kind: 'near'; branch: Sucursal; distanceMeters: number }
+  | { kind: 'far'; branch: Sucursal | null; distanceMeters: number | null }
+  | { kind: 'unknown'; branch: Sucursal | null; distanceMeters: number | null };
+
 export default function HomeScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const user = useUserStore((s) => s.user);
+  const toast = useToast();
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
   const { tipoPedido, setTipoPedido, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
@@ -73,8 +85,11 @@ export default function HomeScreen() {
   const [availableTypes, setAvailableTypes] = useState<TipoPedido[]>(['delivery', 'pickup']);
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [detectedCoords, setDetectedCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [detectedBranchMessage, setDetectedBranchMessage] = useState<string | null>(null);
   const [selectingPickupBranch, setSelectingPickupBranch] = useState(false);
+  const [pickupListExpanded, setPickupListExpanded] = useState(true);
   const [search, setSearch] = useState('');
+  const initialFlowStartedRef = useRef(false);
 
   // 🎞️ Animación para los indicadores (dots)
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -93,64 +108,312 @@ export default function HomeScreen() {
   const { data: categories, isLoading: loadingCats } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured } = useFeaturedDishes(restauranteId);
 
-  // Lógica para detectar ubicación y mostrar modal inicial
-  useEffect(() => {
-    if (tipoPedido || sucursales.length === 0) {
-      return;
+  async function getDetectedCoords(options?: { silentOnDenied?: boolean }): Promise<{ lat: number; lng: number } | null> {
+    if (detectedCoords) {
+      return detectedCoords;
     }
 
-    const enabledTypes = getEnabledOrderTypes(sucursales);
-
-    if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
-      if (tableSession?.branch) {
-        if (!branch || branch.id !== tableSession.branch.id) {
-          seleccionar(tableSession.branch);
-        }
-        setTipoPedido('eat_in');
-      } else {
-        router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
-      }
-      return;
-    }
-
-    setAvailableTypes(enabledTypes);
-    openDeliveryFlow();
-  }, [tipoPedido, sucursales, branch, seleccionar, setTipoPedido, tableSession, router]);
-
-  async function openDeliveryFlow() {
-    const enabledTypes = getEnabledOrderTypes(sucursales);
-    setAvailableTypes(enabledTypes.length ? enabledTypes : ['delivery', 'pickup']);
-    setSelectingPickupBranch(false);
-    setShowTypeModal(true);
     setDetectingLocation(true);
 
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        setDetectedCoords({
-          lat: location.coords.latitude,
-          lng: location.coords.longitude,
-        });
+      let permission = await Location.getForegroundPermissionsAsync();
+
+      if (!permission.granted && permission.canAskAgain) {
+        permission = await Location.requestForegroundPermissionsAsync();
       }
+
+      if (!permission.granted) {
+        if (!options?.silentOnDenied) {
+          toast.info('Activa tu ubicacion para detectar tu sucursal automaticamente.');
+        }
+        return null;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const coords = {
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+      };
+
+      setDetectedCoords(coords);
+      return coords;
     } catch (error) {
       console.error('Error detectando ubicacion:', error);
+
+      if (!options?.silentOnDenied) {
+        toast.warning('No pudimos obtener tu ubicacion. Puedes elegir la sucursal manualmente.');
+      }
+
+      return null;
     } finally {
       setDetectingLocation(false);
+    }
+  }
+
+  async function maybeAutoSelectNearbyBranch() {
+    const coords = await getDetectedCoords({ silentOnDenied: true });
+    if (!coords) {
+      return false;
+    }
+
+    try {
+      const nearest = await getNearestBranches(coords.lat, coords.lng);
+      const candidate = nearest[0];
+      const secondCandidate = nearest[1];
+
+      if (!candidate || typeof candidate.distancia_km !== 'number') {
+        return false;
+      }
+
+      if (branch?.id === candidate.id) {
+        return true;
+      }
+
+      const candidateDistanceMeters = candidate.distancia_km * 1000;
+      const secondDistanceMeters =
+        typeof secondCandidate?.distancia_km === 'number' ? secondCandidate.distancia_km * 1000 : null;
+      const hasCloseRunnerUp =
+        secondDistanceMeters !== null && secondDistanceMeters - candidateDistanceMeters <= MIN_DISTANCE_GAP_METERS;
+
+      if (candidateDistanceMeters <= AUTO_SELECT_DISTANCE_METERS && !hasCloseRunnerUp) {
+        seleccionar(candidate);
+        setDetectedBranchMessage(`Detectamos ${candidate.nombre} cerca de ti y la dejamos lista.`);
+        return true;
+      }
+
+      if (candidateDistanceMeters > CONFIRM_SELECT_DISTANCE_METERS) {
+        return false;
+      }
+
+      return await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Sucursal cercana',
+          `Parece que estas en ${candidate.nombre}. ¿Quieres usar esta sucursal?`,
+          [
+            {
+              text: 'Ahora no',
+              style: 'cancel',
+              onPress: () => resolve(false),
+            },
+            {
+              text: 'Usar sucursal',
+              onPress: () => {
+                seleccionar(candidate);
+                setDetectedBranchMessage(`Usaremos ${candidate.nombre} para mostrarte el menu correcto.`);
+                resolve(true);
+              },
+            },
+          ]
+        );
+      });
+    } catch (error) {
+      console.error('Error detectando sucursal cercana:', error);
+      return false;
+    }
+  }
+
+  async function evaluateNearbyBranch(): Promise<NearbyBranchState> {
+    const coords = await getDetectedCoords({ silentOnDenied: true });
+    if (!coords) {
+      return { kind: 'unknown', branch: null, distanceMeters: null };
+    }
+
+    try {
+      const nearest = await getNearestBranches(coords.lat, coords.lng);
+      const candidate = nearest[0];
+      const secondCandidate = nearest[1];
+
+      if (!candidate || typeof candidate.distancia_km !== 'number') {
+        return { kind: 'unknown', branch: null, distanceMeters: null };
+      }
+
+      const candidateDistanceMeters = candidate.distancia_km * 1000;
+      const secondDistanceMeters =
+        typeof secondCandidate?.distancia_km === 'number' ? secondCandidate.distancia_km * 1000 : null;
+      const hasCloseRunnerUp =
+        secondDistanceMeters !== null && secondDistanceMeters - candidateDistanceMeters <= MIN_DISTANCE_GAP_METERS;
+
+      if (candidateDistanceMeters <= AUTO_SELECT_DISTANCE_METERS && !hasCloseRunnerUp) {
+        return { kind: 'inside', branch: candidate, distanceMeters: candidateDistanceMeters };
+      }
+
+      if (candidateDistanceMeters <= CONFIRM_SELECT_DISTANCE_METERS && !hasCloseRunnerUp) {
+        return { kind: 'near', branch: candidate, distanceMeters: candidateDistanceMeters };
+      }
+
+      return {
+        kind: candidateDistanceMeters > CONFIRM_SELECT_DISTANCE_METERS ? 'far' : 'unknown',
+        branch: candidate,
+        distanceMeters: candidateDistanceMeters,
+      };
+    } catch (error) {
+      console.error('Error detectando sucursal cercana:', error);
+      return { kind: 'unknown', branch: null, distanceMeters: null };
+    }
+  }
+
+  function getTypesWithoutEatIn(types: TipoPedido[]): TipoPedido[] {
+    const filtered = types.filter((type) => type !== 'eat_in');
+    return filtered.length > 0 ? filtered : types;
+  }
+
+  function syncDetectedBranchIfSafe(nextBranch: Sucursal) {
+    if (itemCount > 0 && cartRestaurantId !== null && cartRestaurantId !== nextBranch.id) {
+      return;
+    }
+
+    seleccionar(nextBranch);
+  }
+
+  function openEatInScanner(branchToUse?: Sucursal | null) {
+    if (branchToUse) {
+      syncDetectedBranchIfSafe(branchToUse);
+    }
+
+    closeDeliveryFlow();
+    router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+  }
+
+  async function confirmEatInNearby(branchToUse: Sucursal): Promise<boolean> {
+    return await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        '¿Estás en el restaurante?',
+        `Detectamos que estás cerca de ${branchToUse.nombre}. Si ya llegaste, te llevamos directo al escáner QR de tu mesa.`,
+        [
+          {
+            text: 'No, pediré fuera',
+            style: 'cancel',
+            onPress: () => resolve(false),
+          },
+          {
+            text: 'Sí, estoy aquí',
+            onPress: () => {
+              openEatInScanner(branchToUse);
+              resolve(true);
+            },
+          },
+        ]
+      );
+    });
+  }
+
+  // Lógica para detectar ubicación y mostrar modal inicial
+  useEffect(() => {
+    if (tipoPedido || sucursales.length === 0 || initialFlowStartedRef.current) {
+      return;
+    }
+
+    initialFlowStartedRef.current = true;
+    let cancelled = false;
+
+    async function bootstrapOrderFlow() {
+      const enabledTypes = getEnabledOrderTypes(sucursales);
+      let modalTypes = enabledTypes;
+
+      if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
+        if (tableSession?.branch) {
+          if (!branch || branch.id !== tableSession.branch.id) {
+            seleccionar(tableSession.branch);
+          }
+          setTipoPedido('eat_in');
+        } else {
+          router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+        }
+        return;
+      }
+
+      if (enabledTypes.includes('eat_in')) {
+        const nearbyBranch = await evaluateNearbyBranch();
+
+        if (nearbyBranch.kind === 'inside') {
+          setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre} y te llevamos directo al escáner QR.`);
+          openEatInScanner(nearbyBranch.branch);
+          return;
+        }
+
+        if (nearbyBranch.kind === 'near') {
+          const confirmedEatIn = await confirmEatInNearby(nearbyBranch.branch);
+          if (confirmedEatIn) {
+            return;
+          }
+
+          modalTypes = getTypesWithoutEatIn(enabledTypes);
+          setDetectedBranchMessage('Si estás fuera del restaurante, por ahora te mostramos domicilio o recoger en tienda.');
+        } else if (nearbyBranch.kind === 'far') {
+          modalTypes = getTypesWithoutEatIn(enabledTypes);
+          setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
+        } else {
+          setDetectedBranchMessage(null);
+        }
+      }
+
+      if (!cancelled) {
+        setAvailableTypes(modalTypes.length ? modalTypes : getTypesWithoutEatIn(enabledTypes));
+        setSelectingPickupBranch(false);
+        setShowTypeModal(true);
+      }
+    }
+
+    void bootstrapOrderFlow();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tipoPedido, sucursales, branch, seleccionar, setTipoPedido, tableSession, router]);
+
+  async function openDeliveryFlow(prefetchLocation = true) {
+    const enabledTypes = getEnabledOrderTypes(sucursales);
+    let nextAvailableTypes = enabledTypes.length ? enabledTypes : ['delivery', 'pickup'];
+
+    if (enabledTypes.includes('eat_in')) {
+      const nearbyBranch = await evaluateNearbyBranch();
+
+      if (nearbyBranch.kind === 'inside') {
+        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre} y te llevamos directo al escáner QR.`);
+        openEatInScanner(nearbyBranch.branch);
+        return;
+      }
+
+      if (nearbyBranch.kind === 'near') {
+        const confirmedEatIn = await confirmEatInNearby(nearbyBranch.branch);
+        if (confirmedEatIn) {
+          return;
+        }
+
+        nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
+        setDetectedBranchMessage('Si estás fuera del restaurante, por ahora te mostramos domicilio o recoger en tienda.');
+      } else if (nearbyBranch.kind === 'far') {
+        nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
+        setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
+      } else {
+        setDetectedBranchMessage(null);
+      }
+    }
+
+    setAvailableTypes(nextAvailableTypes);
+    setSelectingPickupBranch(false);
+    setShowTypeModal(true);
+
+    if (prefetchLocation) {
+      void getDetectedCoords({ silentOnDenied: true });
     }
   }
 
   function closeDeliveryFlow() {
     setShowTypeModal(false);
     setSelectingPickupBranch(false);
+    setPickupListExpanded(true);
+    setDetectedBranchMessage(null);
   }
 
   async function handleInitialTypeSelect(tipo: TipoPedido) {
     if (tipo === 'pickup') {
       setTipoPedido('pickup');
       setSelectingPickupBranch(true);
+      setPickupListExpanded(true);
       return;
     }
 
@@ -160,14 +423,14 @@ export default function HomeScreen() {
       return;
     }
 
-    setDetectingLocation(true);
     setTipoPedido(tipo);
 
     try {
       let targetBranch: Sucursal | undefined;
+      const coords = await getDetectedCoords({ silentOnDenied: false });
 
-      if (detectedCoords) {
-        const nearest = await getNearestBranches(detectedCoords.lat, detectedCoords.lng, tipo);
+      if (coords) {
+        const nearest = await getNearestBranches(coords.lat, coords.lng, tipo);
         targetBranch = nearest[0];
       }
 
@@ -198,8 +461,6 @@ export default function HomeScreen() {
       console.error('Error seleccionando sucursal cercana:', error);
       closeDeliveryFlow();
       router.push({ pathname: '/branch-selector', params: { tipoPedido: tipo } });
-    } finally {
-      setDetectingLocation(false);
     }
   }
 
@@ -267,6 +528,17 @@ export default function HomeScreen() {
       });
   }
 
+  function getPickupSelectionLabel() {
+    const pickupBranches = getPickupBranches();
+    const selectedPickupBranch = pickupBranches.find((item) => item.id === branch?.id) ?? pickupBranches[0] ?? null;
+
+    if (!selectedPickupBranch) {
+      return 'Selecciona una sucursal';
+    }
+
+    return selectedPickupBranch.nombre;
+  }
+
   function getPickupMapRegion() {
     const pickupWithCoords = getPickupBranches().find((item) => item.lat != null && item.lng != null);
     return {
@@ -314,7 +586,9 @@ export default function HomeScreen() {
       <View style={styles.topNav}>
         <TouchableOpacity 
           style={styles.locationSelector}
-          onPress={() => openDeliveryFlow()}
+          onPress={() => {
+            void openDeliveryFlow();
+          }}
           activeOpacity={0.7}
         >
           <Ionicons name={getOrderModeIcon()} size={18} color={Colors.primary} />
@@ -468,14 +742,14 @@ export default function HomeScreen() {
       <StoreFAB />
 
       {/* MODAL DE SELECCIÓN INICIAL */}
-      <Modal visible={showTypeModal} transparent animationType="fade" onRequestClose={() => setShowTypeModal(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setShowTypeModal(false)}>
+      <Modal visible={showTypeModal} transparent animationType="fade" onRequestClose={closeDeliveryFlow}>
+        <Pressable style={styles.modalOverlay} onPress={selectingPickupBranch ? undefined : closeDeliveryFlow}>
           <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
             <Ionicons
               name={selectingPickupBranch ? 'storefront' : 'restaurant'}
               size={40}
               color={Colors.primary}
-              style={{ marginBottom: 15 }}
+              style={{ marginBottom: 15, alignSelf: 'center' }}
             />
             <Text style={styles.modalTitle}>
               {selectingPickupBranch ? 'Elige donde recoger' : `Bienvenido a ${branch?.nombre || 'Amare'}`}
@@ -485,48 +759,99 @@ export default function HomeScreen() {
                 ? 'Selecciona una sucursal compatible con pickup.'
                 : 'Como prefieres disfrutar tu comida hoy?'}
             </Text>
-            
+             
             {detectingLocation ? (
               <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
             ) : selectingPickupBranch ? (
               <View style={styles.pickupSelector}>
-                {getPickupBranches().some((item) => item.lat != null && item.lng != null) && (
-                  <MapView style={styles.pickupMap} initialRegion={getPickupMapRegion()}>
-                    {getPickupBranches()
-                      .filter((item) => item.lat != null && item.lng != null)
-                      .map((item) => (
-                        <Marker
-                          key={item.id}
-                          coordinate={{ latitude: item.lat!, longitude: item.lng! }}
-                          title={item.nombre}
-                          description={item.direccion || item.descripcion || 'Sucursal'}
-                          onPress={() => selectBranchForType(item, 'pickup')}
-                        />
-                      ))}
-                  </MapView>
-                )}
+                <View style={styles.pickupCard}>
+                  <Text style={styles.pickupCardTitle}>Pick Up</Text>
+                  <Text style={styles.pickupCardSubtitle}>Elige la sucursal donde pasarás por tu pedido.</Text>
 
-                <ScrollView style={styles.pickupList} contentContainerStyle={styles.pickupListContent}>
-                  {getPickupBranches().map((item) => (
+                  {getPickupBranches().some((item) => item.lat != null && item.lng != null) ? (
+                    <MapView
+                      style={styles.pickupMap}
+                      initialRegion={getPickupMapRegion()}
+                      zoomEnabled
+                      zoomTapEnabled
+                      scrollEnabled
+                      rotateEnabled={false}
+                      pitchEnabled={false}
+                      toolbarEnabled={false}
+                    >
+                      {getPickupBranches()
+                        .filter((item) => item.lat != null && item.lng != null)
+                        .map((item) => (
+                          <Marker
+                            key={item.id}
+                            coordinate={{ latitude: item.lat!, longitude: item.lng! }}
+                            title={item.nombre}
+                            description={item.direccion || item.descripcion || 'Sucursal'}
+                            onPress={() => selectBranchForType(item, 'pickup')}
+                          />
+                        ))}
+                    </MapView>
+                  ) : (
+                    <View style={styles.pickupMapFallback}>
+                      <Ionicons name="map-outline" size={28} color={Colors.primary} />
+                      <Text style={styles.pickupMapFallbackText}>No hay coordenadas disponibles para mostrar el mapa.</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.pickupDropdownWrap}>
                     <TouchableOpacity
-                      key={item.id}
-                      style={styles.pickupBranchButton}
-                      onPress={() => selectBranchForType(item, 'pickup')}
+                      style={styles.pickupDropdownTrigger}
+                      onPress={() => setPickupListExpanded((value) => !value)}
                       activeOpacity={0.85}
                     >
-                      <View style={styles.pickupBranchCopy}>
-                        <Text style={styles.pickupBranchName}>{item.nombre}</Text>
-                        <Text style={styles.pickupBranchAddress} numberOfLines={1}>
-                          {item.direccion || item.descripcion || 'Sucursal'}
+                      <View style={styles.pickupDropdownCopy}>
+                        <Text style={styles.pickupDropdownLabel}>Sucursal</Text>
+                        <Text style={styles.pickupDropdownValue} numberOfLines={1}>
+                          {getPickupSelectionLabel()}
                         </Text>
                       </View>
-                      {typeof item.distancia_km === 'number' && (
-                        <Text style={styles.pickupBranchDistance}>{item.distancia_km.toFixed(1)} km</Text>
-                      )}
-                      <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+                      <Ionicons
+                        name={pickupListExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={18}
+                        color="#6B7280"
+                      />
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
+
+                    {pickupListExpanded ? (
+                      <ScrollView style={styles.pickupList} contentContainerStyle={styles.pickupListContent}>
+                        {getPickupBranches().map((item) => {
+                          const isCurrentBranch = branch?.id === item.id;
+
+                          return (
+                            <TouchableOpacity
+                              key={item.id}
+                              style={[styles.pickupBranchButton, isCurrentBranch && styles.pickupBranchButtonActive]}
+                              onPress={() => selectBranchForType(item, 'pickup')}
+                              activeOpacity={0.85}
+                            >
+                              <View style={styles.pickupBranchCopy}>
+                                <Text style={[styles.pickupBranchName, isCurrentBranch && styles.pickupBranchNameActive]}>
+                                  {item.nombre}
+                                </Text>
+                                <Text style={styles.pickupBranchAddress} numberOfLines={1}>
+                                  {item.direccion || item.descripcion || 'Sucursal'}
+                                </Text>
+                              </View>
+                              {typeof item.distancia_km === 'number' && (
+                                <Text style={styles.pickupBranchDistance}>{item.distancia_km.toFixed(1)} km</Text>
+                              )}
+                              <Ionicons
+                                name={isCurrentBranch ? 'checkmark-circle' : 'chevron-forward'}
+                                size={18}
+                                color={isCurrentBranch ? Colors.primary : '#6B7280'}
+                              />
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    ) : null}
+                  </View>
+                </View>
 
                 <TouchableOpacity style={styles.modalBackButton} onPress={() => setSelectingPickupBranch(false)}>
                   <Ionicons name="arrow-back" size={16} color={Colors.primary} />
@@ -545,7 +870,7 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {availableTypes.length === 2 && !detectingLocation && !selectingPickupBranch && (
+            {false && availableTypes.length === 2 && !detectingLocation && !selectingPickupBranch && (
               <View style={styles.infoBox}>
                 <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
                 <Text style={styles.infoText}>
@@ -707,9 +1032,12 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: '#FFF',
     borderRadius: 30,
-    padding: 25,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 18,
     width: '100%',
-    alignItems: 'center',
+    maxWidth: 420,
+    alignItems: 'stretch',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
@@ -721,21 +1049,41 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
     textAlign: 'center',
+    alignSelf: 'center',
   },
   modalSubtitle: {
     fontSize: 15,
     color: '#6B7280',
     textAlign: 'center',
     marginTop: 8,
-    marginBottom: 20,
+    marginBottom: 16,
+    alignSelf: 'center',
   },
   selectorContainer: {
     width: '100%',
-    marginVertical: 10,
+    marginTop: 8,
+    marginBottom: 4,
   },
   pickupSelector: {
     width: '100%',
     gap: 12,
+  },
+  pickupCard: {
+    width: '100%',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FCFCFD',
+    padding: 14,
+    gap: 12,
+  },
+  pickupCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  pickupCardSubtitle: {
+    display: 'none',
   },
   pickupMap: {
     width: '100%',
@@ -743,12 +1091,65 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
   },
+  pickupMapFallback: {
+    width: '100%',
+    height: 160,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 10,
+  },
+  pickupMapFallbackText: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  pickupDropdownWrap: {
+    width: '100%',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  pickupDropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  pickupDropdownCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 12,
+  },
+  pickupDropdownLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  pickupDropdownValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
   pickupList: {
     width: '100%',
-    maxHeight: 190,
+    maxHeight: 210,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
   },
   pickupListContent: {
     gap: 8,
+    padding: 10,
   },
   pickupBranchButton: {
     flexDirection: 'row',
@@ -760,6 +1161,10 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     gap: 10,
   },
+  pickupBranchButtonActive: {
+    borderColor: '#D7B98F',
+    backgroundColor: '#FFF7ED',
+  },
   pickupBranchCopy: {
     flex: 1,
     minWidth: 0,
@@ -768,6 +1173,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#111827',
+  },
+  pickupBranchNameActive: {
+    color: Colors.primary,
   },
   pickupBranchAddress: {
     fontSize: 12,
@@ -790,6 +1198,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Colors.primary,
+  },
+  detectedBranchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  detectedBranchText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#374151',
+    lineHeight: 18,
   },
   infoBox: {
     flexDirection: 'row',
