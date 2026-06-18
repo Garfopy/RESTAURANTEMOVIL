@@ -9,6 +9,7 @@ interface BranchState {
   loading: boolean;
   setSucursales: (branches: Sucursal[]) => void;
   seleccionar: (branch: Sucursal) => void;
+  clearSelection: () => void;
   autoSeleccionarSiUnica: () => void;
   fetchSucursales: () => Promise<void>;
 }
@@ -24,6 +25,8 @@ export const useBranchStore = create<BranchState>((set, get) => ({
   },
 
   seleccionar: (branch) => set({ seleccionada: branch }),
+
+  clearSelection: () => set({ seleccionada: null }),
 
   autoSeleccionarSiUnica: () => {
     const { sucursales, seleccionada } = get();

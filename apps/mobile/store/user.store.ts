@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { MobileUser, Sesion } from '@amare/types';
 import { API_BASE_URL } from '../constants/api';
+import { useBranchStore } from './branch.store';
 import { useCartStore } from './cart.store';
 import { useTableSessionStore } from './table-session.store';
 import { useWaiterCartStore } from './waiter-cart.store';
@@ -80,6 +81,7 @@ function normalizeApiBase(url: string): string {
 }
 
 function clearSessionState(): void {
+  useBranchStore.getState().clearSelection();
   useTableSessionStore.getState().clearSession();
   useCartStore.getState().clear();
   useWaiterCartStore.getState().clear();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
@@ -23,15 +23,14 @@ export function OrderTypeSelector({
   available = ['pickup', 'delivery', 'eat_in'],
 }: OrderTypeSelectorProps) {
   const theme = useThemeColors();
+  const visibleOptions = OPTIONS.filter((o) => available.includes(o.tipo));
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.row}
-    >
-      {OPTIONS.filter((o) => available.includes(o.tipo)).map((opt) => {
+    <View style={styles.row}>
+      {visibleOptions.map((opt, index) => {
         const active = value === opt.tipo;
+        const isHalfWidth = visibleOptions.length <= 2 || (visibleOptions.length === 3 && index < 2);
+
         return (
           <TouchableOpacity
             key={opt.tipo}
@@ -39,6 +38,7 @@ export function OrderTypeSelector({
             activeOpacity={0.8}
             style={[
               styles.chip,
+              isHalfWidth ? styles.chipHalf : styles.chipFull,
               active && { backgroundColor: theme.primary, borderColor: theme.primary },
             ]}
             accessibilityLabel={`Seleccionar ${opt.label.toLowerCase()}`}
@@ -63,23 +63,40 @@ export function OrderTypeSelector({
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { gap: Spacing.sm, paddingHorizontal: Spacing.base },
+  row: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    width: '100%',
+  },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: BorderRadius.lg,
     borderWidth: 1.5,
     borderColor: Colors.border,
     backgroundColor: Colors.surface,
-    minWidth: 120,
+    minHeight: 72,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  chipHalf: {
+    flexBasis: '48%',
+    flexGrow: 1,
+  },
+  chipFull: {
+    flexBasis: '100%',
   },
   chipLabel: {
     fontSize: 13,
