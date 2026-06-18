@@ -82,6 +82,9 @@ $routes = [
     ['GET', '/restaurants/:id/active-users', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/tables', ['Amare\Api\Controllers\SocialController', 'restaurantTables']],
     ['POST', '/restaurants/tables/scan', ['Amare\Api\Controllers\SocialController', 'scanTable']],
+    ['POST', '/social/likes', ['Amare\Api\Controllers\SocialController', 'likeDiner']],
+    ['GET', '/social/likes/received', ['Amare\Api\Controllers\SocialController', 'receivedLikes']],
+    ['GET', '/social/matches', ['Amare\Api\Controllers\SocialController', 'matches']],
     ['GET', '/gift-products', ['Amare\Api\Controllers\SocialController', 'giftProducts']],
     ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'sendGift']],
     

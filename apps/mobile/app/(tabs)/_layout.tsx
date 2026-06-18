@@ -168,6 +168,7 @@ export default function TabsLayout() {
         name="social"
         options={{
           href: socialActive ? undefined : null,
+          tabBarStyle: { display: 'none' },
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
               focused={focused}

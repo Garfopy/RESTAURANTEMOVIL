@@ -18,6 +18,8 @@ export function GlobalCartButton() {
     rootSegment === 'cart' ||
     rootSegment === 'checkout' ||
     rootSegment === 'order' ||
+    (rootSegment === '(tabs)' && childSegment === 'social') ||
+    (rootSegment === 'profile' && childSegment === 'social') ||
     (rootSegment === 'store' && childSegment === 'checkout')
   ) {
     return null;

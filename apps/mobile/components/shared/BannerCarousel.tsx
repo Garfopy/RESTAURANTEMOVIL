@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -27,6 +27,7 @@ interface BannerCarouselProps {
 }
 
 const BANNER_HEIGHT = 190;
+const BANNER_GAP = 12;
 
 export function BannerCarousel({
   items,
@@ -38,25 +39,32 @@ export function BannerCarousel({
   const { width } = useWindowDimensions();
   const flatRef = useRef<Animated.FlatList<BannerItem>>(null);
   const currentIndex = useRef(0);
+  const isInteracting = useRef(false);
   const scrollX = useRef(new Animated.Value(0)).current;
   const horizontalInset = width < 380 ? 16 : 20;
-  const bannerGap = 12;
-  const bannerWidth = Math.max(width - horizontalInset * 2, 260);
-  const snapInterval = bannerWidth + bannerGap;
+  const bannerWidth = Math.min(Math.max(width - horizontalInset * 2, 260), 430);
+  const sidePadding = Math.max((width - bannerWidth) / 2, horizontalInset);
+  const snapInterval = bannerWidth + BANNER_GAP;
+  const snapOffsets = useMemo(
+    () => items.map((_, index) => index * snapInterval),
+    [items, snapInterval]
+  );
 
   useEffect(() => {
     if (!autoPlay || items.length <= 1) return;
 
     const timer = setInterval(() => {
+      if (isInteracting.current) return;
+
       currentIndex.current = (currentIndex.current + 1) % items.length;
-      flatRef.current?.scrollToIndex({
-        index: currentIndex.current,
+      flatRef.current?.scrollToOffset({
+        offset: currentIndex.current * snapInterval,
         animated: true,
       });
     }, interval);
 
     return () => clearInterval(timer);
-  }, [autoPlay, interval, items.length]);
+  }, [autoPlay, interval, items.length, snapInterval]);
 
   if (items.length === 0) return null;
 
@@ -69,40 +77,78 @@ export function BannerCarousel({
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
         snapToInterval={snapInterval}
+        snapToOffsets={snapOffsets}
         snapToAlignment="start"
         decelerationRate="fast"
         bounces={false}
         removeClippedSubviews={false}
-        contentContainerStyle={{ paddingHorizontal: horizontalInset }}
+        contentContainerStyle={{ paddingHorizontal: sidePadding }}
+        ItemSeparatorComponent={() => <View style={{ width: BANNER_GAP }} />}
+        getItemLayout={(_, index) => ({
+          length: snapInterval,
+          offset: snapInterval * index,
+          index,
+        })}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { x: scrollX } } }],
           { useNativeDriver: false }
         )}
+        onScrollBeginDrag={() => {
+          isInteracting.current = true;
+        }}
+        onScrollEndDrag={() => {
+          isInteracting.current = false;
+        }}
+        onMomentumScrollEnd={(event) => {
+          const nextIndex = Math.round(event.nativeEvent.contentOffset.x / snapInterval);
+          currentIndex.current = Math.max(0, Math.min(nextIndex, items.length - 1));
+          isInteracting.current = false;
+        }}
         scrollEventThrottle={16}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            onPress={() => onPress?.(item)}
-            activeOpacity={0.95}
-            style={[styles.banner, { width: bannerWidth, marginRight: bannerGap }]}
-            accessibilityLabel={item.titulo || 'Promocion'}
-            accessibilityRole="button"
-            accessibilityHint={item.subtitulo || 'Toca para ver mas detalles'}
-            testID={`banner-${item.id}`}
-          >
-            <Image
-              source={item.imagen}
-              style={styles.image}
-              contentFit="cover"
-              transition={300}
-            />
-            {(item.titulo || item.subtitulo) && (
-              <View style={styles.overlay}>
-                {item.titulo ? <Text style={styles.titulo}>{item.titulo}</Text> : null}
-                {item.subtitulo ? <Text style={styles.subtitulo}>{item.subtitulo}</Text> : null}
-              </View>
-            )}
-          </TouchableOpacity>
-        )}
+        renderItem={({ item, index }) => {
+          const inputRange = [
+            (index - 1) * snapInterval,
+            index * snapInterval,
+            (index + 1) * snapInterval,
+          ];
+          const scale = scrollX.interpolate({
+            inputRange,
+            outputRange: [0.96, 1, 0.96],
+            extrapolate: 'clamp',
+          });
+          const opacity = scrollX.interpolate({
+            inputRange,
+            outputRange: [0.85, 1, 0.85],
+            extrapolate: 'clamp',
+          });
+
+          return (
+            <Animated.View style={{ width: bannerWidth, transform: [{ scale }], opacity }}>
+              <TouchableOpacity
+                onPress={() => onPress?.(item)}
+                activeOpacity={0.95}
+                style={styles.banner}
+                accessibilityLabel={item.titulo || 'Promocion'}
+                accessibilityRole="button"
+                accessibilityHint={item.subtitulo || 'Toca para ver mas detalles'}
+                testID={`banner-${item.id}`}
+              >
+                <Image
+                  source={item.imagen}
+                  style={styles.image}
+                  contentFit="cover"
+                  transition={180}
+                />
+                {(item.titulo || item.subtitulo) && (
+                  <View style={styles.overlay}>
+                    {item.titulo ? <Text style={styles.titulo}>{item.titulo}</Text> : null}
+                    {item.subtitulo ? <Text style={styles.subtitulo}>{item.subtitulo}</Text> : null}
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          );
+        }}
       />
 
       <View style={styles.pagination}>
