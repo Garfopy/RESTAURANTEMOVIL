@@ -472,7 +472,10 @@ export default function HomeScreen() {
         [
           {
             text: 'Elegir sucursal',
-            onPress: () => router.push({ pathname: '/branch-selector', params: { tipoPedido: tipo } }),
+            onPress: () => {
+              closeDeliveryFlow();
+              router.push({ pathname: '/branch-selector', params: { tipoPedido: tipo } });
+            },
           },
         ]
       );
@@ -516,7 +519,10 @@ export default function HomeScreen() {
         [
           {
             text: 'Elegir sucursal',
-            onPress: () => router.push({ pathname: '/branch-selector', params: { tipoPedido: 'delivery' } }),
+            onPress: () => {
+              closeDeliveryFlow();
+              router.push({ pathname: '/branch-selector', params: { tipoPedido: 'delivery' } });
+            },
           },
         ]
       );

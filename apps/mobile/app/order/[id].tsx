@@ -4,18 +4,17 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  SafeAreaView,
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient, formatImageUrl, getApiError } from '../../services/api';
-import { createPaymentIntent } from '../../services/orders.service';
+import { apiClient, formatImageUrl } from '../../services/api';
+import { getOrders } from '../../services/orders.service';
 import { Colors, Spacing, Shadows } from '../../theme';
 import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -34,12 +33,37 @@ export default function OrderDetailScreen() {
   const router = useRouter();
   const [payingAccount, setPayingAccount] = useState(false);
 
+  function handleBackToOrders() {
+    router.replace('/(tabs)/orders' as never);
+  }
+
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', id],
     queryFn: async () => {
-      const res = await apiClient.get(`/orders/${id}`);
-      return res.data.data.order;
+      try {
+        const res = await apiClient.get(`/orders/${id}`, { _suppressConsoleError: true } as any);
+        return res.data.data.order;
+      } catch (error: any) {
+        if (error?.response?.status !== 404) {
+          throw error;
+        }
+
+        const orders = await getOrders();
+        const fallback = orders.find(
+          (item) =>
+            item.tipo_pedido === 'eat_in' &&
+            Number(item.cuenta_abierta ?? 0) === 1 &&
+            !item.salida_qr_generado_at
+        );
+
+        if (fallback) {
+          return fallback;
+        }
+
+        throw error;
+      }
     },
+    retry: false,
   });
 
   if (isLoading) return (
@@ -75,33 +99,20 @@ export default function OrderDetailScreen() {
   async function handlePayOpenAccount() {
     if (!order) return;
 
-    try {
-      setPayingAccount(true);
-      const { client_secret, id: intentId } = await createPaymentIntent({
-        order_id: Number(order.id),
-        amount: Number(order.total || 0),
-        currency: 'mxn',
-      });
-
-      router.push({
-        pathname: '/checkout/payment',
-        params: {
-          clientSecret: client_secret,
-          intentId,
-          restauranteId: String(order.restaurante_id),
-          tipoPedido: 'eat_in',
-          orderId: String(order.id),
-          amount: String(order.total || 0),
-          folio: order.folio,
-          mesaId: order.mesa_id ? String(order.mesa_id) : '',
-          mesaLabel: order.mesa_nombre || (order.mesa_id ? `Mesa ${order.mesa_id}` : ''),
-        },
-      });
-    } catch (error) {
-      Alert.alert('Error', getApiError(error) || 'No se pudo iniciar el pago de la cuenta.');
-    } finally {
-      setPayingAccount(false);
-    }
+    setPayingAccount(true);
+    router.push({
+      pathname: '/checkout/payment',
+      params: {
+        restauranteId: String(order.restaurante_id),
+        tipoPedido: 'eat_in',
+        orderId: String(order.id),
+        amount: String(order.total || 0),
+        folio: order.folio,
+        mesaId: order.mesa_id ? String(order.mesa_id) : '',
+        mesaLabel: order.mesa_nombre || (order.mesa_id ? `Mesa ${order.mesa_id}` : ''),
+      },
+    });
+    setPayingAccount(false);
   }
 
   function handleOrderMore() {
@@ -111,7 +122,7 @@ export default function OrderDetailScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleBackToOrders} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <View>

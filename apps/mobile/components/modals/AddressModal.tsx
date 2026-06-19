@@ -4,12 +4,12 @@ import {
   Text,
   StyleSheet,
   Modal,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../services/api';
@@ -40,6 +40,7 @@ export function AddressModal({
   address,
   onSuccess,
 }: AddressModalProps) {
+  const insets = useSafeAreaInsets();
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -182,10 +183,10 @@ export function AddressModal({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet" // Ofrece una estética de tarjeta nativa hermosa en iOS
+      presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
       onRequestClose={onDismiss}
     >
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
@@ -323,7 +324,7 @@ export function AddressModal({
           </ScrollView>
 
           {/* Footer Fijo y Flotante */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: Spacing.base + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}>
             <Button
               label={address ? 'Guardar cambios' : 'Guardar dirección'}
               onPress={handleSave}

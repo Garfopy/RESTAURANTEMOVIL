@@ -5,8 +5,8 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,7 +55,7 @@ export default function StoreProductScreen() {
 
     if (deliveryMode === 'pickup') {
       // Pickup: va directo a pago sin datos de envío
-      router.push({
+      router.replace({
         pathname: '/checkout/payment-store' as any,
         params: {
           productId: String(product.id),
@@ -69,7 +69,7 @@ export default function StoreProductScreen() {
       });
     } else {
       // Delivery: va al checkout con datos de envío
-      router.push({
+      router.replace({
         pathname: '/store/checkout' as any,
         params: {
           productId: String(product.id),

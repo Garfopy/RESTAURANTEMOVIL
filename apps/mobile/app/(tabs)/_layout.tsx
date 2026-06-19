@@ -1,16 +1,15 @@
+import React, { memo, useEffect, useRef } from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Platform,
-  View,
-  StyleSheet,
   Animated,
   Easing,
+  Platform,
+  StyleSheet,
   useWindowDimensions,
+  View,
 } from 'react-native';
-import React, { useRef, useEffect, memo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
 import { useUserStore } from '../../store/user.store';
 
@@ -33,15 +32,15 @@ const TabIcon = memo(
     color,
     icon,
     iconFocused,
+    compact,
   }: {
     focused: boolean;
     color: string;
     icon: IoniconName;
     iconFocused: IoniconName;
+    compact: boolean;
   }) => {
-    // Animación de escala para el ícono
     const scaleAnim = useRef(new Animated.Value(focused ? 1.1 : 1)).current;
-    // Animación de opacidad para el fondo (pill)
     const opacityAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
     useEffect(() => {
@@ -59,27 +58,24 @@ const TabIcon = memo(
           useNativeDriver: true,
         }),
       ]).start();
-    }, [focused]);
+    }, [focused, opacityAnim, scaleAnim]);
 
     return (
-      <View style={styles.iconContainer}>
-        {/* Píldora de fondo suave (REVERTIDO EL DISEÑO ANTERIOR) */}
+      <View style={[styles.iconContainer, compact && styles.iconContainerCompact]}>
         <Animated.View
           style={[
             styles.activePill,
             {
-              // Volvemos a un fondo transparente muy suave
-              backgroundColor: `${color}15`, 
+              backgroundColor: `${color}15`,
               opacity: opacityAnim,
             },
           ]}
         />
-        {/* Contenedor animado para el ícono */}
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <Ionicons
             name={focused ? iconFocused : icon}
-            size={30} // Tamaño grande (como pediste antes)
-            color={color} // Este color ahora será muy oscuro
+            size={compact ? 27 : 30}
+            color={color}
           />
         </Animated.View>
       </View>
@@ -92,9 +88,11 @@ export default function TabsLayout() {
   const user = useUserStore((state) => state.user);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const horizontalInset = width < 380 ? 12 : 20;
-  const tabBarBottom = insets.bottom + (Platform.OS === 'ios' ? 8 : 10);
-  const tabBarHeight = 55 + Math.min(insets.bottom, 10);
+  const compact = width < 380;
+  const horizontalInset = compact ? 12 : 20;
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
+  const tabBarBottom = safeBottom + (Platform.OS === 'ios' ? 8 : 6);
+  const tabBarHeight = compact ? 58 : 62;
   const socialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   return (
@@ -105,7 +103,6 @@ export default function TabsLayout() {
         tabBarAllowFontScaling: false,
         lazy: true,
         freezeOnBlur: true,
-
         tabBarStyle: {
           position: 'absolute',
           left: horizontalInset,
@@ -113,39 +110,33 @@ export default function TabsLayout() {
           bottom: tabBarBottom,
           height: tabBarHeight,
           borderRadius: 60,
-          shadowColor: '#111827',
-          shadowOffset: { width: 0, height: 8 },
           backgroundColor: '#FFFFFF',
           borderTopWidth: 0,
-          elevation: 6,
-          paddingBottom: Math.min(insets.bottom, 8),
-          paddingTop: 4,
-          
+          paddingTop: 2,
+          paddingBottom: Platform.OS === 'android' ? 2 : 4,
+          elevation: Platform.OS === 'android' ? 12 : 6,
+          shadowColor: '#111827',
+          shadowOffset: { width: 0, height: 8 },
           ...Platform.select({
             ios: {
-              shadowColor: '#111827',
-              shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.06,
               shadowRadius: 16,
             },
           }),
         },
-
         tabBarItemStyle: {
           justifyContent: 'center',
           alignItems: 'center',
-          paddingVertical: 4,
+          paddingVertical: 2,
         },
-
         tabBarIconStyle: {
           width: '100%',
           height: '100%',
           justifyContent: 'center',
           alignItems: 'center',
         },
-
         tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: '#1F2937', // Gris muy oscuro (casi negro) para los no seleccionados
+        tabBarInactiveTintColor: '#1F2937',
       }}
     >
       {TABS.map((tab) => (
@@ -159,6 +150,7 @@ export default function TabsLayout() {
                 color={color}
                 icon={tab.icon}
                 iconFocused={tab.iconFocused}
+                compact={compact}
               />
             ),
           }}
@@ -175,6 +167,7 @@ export default function TabsLayout() {
               color={color}
               icon="people-outline"
               iconFocused="people"
+              compact={compact}
             />
           ),
         }}
@@ -191,12 +184,15 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   iconContainer: {
-    // Tamaños ajustados para icono de 32px
-    width: 60,
+    width: 56,
     height: 48,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+  },
+  iconContainerCompact: {
+    width: 50,
+    height: 46,
   },
   activePill: {
     position: 'absolute',
@@ -205,6 +201,5 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     borderRadius: 16,
-    // (SE ELIMINARON BORDE Y FONDO SÓLIDO ANTERIOR)
   },
 });

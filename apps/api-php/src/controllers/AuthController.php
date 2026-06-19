@@ -11,6 +11,45 @@ use Amare\Api\Models\User;
 
 class AuthController
 {
+    private static function normalizePhone(?string $value): string
+    {
+        return preg_replace('/\D+/', '', (string)($value ?? ''));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private static function phoneLookupCandidates(string $phone): array
+    {
+        $candidates = [$phone];
+
+        if (strlen($phone) === 10) {
+            $candidates[] = '52' . $phone;
+        }
+
+        if (substr($phone, 0, 2) === '52' && strlen($phone) === 12) {
+            $candidates[] = substr($phone, 2);
+        }
+
+        if (substr($phone, 0, 1) === '1' && strlen($phone) === 11) {
+            $candidates[] = substr($phone, 1);
+        }
+
+        return array_values(array_unique(array_filter($candidates)));
+    }
+
+    private static function findUserByPhoneCandidates(string $phone): ?array
+    {
+        foreach (self::phoneLookupCandidates($phone) as $candidate) {
+            $user = User::findByPhone($candidate);
+            if ($user) {
+                return $user;
+            }
+        }
+
+        return null;
+    }
+
     public function register(): void
     {
         $rules = [
@@ -26,7 +65,11 @@ class AuthController
 
         $input = ValidationMiddleware::getAllInput();
         $email = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
-        $phone = preg_replace('/\D+/', '', (string)($input['phone'] ?? $input['telefono'] ?? ''));
+        $phone = self::normalizePhone($input['phone'] ?? $input['telefono'] ?? '');
+
+        if (strlen($phone) === 10) {
+            $phone = '52' . $phone;
+        }
 
         if ($phone === '') {
             Response::validationError(['phone' => ['El telefono es requerido']]);
@@ -44,7 +87,7 @@ class AuthController
             Response::error('El email ya está registrado', 409);
         }
 
-        if (User::existsByPhone($phone)) {
+        if (self::findUserByPhoneCandidates($phone)) {
             Response::error('El telefono ya esta registrado', 409);
         }
 
@@ -96,7 +139,7 @@ class AuthController
 
         $user = str_contains($identifier, '@')
             ? User::findByEmail(strtolower($identifier))
-            : User::findByPhone(preg_replace('/\D+/', '', $identifier));
+            : self::findUserByPhoneCandidates(self::normalizePhone($identifier));
 
         if (!$user || !isset($user['password_hash']) || !User::verifyPassword($input['password'], $user['password_hash'])) {
             Response::unauthorized('Credenciales inválidas');

@@ -5,12 +5,11 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
@@ -19,6 +18,7 @@ import { useTableSessionStore } from '../../store/table-session.store';
 import { useFavorites } from '../../hooks/useFavorites';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { CartButton } from '../../components/shared/CartButton';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 import type {
   ModificadorSeleccionado,
@@ -47,7 +47,7 @@ export default function ProductScreen() {
   const [cantidad, setCantidad] = useState(1);
   const [modsSel, setModsSel] = useState<ModificadorSeleccionado[]>([]);
 
-  function closeSheet() {
+  function goBack() {
     router.back();
   }
 
@@ -113,7 +113,7 @@ export default function ProductScreen() {
     if (!platillo) return;
 
     if (tipoPedido === 'eat_in' && !tableSession) {
-      router.push({
+      router.replace({
         pathname: '/table-scanner',
         params: { returnTo: '/(tabs)' },
       });
@@ -125,7 +125,7 @@ export default function ProductScreen() {
       tableSession &&
       platillo.restaurante_id !== tableSession.restauranteId
     ) {
-      router.push({
+      router.replace({
         pathname: '/table-scanner',
         params: { returnTo: '/(tabs)' },
       });
@@ -133,48 +133,38 @@ export default function ProductScreen() {
     }
 
     addItem(platillo, cantidad, modsSel, '');
-    closeSheet();
   }
 
   if (isError) {
     return (
-      <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={closeSheet} />
-        <View style={styles.sheetHost} pointerEvents="box-none">
-          <View style={styles.errorSheet}>
-            <Ionicons
-              name="restaurant-outline"
-              size={44}
-              color={Colors.textMuted}
-            />
-            <Text style={styles.notFoundTitle}>Platillo no disponible</Text>
-            <Text style={styles.notFoundText}>
-              Este platillo no pertenece a la sucursal seleccionada.
-            </Text>
-            <Button label="Volver al menu" onPress={closeSheet} fullWidth />
-          </View>
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.errorSheet}>
+          <Ionicons
+            name="restaurant-outline"
+            size={44}
+            color={Colors.textMuted}
+          />
+          <Text style={styles.notFoundTitle}>Platillo no disponible</Text>
+          <Text style={styles.notFoundText}>
+            Este platillo no pertenece a la sucursal seleccionada.
+          </Text>
+          <Button label="Volver al menu" onPress={goBack} fullWidth />
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (isLoading || !platillo) {
     return (
-      <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={closeSheet} />
-        <View style={styles.sheetHost} pointerEvents="box-none">
-          <View style={styles.sheet}>
-            <View style={styles.grabber} />
-            <Skeleton height={260} borderRadius={0} />
-            <View style={styles.loadingContent}>
-              <Skeleton height={30} width="60%" />
-              <Skeleton height={42} width={140} borderRadius={999} />
-              <Skeleton height={18} />
-              <Skeleton height={18} width="84%" />
-            </View>
-          </View>
+      <SafeAreaView style={styles.screen}>
+        <Skeleton height={260} borderRadius={0} />
+        <View style={styles.loadingContent}>
+          <Skeleton height={30} width="60%" />
+          <Skeleton height={42} width={140} borderRadius={999} />
+          <Skeleton height={18} />
+          <Skeleton height={18} width="84%" />
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -182,19 +172,14 @@ export default function ProductScreen() {
   const footerPadding = Math.max(insets.bottom, 18);
 
   return (
-    <View style={styles.modalRoot}>
-      <Pressable style={styles.backdrop} onPress={closeSheet} />
-
-      <View style={styles.sheetHost} pointerEvents="box-none">
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
+    <SafeAreaView style={styles.screen}>
+      <View style={styles.body}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
             <View style={styles.imageContainer}>
               <Image
                 source={
@@ -217,12 +202,8 @@ export default function ProductScreen() {
                 />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.iconBtn, styles.closeBtn]}
-                onPress={closeSheet}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="close" size={22} color={Colors.text} />
+              <TouchableOpacity style={[styles.iconBtn, styles.closeBtn]} onPress={goBack} activeOpacity={0.85}>
+                <Ionicons name="arrow-back" size={22} color={Colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -303,9 +284,9 @@ export default function ProductScreen() {
                 </View>
               ))}
             </View>
-          </ScrollView>
+        </ScrollView>
 
-          <View style={[styles.footer, { paddingBottom: footerPadding }]}>
+        <View style={[styles.footer, { paddingBottom: footerPadding }]}>
             <View style={styles.qtyRow}>
               <TouchableOpacity
                 onPress={() => setCantidad((c) => Math.max(1, c - 1))}
@@ -333,38 +314,23 @@ export default function ProductScreen() {
               size="lg"
               disabled={!platillo.disponible}
             />
-          </View>
         </View>
       </View>
-    </View>
+      <CartButton />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  modalRoot: {
+  screen: {
     flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(18, 16, 18, 0.46)',
-  },
-  sheetHost: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    alignSelf: 'stretch',
-    maxHeight: '92%',
     backgroundColor: '#FFFDFC',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    overflow: 'hidden',
-    ...Shadows.md,
+  },
+  body: {
+    flex: 1,
   },
   errorSheet: {
-    marginHorizontal: 16,
-    marginBottom: 16,
+    margin: 16,
     padding: 24,
     gap: 12,
     backgroundColor: '#FFFDFC',
@@ -372,21 +338,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...Shadows.md,
   },
-  grabber: {
-    alignSelf: 'center',
-    width: 52,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: '#DDD8D5',
-    marginTop: 10,
-    marginBottom: 12,
-  },
   scroll: {
-    flexGrow: 0,
-    flexShrink: 1,
+    flex: 1,
   },
   scrollContent: {
-    paddingBottom: 8,
+    paddingBottom: 12,
   },
   loadingContent: {
     paddingHorizontal: Spacing.base,
@@ -416,10 +372,10 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
   },
   favoriteBtn: {
-    left: 16,
+    right: 16,
   },
   closeBtn: {
-    right: 16,
+    left: 16,
   },
   content: {
     paddingHorizontal: Spacing.base,

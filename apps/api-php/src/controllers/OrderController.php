@@ -44,7 +44,7 @@ class OrderController
         // Actualizar pedido con método de pago
         Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
 
-        $order = Order::findById($id);
+        $order = Order::findById($id, $user->id);
         $exitPass = null;
         if (($order['tipo_pedido'] ?? null) === 'eat_in') {
             $exitPass = Order::ensureExitPass($id, $user->id);
@@ -185,7 +185,7 @@ class OrderController
             Response::serverError('No se pudo crear el pedido');
         }
 
-        $order = Order::findById($orderId);
+        $order = Order::findById($orderId, $user->id);
         
         Response::success(['order' => $order], 'Pedido creado exitosamente', 201);
     }

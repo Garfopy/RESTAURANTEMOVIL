@@ -31,7 +31,20 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     notas: payload.notas ?? null,
   });
 
-  return data.data.order;
+  return normalizeCreatedOrder(data.data.order);
+}
+
+function normalizeCreatedOrder(order: Pedido): Pedido {
+  if (order.tipo_pedido !== 'eat_in' || !Array.isArray(order.items)) {
+    return order;
+  }
+
+  const latestItemOrderId = order.items.reduce((latest, item) => {
+    const itemOrderId = Number(item.pedido_id ?? 0);
+    return itemOrderId > latest ? itemOrderId : latest;
+  }, 0);
+
+  return latestItemOrderId > 0 ? { ...order, id: latestItemOrderId } : order;
 }
 
 /** Calcula subtotal de forma segura */
@@ -126,11 +139,14 @@ export async function confirmPayment(params: {
   return data.data;
 }
 
-export async function getExitPass(orderId: number): Promise<ExitPass> {
+export async function getExitPass(orderId: number, options?: { suppressConsoleError?: boolean }): Promise<ExitPass> {
   const { data } = await apiClient.get<{
     success: boolean;
     data: { exit_pass: ExitPass }
-  }>(`/orders/${orderId}/exit-pass`);
+  }>(
+    `/orders/${orderId}/exit-pass`,
+    options?.suppressConsoleError ? ({ _suppressConsoleError: true } as any) : undefined
+  );
 
   return data.data.exit_pass;
 }

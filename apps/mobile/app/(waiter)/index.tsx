@@ -6,7 +6,6 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,10 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import type { Sucursal } from '@amare/types';
 import { getApiError } from '../../services/api';
 import {
   claimWaiterTable,
@@ -28,18 +27,34 @@ import {
 import { useUserStore } from '../../store/user.store';
 import { Colors } from '../../theme';
 
+type StatusIcon = keyof typeof Ionicons.glyphMap;
+
 const STATUS_LABEL: Record<WaiterTable['status'], string> = {
   libre: 'Libre',
   mia: 'Mi mesa',
   cuenta_abierta: 'Cuenta abierta',
-  ocupada_por_otro: 'Ocupada',
+  ocupada_por_otro: 'Apoyo',
 };
 
 const STATUS_COLOR: Record<WaiterTable['status'], string> = {
-  libre: '#16A34A',
+  libre: '#059669',
   mia: '#2563EB',
   cuenta_abierta: '#B45309',
-  ocupada_por_otro: '#6B7280',
+  ocupada_por_otro: '#64748B',
+};
+
+const STATUS_BG: Record<WaiterTable['status'], string> = {
+  libre: '#ECFDF5',
+  mia: '#EFF6FF',
+  cuenta_abierta: '#FFFBEB',
+  ocupada_por_otro: '#F1F5F9',
+};
+
+const STATUS_ICON: Record<WaiterTable['status'], StatusIcon> = {
+  libre: 'checkmark-circle-outline',
+  mia: 'person-circle-outline',
+  cuenta_abierta: 'receipt-outline',
+  ocupada_por_otro: 'people-outline',
 };
 
 function normalizeSearchText(value?: string | number | null): string {
@@ -48,6 +63,11 @@ function normalizeSearchText(value?: string | number | null): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+}
+
+function money(value: unknown): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? `$${parsed.toFixed(2)}` : '$0.00';
 }
 
 export default function WaiterHomeScreen() {
@@ -82,12 +102,11 @@ export default function WaiterHomeScreen() {
     queryFn: () => getWaiterTables(selectedBranch!.id),
     enabled: Boolean(selectedBranch?.id),
   });
+
   const tables = tablesQuery.data ?? [];
   const filteredTables = useMemo(() => {
     const query = normalizeSearchText(searchText);
-    if (!query) {
-      return tables;
-    }
+    if (!query) return tables;
 
     return tables.filter((table) =>
       [
@@ -101,6 +120,7 @@ export default function WaiterHomeScreen() {
       ].some((value) => normalizeSearchText(value).includes(query))
     );
   }, [tables, searchText]);
+
   const myTables = filteredTables.filter(
     (table) =>
       table.status === 'mia' ||
@@ -112,6 +132,22 @@ export default function WaiterHomeScreen() {
       (table.status === 'cuenta_abierta' && table.mesero_usuario_id !== user?.id)
   );
   const freeTables = filteredTables.filter((table) => table.status === 'libre');
+
+  const summary = useMemo(() => {
+    const mine = tables.filter(
+      (table) =>
+        table.status === 'mia' ||
+        (table.status === 'cuenta_abierta' && table.mesero_usuario_id === user?.id)
+    ).length;
+    const support = tables.filter(
+      (table) =>
+        table.status === 'ocupada_por_otro' ||
+        (table.status === 'cuenta_abierta' && table.mesero_usuario_id !== user?.id)
+    ).length;
+    const free = tables.filter((table) => table.status === 'libre').length;
+    const total = tables.reduce((sum, table) => sum + Number(table.total || 0), 0);
+    return { mine, support, free, total };
+  }, [tables, user?.id]);
 
   function openTable(table: WaiterTable) {
     if (!selectedBranch) return;
@@ -137,27 +173,53 @@ export default function WaiterHomeScreen() {
 
   function renderTableCard(table: WaiterTable) {
     return (
-      <TouchableOpacity key={table.id} activeOpacity={0.88} style={styles.tableCard} onPress={() => openTable(table)}>
-        <View style={[styles.statusDot, { backgroundColor: STATUS_COLOR[table.status] }]} />
-        <Text style={styles.tableLabel}>{table.label}</Text>
-        {table.zona_nombre ? <Text style={styles.zoneName}>{table.zona_nombre}</Text> : null}
-        <Text style={[styles.tableStatus, { color: STATUS_COLOR[table.status] }]}>
-          {STATUS_LABEL[table.status]}
-        </Text>
-        {table.cliente_nombre ? <Text style={styles.customerName}>{table.cliente_nombre}</Text> : null}
-        {table.mesero_nombre ? <Text style={styles.waiterName}>{table.mesero_nombre}</Text> : null}
-        {table.total > 0 ? <Text style={styles.tableTotal}>${table.total.toFixed(2)}</Text> : null}
+      <TouchableOpacity key={table.id} activeOpacity={0.9} style={styles.tableCard} onPress={() => openTable(table)}>
+        <View style={styles.tableTopRow}>
+          <View style={[styles.statusBadge, { backgroundColor: STATUS_BG[table.status] }]}>
+            <Ionicons name={STATUS_ICON[table.status]} size={15} color={STATUS_COLOR[table.status]} />
+            <Text style={[styles.statusBadgeText, { color: STATUS_COLOR[table.status] }]}>
+              {STATUS_LABEL[table.status]}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+        </View>
+
+        <View style={styles.tableIdentity}>
+          <Text style={styles.tableLabel} numberOfLines={1}>{table.label}</Text>
+          {table.zona_nombre ? <Text style={styles.zoneName} numberOfLines={1}>{table.zona_nombre}</Text> : null}
+        </View>
+
+        <View style={styles.tableMeta}>
+          <View style={styles.metaLine}>
+            <Ionicons name="person-outline" size={14} color="#64748B" />
+            <Text style={styles.metaText} numberOfLines={1}>{table.cliente_nombre || 'Sin comensal'}</Text>
+          </View>
+          <View style={styles.metaLine}>
+            <Ionicons name="restaurant-outline" size={14} color="#64748B" />
+            <Text style={styles.metaText} numberOfLines={1}>{table.mesero_nombre || 'Sin mesero'}</Text>
+          </View>
+        </View>
+
+        <View style={styles.tableFooter}>
+          <Text style={styles.tableTotal}>{Number(table.total || 0) > 0 ? money(table.total) : 'Sin consumo'}</Text>
+          <Text style={styles.tableHint}>{table.status === 'libre' ? 'Reclamar' : 'Abrir'}</Text>
+        </View>
       </TouchableOpacity>
     );
   }
 
-  function renderTableSection(title: string, subtitle: string, data: WaiterTable[], empty: string) {
+  function renderTableSection(title: string, subtitle: string, data: WaiterTable[], empty: string, icon: StatusIcon) {
     return (
       <View style={styles.tableSection}>
         <View style={styles.tableSectionHeader}>
-          <View>
-            <Text style={styles.tableSectionTitle}>{title}</Text>
-            <Text style={styles.tableSectionSubtitle}>{subtitle}</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionIcon}>
+              <Ionicons name={icon} size={18} color="#111827" />
+            </View>
+            <View style={styles.sectionTitleCopy}>
+              <Text style={styles.tableSectionTitle}>{title}</Text>
+              <Text style={styles.tableSectionSubtitle}>{subtitle}</Text>
+            </View>
           </View>
           <View style={styles.countPill}>
             <Text style={styles.countText}>{data.length}</Text>
@@ -215,13 +277,22 @@ export default function WaiterHomeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>Panel de mesero</Text>
-          <Text style={styles.title}>{user?.nombre ?? 'Mesero'}</Text>
+          <Text style={styles.title} numberOfLines={1}>{user?.nombre ?? 'Mesero'}</Text>
+          <View style={styles.branchInline}>
+            <Ionicons name="location-outline" size={14} color="#64748B" />
+            <Text style={styles.branchInlineText} numberOfLines={1}>{selectedBranch?.nombre ?? 'Sin sucursal asignada'}</Text>
+          </View>
         </View>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
-          <Ionicons name="log-out-outline" size={20} color="#111827" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerIconButton} onPress={() => tablesQuery.refetch()} activeOpacity={0.8}>
+            {tablesQuery.isRefetching ? <ActivityIndicator size="small" color="#111827" /> : <Ionicons name="refresh" size={19} color="#111827" />}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIconButton} onPress={handleLogout} activeOpacity={0.8}>
+            <Ionicons name="log-out-outline" size={20} color="#111827" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {branches.length > 1 ? (
@@ -237,7 +308,7 @@ export default function WaiterHomeScreen() {
               style={[styles.branchChip, selectedBranch?.id === item.id && styles.branchChipActive]}
               onPress={() => setSelectedBranchId(item.id)}
             >
-              <Text style={[styles.branchChipText, selectedBranch?.id === item.id && styles.branchChipTextActive]}>
+              <Text style={[styles.branchChipText, selectedBranch?.id === item.id && styles.branchChipTextActive]} numberOfLines={1}>
                 {item.nombre}
               </Text>
             </TouchableOpacity>
@@ -245,49 +316,66 @@ export default function WaiterHomeScreen() {
         />
       ) : null}
 
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>{selectedBranch?.nombre ?? 'Sin sucursal asignada'}</Text>
-          <Text style={styles.sectionSubtitle}>Administra tus mesas o apoya una cuenta ocupada.</Text>
-        </View>
-        {loading ? <ActivityIndicator color={Colors.primary} /> : null}
-      </View>
-
       {branches.length > 0 ? (
-        <View style={styles.searchWrap}>
-          <Ionicons name="search-outline" size={18} color="#6B7280" />
-          <TextInput
-            value={searchText}
-            onChangeText={setSearchText}
-            placeholder="Buscar mesa o zona"
-            placeholderTextColor="#9CA3AF"
-            style={styles.searchInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-          {searchText ? (
-            <TouchableOpacity
-              accessibilityLabel="Limpiar busqueda"
-              style={styles.clearSearchButton}
-              onPress={() => setSearchText('')}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="close" size={16} color="#6B7280" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        <>
+          <View style={styles.summaryPanel}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryValue}>{summary.mine}</Text>
+              <Text style={styles.summaryLabel}>Mis mesas</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryValue}>{summary.free}</Text>
+              <Text style={styles.summaryLabel}>Libres</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryValue}>{summary.support}</Text>
+              <Text style={styles.summaryLabel}>Apoyo</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItemWide}>
+              <Text style={styles.summaryValueSmall}>{money(summary.total)}</Text>
+              <Text style={styles.summaryLabel}>Activo</Text>
+            </View>
+          </View>
+
+          <View style={styles.searchWrap}>
+            <Ionicons name="search-outline" size={18} color="#64748B" />
+            <TextInput
+              value={searchText}
+              onChangeText={setSearchText}
+              placeholder="Buscar mesa, zona, comensal o mesero"
+              placeholderTextColor="#94A3B8"
+              style={styles.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {searchText ? (
+              <TouchableOpacity
+                accessibilityLabel="Limpiar busqueda"
+                style={styles.clearSearchButton}
+                onPress={() => setSearchText('')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="close" size={16} color="#64748B" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </>
       ) : null}
 
       {branchesQuery.isSuccess && branches.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="storefront-outline" size={44} color="#9CA3AF" />
+          <Ionicons name="storefront-outline" size={44} color="#94A3B8" />
           <Text style={styles.emptyTitle}>Sin sucursales asignadas</Text>
           <Text style={styles.emptyText}>Pide al administrador que te asigne una sucursal como mesero.</Text>
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.tableList}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={tablesQuery.isRefetching}
@@ -296,23 +384,28 @@ export default function WaiterHomeScreen() {
             />
           }
         >
-          {!loading && tables.length === 0 ? (
+          {loading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator color="#111827" />
+              <Text style={styles.loadingText}>Cargando mesas...</Text>
+            </View>
+          ) : tables.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="grid-outline" size={44} color="#9CA3AF" />
+              <Ionicons name="grid-outline" size={44} color="#94A3B8" />
               <Text style={styles.emptyTitle}>No hay mesas configuradas</Text>
               <Text style={styles.emptyText}>Revisa la configuracion de mesas de esta sucursal.</Text>
             </View>
-          ) : !loading && filteredTables.length === 0 ? (
+          ) : filteredTables.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="search-outline" size={44} color="#9CA3AF" />
+              <Ionicons name="search-outline" size={44} color="#94A3B8" />
               <Text style={styles.emptyTitle}>Sin resultados</Text>
-              <Text style={styles.emptyText}>No encontramos mesas con ese nombre o zona.</Text>
+              <Text style={styles.emptyText}>No encontramos mesas con ese nombre, zona o comensal.</Text>
             </View>
           ) : (
             <>
-              {renderTableSection('Mis mesas', 'Cuentas reclamadas por ti.', myTables, 'Todavia no tienes mesas asignadas.')}
-              {renderTableSection('Ocupadas / apoyo', 'Puedes agregar productos si te lo piden.', supportTables, 'No hay mesas ocupadas por otros meseros.')}
-              {renderTableSection('Disponibles', 'Toca una mesa libre para reclamarla.', freeTables, 'No hay mesas libres en este momento.')}
+              {renderTableSection('Mis mesas', 'Cuentas asignadas a ti.', myTables, 'Todavia no tienes mesas asignadas.', 'person-outline')}
+              {renderTableSection('Disponibles', 'Toca una mesa libre para reclamarla.', freeTables, 'No hay mesas libres en este momento.', 'grid-outline')}
+              {renderTableSection('Apoyo', 'Mesas ocupadas que puedes apoyar.', supportTables, 'No hay mesas ocupadas por otros meseros.', 'people-outline')}
             </>
           )}
         </ScrollView>
@@ -321,15 +414,25 @@ export default function WaiterHomeScreen() {
       <Modal visible={Boolean(claimingTable)} transparent animationType="fade" onRequestClose={() => setClaimingTable(null)}>
         <Pressable style={styles.modalOverlay} onPress={() => setClaimingTable(null)}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
-            <Text style={styles.modalTitle}>Reclamar {claimingTable?.label}</Text>
-            <Text style={styles.modalText}>Escribe el nombre del comensal responsable de la cuenta.</Text>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeaderRow}>
+              <View style={styles.modalIcon}>
+                <Ionicons name="restaurant-outline" size={20} color="#FFFFFF" />
+              </View>
+              <View style={styles.modalHeaderCopy}>
+                <Text style={styles.modalTitle}>Abrir {claimingTable?.label}</Text>
+                <Text style={styles.modalText}>Nombre del comensal responsable</Text>
+              </View>
+            </View>
             <TextInput
               value={customerName}
               onChangeText={setCustomerName}
-              placeholder="Nombre del comensal"
-              placeholderTextColor="#9CA3AF"
+              placeholder="Ej. Armando Casas"
+              placeholderTextColor="#94A3B8"
               style={styles.input}
               autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleClaimTable}
             />
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.secondaryAction} onPress={() => setClaimingTable(null)} disabled={claiming}>
@@ -349,45 +452,68 @@ export default function WaiterHomeScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F4F6F8',
   },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingTop: 8,
-    paddingBottom: 14,
+    paddingBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 12,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   eyebrow: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#6B7280',
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#64748B',
     textTransform: 'uppercase',
   },
   title: {
     marginTop: 2,
-    fontSize: 26,
+    fontSize: 27,
     fontWeight: '900',
     color: '#111827',
   },
-  logoutButton: {
+  branchInline: {
+    marginTop: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  branchInlineText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerIconButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   branchList: {
-    paddingHorizontal: 20,
-    gap: 10,
+    paddingHorizontal: 18,
+    gap: 8,
     paddingBottom: 10,
   },
   branchChip: {
+    maxWidth: 190,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
+    paddingVertical: 9,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -397,33 +523,55 @@ const styles = StyleSheet.create({
     borderColor: '#111827',
   },
   branchChipText: {
-    fontWeight: '800',
-    color: '#4B5563',
+    fontWeight: '900',
+    color: '#475569',
   },
   branchChipTextActive: {
     color: '#FFFFFF',
   },
-  sectionHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+  summaryPanel: {
+    marginHorizontal: 18,
+    marginBottom: 12,
+    minHeight: 82,
+    borderRadius: 18,
+    backgroundColor: '#111827',
+    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  sectionTitle: {
-    fontSize: 18,
+  summaryItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  summaryItemWide: {
+    flex: 1.35,
+    alignItems: 'center',
+  },
+  summaryDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  summaryValue: {
+    fontSize: 23,
     fontWeight: '900',
-    color: '#111827',
+    color: '#FFFFFF',
   },
-  sectionSubtitle: {
-    marginTop: 3,
-    fontSize: 13,
-    color: '#6B7280',
+  summaryValueSmall: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  summaryLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#CBD5E1',
   },
   searchWrap: {
-    marginHorizontal: 20,
+    marginHorizontal: 18,
     marginBottom: 12,
-    minHeight: 48,
+    minHeight: 50,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -435,39 +583,58 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    minHeight: 46,
+    minHeight: 48,
     color: '#111827',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
   },
   clearSearchButton: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   tableList: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingBottom: 28,
     gap: 14,
   },
   tableSection: {
-    borderRadius: 22,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#EEF2F7',
-    padding: 14,
+    borderColor: '#E5E7EB',
+    padding: 12,
   },
   tableSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    gap: 10,
+  },
+  sectionTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sectionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionTitleCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   tableSectionTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '900',
     color: '#111827',
   },
@@ -475,86 +642,127 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     fontWeight: '700',
-    color: '#6B7280',
+    color: '#64748B',
   },
   countPill: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
+    minWidth: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: '#111827',
     alignItems: 'center',
     justifyContent: 'center',
   },
   countText: {
     fontSize: 13,
     fontWeight: '900',
-    color: '#111827',
+    color: '#FFFFFF',
   },
   tableGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
   },
   tableCard: {
-    width: '48%',
-    minHeight: 132,
+    width: '48.5%',
+    minHeight: 174,
     borderRadius: 18,
     backgroundColor: '#F8FAFC',
-    padding: 16,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#EEF2F7',
+    borderColor: '#E2E8F0',
   },
-  statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginBottom: 12,
+  tableTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  statusBadge: {
+    flex: 1,
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  statusBadgeText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  tableIdentity: {
+    marginTop: 14,
   },
   tableLabel: {
-    fontSize: 21,
+    fontSize: 23,
     fontWeight: '900',
     color: '#111827',
   },
   zoneName: {
-    marginTop: 3,
+    marginTop: 2,
     fontSize: 12,
     fontWeight: '800',
-    color: '#6B7280',
+    color: '#64748B',
   },
-  tableStatus: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: '900',
+  tableMeta: {
+    marginTop: 12,
+    gap: 7,
   },
-  customerName: {
-    marginTop: 8,
-    fontSize: 13,
-    color: '#4B5563',
-    fontWeight: '700',
+  metaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  waiterName: {
-    marginTop: 4,
+  metaText: {
+    flex: 1,
     fontSize: 12,
-    color: '#6B7280',
+    color: '#475569',
     fontWeight: '800',
+  },
+  tableFooter: {
+    marginTop: 'auto',
+    paddingTop: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   tableTotal: {
-    marginTop: 8,
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
     fontWeight: '900',
     color: '#111827',
   },
+  tableHint: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#2563EB',
+  },
   sectionEmptyText: {
-    paddingVertical: 10,
-    color: '#9CA3AF',
-    fontWeight: '700',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    color: '#94A3B8',
+    fontWeight: '800',
+  },
+  loadingState: {
+    minHeight: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    fontWeight: '800',
+    color: '#64748B',
   },
   emptyState: {
-    margin: 20,
+    margin: 18,
     borderRadius: 20,
     padding: 24,
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   emptyTitle: {
     marginTop: 12,
@@ -566,18 +774,45 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 20,
-    color: '#6B7280',
+    color: '#64748B',
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(17, 24, 39, 0.45)',
-    justifyContent: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+    justifyContent: 'flex-end',
   },
   modalCard: {
-    borderRadius: 22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     backgroundColor: '#FFFFFF',
-    padding: 20,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 22,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#CBD5E1',
+    marginBottom: 16,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalHeaderCopy: {
+    flex: 1,
   },
   modalTitle: {
     fontSize: 20,
@@ -585,33 +820,33 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   modalText: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#6B7280',
+    marginTop: 3,
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '700',
   },
   input: {
-    marginTop: 16,
-    minHeight: 50,
-    borderRadius: 14,
+    marginTop: 18,
+    minHeight: 52,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#CBD5E1',
     paddingHorizontal: 14,
     color: '#111827',
-    fontWeight: '800',
-    backgroundColor: '#F9FAFB',
+    fontWeight: '900',
+    backgroundColor: '#F8FAFC',
   },
   modalActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 18,
+    marginTop: 16,
   },
   secondaryAction: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 14,
+    minHeight: 52,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -621,8 +856,8 @@ const styles = StyleSheet.create({
   },
   primaryAction: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 14,
+    minHeight: 52,
+    borderRadius: 16,
     backgroundColor: '#111827',
     alignItems: 'center',
     justifyContent: 'center',

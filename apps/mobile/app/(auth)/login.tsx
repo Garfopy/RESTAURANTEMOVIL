@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, Image, StatusBar } from 'react-native';
+import { Animated, View, Text, StyleSheet, TouchableOpacity, Platform, Image, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_RESTAURANT_LOGO_PATH } from '../../constants/branding';

@@ -8,7 +8,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -17,6 +16,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -1800,18 +1800,6 @@ export default function SocialProfileScreen() {
         </Text>
 
         <View style={styles.tinderCardContainer}>
-          {diners.length > 1 ? (
-            <TouchableOpacity
-              style={[styles.profileArrowButton, styles.profileArrowLeft]}
-              activeOpacity={0.82}
-              onPress={() => advanceToDiner('prev')}
-              accessibilityRole="button"
-              accessibilityLabel="Perfil anterior"
-            >
-              <Ionicons name="chevron-back" size={24} color={Colors.text} />
-            </TouchableOpacity>
-          ) : null}
-
           {currentDiner && (
             <GestureDetector gesture={panGesture}>
               <Animated.View style={[styles.tinderCard, animatedCardStyle]}>
@@ -1821,24 +1809,18 @@ export default function SocialProfileScreen() {
               </Animated.View>
             </GestureDetector>
           )}
-
-          {diners.length > 1 ? (
-            <TouchableOpacity
-              style={[styles.profileArrowButton, styles.profileArrowRight]}
-              activeOpacity={0.82}
-              onPress={() => advanceToDiner('next')}
-              accessibilityRole="button"
-              accessibilityLabel="Siguiente perfil"
-            >
-              <Ionicons name="chevron-forward" size={24} color={Colors.text} />
-            </TouchableOpacity>
-          ) : null}
         </View>
 
         <View style={styles.discoveryActions}>
-          <TouchableOpacity style={styles.passButton} activeOpacity={0.86} onPress={handleNextDiner}>
-            <Ionicons name="arrow-forward" size={22} color={Colors.textSecondary} />
-            <Text style={styles.passButtonText}>Siguiente</Text>
+          <TouchableOpacity
+            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
+            activeOpacity={0.86}
+            onPress={() => advanceToDiner('prev')}
+            disabled={diners.length <= 1}
+            accessibilityRole="button"
+            accessibilityLabel="Perfil anterior"
+          >
+            <Ionicons name="chevron-back" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1856,6 +1838,17 @@ export default function SocialProfileScreen() {
               <Ionicons name="heart" size={24} color={Colors.white} />
             )}
             <Text style={styles.likeButtonText}>{currentDinerLikeLabel}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
+            activeOpacity={0.86}
+            onPress={handleNextDiner}
+            disabled={diners.length <= 1}
+            accessibilityRole="button"
+            accessibilityLabel="Siguiente perfil"
+          >
+            <Ionicons name="chevron-forward" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -2636,6 +2629,15 @@ export default function SocialProfileScreen() {
                         <Text style={styles.dinerImageFallbackLetter}>{detailDiner.nombre[0]?.toUpperCase() ?? '?'}</Text>
                       </LinearGradient>
                     )}
+
+                    {isLikedOrMatched(detailDiner) ? (
+                      <View style={styles.detailLikedBadge}>
+                        <Ionicons name="heart" size={16} color={Colors.white} />
+                        <Text style={styles.likedBadgeText}>
+                          {detailDiner.relationship_status === 'matched' ? 'Match' : 'Like enviado'}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                   {renderDinerDetailsContent(detailDiner)}
                 </View>
@@ -2817,7 +2819,7 @@ const styles = StyleSheet.create({
   },
   heroBackground: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 16 : 8,
+    paddingTop: 8,
     paddingBottom: 20,
   },
   header: {
@@ -3094,32 +3096,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
   },
   tinderCard: {
     width: '100%',
     height: '100%',
     maxHeight: 620,
-  },
-  profileArrowButton: {
-    position: 'absolute',
-    top: '45%',
-    zIndex: 8,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: '#E7EAF0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.card,
-  },
-  profileArrowLeft: {
-    left: 8,
-  },
-  profileArrowRight: {
-    right: 8,
   },
   discoveryActions: {
     flexDirection: 'row',
@@ -3127,8 +3108,8 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 2,
   },
-  passButton: {
-    flex: 1,
+  discoveryArrowButton: {
+    width: 58,
     minHeight: 56,
     borderRadius: 20,
     borderWidth: 1,
@@ -3137,12 +3118,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
   },
-  passButtonText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.textSecondary,
+  discoveryArrowButtonDisabled: {
+    opacity: 0.45,
   },
   likeButton: {
     flex: 1,
@@ -3199,6 +3177,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: Colors.white,
+  },
+  detailLikedBadge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    minHeight: 34,
+    borderRadius: 999,
+    backgroundColor: 'rgba(225, 29, 72, 0.92)',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    zIndex: 5,
   },
   dinerImageOverlay: {
     ...StyleSheet.absoluteFillObject,

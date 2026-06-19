@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ExitQrCode } from '../../components/shared/ExitQrCode';
@@ -27,13 +27,16 @@ export default function ExitPassScreen() {
   const [qrPayload, setQrPayload] = useState(payload || '');
   const [isValidated, setIsValidated] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [pollingDisabled, setPollingDisabled] = useState(false);
+  const [passUnavailable, setPassUnavailable] = useState(false);
   const handledValidationRef = useRef(false);
+  const missingPassCountRef = useRef(0);
 
   const safeFolio = useMemo(() => (typeof folio === 'string' && folio ? folio : `Pedido #${orderId}`), [folio, orderId]);
   const safeMesa = typeof mesaLabel === 'string' && mesaLabel ? mesaLabel : 'Mesa asignada';
 
   useEffect(() => {
-    if (!numericOrderId || Number.isNaN(numericOrderId)) {
+    if (!numericOrderId || Number.isNaN(numericOrderId) || pollingDisabled) {
       return;
     }
 
@@ -41,9 +44,11 @@ export default function ExitPassScreen() {
     async function checkStatus(showLoading = false) {
       try {
         if (showLoading) setChecking(true);
-        const exitPass = await getExitPass(numericOrderId);
+        const exitPass = await getExitPass(numericOrderId, { suppressConsoleError: true });
         if (!mounted) return;
 
+        missingPassCountRef.current = 0;
+        setPassUnavailable(false);
         setQrPayload(exitPass.payload);
         setIsValidated(Boolean(exitPass.is_validated));
 
@@ -53,7 +58,17 @@ export default function ExitPassScreen() {
             { text: 'Listo', onPress: () => router.replace('/(tabs)' as never) },
           ]);
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          missingPassCountRef.current += 1;
+          if (missingPassCountRef.current >= 3) {
+            setPollingDisabled(true);
+            if (!qrPayload) {
+              setPassUnavailable(true);
+            }
+          }
+          return;
+        }
         console.error('Error consultando pase de salida:', error);
       } finally {
         if (mounted) setChecking(false);
@@ -69,7 +84,7 @@ export default function ExitPassScreen() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [numericOrderId, qrPayload, router]);
+  }, [numericOrderId, pollingDisabled, qrPayload, router]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -88,7 +103,9 @@ export default function ExitPassScreen() {
 
         <Text style={styles.title}>{isValidated ? 'Salida validada' : 'Muestra este QR al salir'}</Text>
         <Text style={styles.subtitle}>
-          {isValidated
+          {passUnavailable
+            ? 'Estamos generando tu pase de salida. Si ya pagaste, vuelve a abrir esta pantalla en unos segundos.'
+            : isValidated
             ? 'Hostess cerro tu visita y libero la mesa.'
             : 'Hostess escaneara este pase para cerrar tu pantalla y liberar la mesa.'}
         </Text>
@@ -113,12 +130,21 @@ export default function ExitPassScreen() {
           onPress={() => {
             if (!numericOrderId || Number.isNaN(numericOrderId)) return;
             setChecking(true);
-            getExitPass(numericOrderId)
+            setPollingDisabled(false);
+            missingPassCountRef.current = 0;
+            getExitPass(numericOrderId, { suppressConsoleError: true })
               .then((exitPass) => {
+                setPassUnavailable(false);
                 setQrPayload(exitPass.payload);
                 setIsValidated(Boolean(exitPass.is_validated));
               })
-              .catch((error) => console.error('Error refrescando pase:', error))
+              .catch((error: any) => {
+                if (error?.response?.status === 404) {
+                  setPassUnavailable(!qrPayload);
+                  return;
+                }
+                console.error('Error refrescando pase:', error);
+              })
               .finally(() => setChecking(false));
           }}
           disabled={checking}

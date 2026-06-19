@@ -234,7 +234,7 @@ class Order
     /**
      * @return array<int, array<string, mixed>>
      */
-    private static function getConsumptionOrdersForOrder(array $order, ?int $userId = null): array
+    private static function getConsumptionOrdersForOrder(array $order, ?int $userId = null, bool $fallbackToAnchor = true): array
     {
         if (empty($order['consumo_id'])) {
             return [$order];
@@ -255,7 +255,7 @@ class Order
         $sql .= ' ORDER BY p.id ASC';
         $orders = Database::query($sql, $params);
 
-        return empty($orders) ? [$order] : $orders;
+        return empty($orders) && $fallbackToAnchor ? [$order] : $orders;
     }
 
     /**
@@ -292,6 +292,66 @@ class Order
         }
 
         return Database::queryOne($sql, $params);
+    }
+
+    private static function resolveUserOrderForConsumption(int $orderId, ?int $userId = null): ?array
+    {
+        $order = self::rawOrderById($orderId, $userId);
+        if ($order) {
+            return $order;
+        }
+
+        if ($userId === null || !self::columnExists('rest_pedidos', 'consumo_id')) {
+            return null;
+        }
+
+        $anchor = self::rawOrderById($orderId);
+        if (!$anchor || ($anchor['tipo_pedido'] ?? null) !== 'eat_in' || empty($anchor['consumo_id'])) {
+            return null;
+        }
+
+        return Database::queryOne(
+            "SELECT *
+               FROM rest_pedidos
+              WHERE consumo_id = :consumo_id
+                AND tipo_pedido = 'eat_in'
+                AND mobile_usuario_id = :user_id
+              ORDER BY id ASC
+              LIMIT 1",
+            [
+                ':consumo_id' => $anchor['consumo_id'],
+                ':user_id' => $userId,
+            ]
+        );
+    }
+
+    /**
+     * @param array<int> $orderIds
+     */
+    private static function getExitTokenOrderForIds(array $orderIds): ?array
+    {
+        if (empty($orderIds) || !self::columnExists('rest_pedidos', 'salida_token')) {
+            return null;
+        }
+
+        $params = [];
+        $placeholders = [];
+        foreach (array_values(array_unique($orderIds)) as $index => $orderId) {
+            $key = ':id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+
+        return Database::queryOne(
+            'SELECT *
+               FROM rest_pedidos
+              WHERE id IN (' . implode(', ', $placeholders) . ')
+                AND salida_token IS NOT NULL
+                AND salida_token <> \'\'
+              ORDER BY id ASC
+              LIMIT 1',
+            $params
+        );
     }
 
     public static function getByUser(int $userId, ?string $tipo = null): array
@@ -399,6 +459,23 @@ class Order
         }
         
         $order = Database::queryOne($sql, $params);
+
+        if (!$order && $userId !== null && self::columnExists('rest_pedidos', 'consumo_id')) {
+            $anchor = Database::queryOne(
+                "SELECT p.*, r.nombre AS restaurante_nombre
+                   FROM rest_pedidos p
+                   JOIN rest_restaurantes r ON r.id = p.restaurante_id
+                  WHERE p.id = :id",
+                [':id' => $id]
+            );
+
+            if ($anchor && self::isConsumableEatInOrder($anchor)) {
+                $consumptionOrders = self::getConsumptionOrdersForOrder($anchor, $userId, false);
+                if (!empty($consumptionOrders)) {
+                    return self::buildConsumptionOrder($consumptionOrders);
+                }
+            }
+        }
 
         if ($order && self::isConsumableEatInOrder($order)) {
             $consumptionOrders = self::getConsumptionOrdersForOrder($order, $userId);
@@ -681,7 +758,7 @@ class Order
 
     public static function ensureExitPass(int $orderId, ?int $userId = null): ?array
     {
-        $order = self::rawOrderById($orderId, $userId);
+        $order = self::resolveUserOrderForConsumption($orderId, $userId);
         if (!$order) {
             return null;
         }
@@ -696,33 +773,33 @@ class Order
         }
 
         $targetOrderIds = self::getPaymentTargetOrderIds((int)$order['id']);
-        $anchorId = min($targetOrderIds);
-        $anchor = self::rawOrderById($anchorId, $userId) ?? $order;
-        $token = $order['salida_token'] ?? null;
-        if ($anchorId !== (int)$order['id']) {
-            $token = $anchor['salida_token'] ?? null;
-        }
+        $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
+        $token = $tokenOrder['salida_token'] ?? ($order['salida_token'] ?? null);
 
         if (!$token) {
             $token = bin2hex(random_bytes(24));
-            $anchorFields = ['salida_token = :token'];
-            $params = [
-                ':id' => $anchorId,
-                ':token' => $token,
-            ];
-
-            if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
-                $anchorFields[] = 'salida_qr_generado_at = NOW()';
-            }
-            if (self::columnExists('rest_pedidos', 'updated_at')) {
-                $anchorFields[] = 'updated_at = NOW()';
-            }
-
-            Database::rowCount(
-                'UPDATE rest_pedidos SET ' . implode(', ', $anchorFields) . ' WHERE id = :id',
-                $params
-            );
         }
+
+        $tokenFields = ['salida_token = :token'];
+        $tokenParams = [':token' => $token];
+        $tokenPlaceholders = [];
+        foreach ($targetOrderIds as $index => $targetId) {
+            $key = ':token_id_' . $index;
+            $tokenPlaceholders[] = $key;
+            $tokenParams[$key] = $targetId;
+        }
+
+        if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
+            $tokenFields[] = 'salida_qr_generado_at = COALESCE(salida_qr_generado_at, NOW())';
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $tokenFields[] = 'updated_at = NOW()';
+        }
+
+        Database::rowCount(
+            'UPDATE rest_pedidos SET ' . implode(', ', $tokenFields) . ' WHERE id IN (' . implode(', ', $tokenPlaceholders) . ')',
+            $tokenParams
+        );
 
         $closeFields = [];
         if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
@@ -745,20 +822,34 @@ class Order
             );
         }
 
-        $updated = self::rawOrderById($anchorId, $userId) ?? $anchor;
+        $updated = self::rawOrderById((int)$order['id'], $userId) ?? $order;
+        $updated['salida_token'] = $token;
+        if (empty($updated['salida_qr_generado_at']) && isset($tokenOrder['salida_qr_generado_at'])) {
+            $updated['salida_qr_generado_at'] = $tokenOrder['salida_qr_generado_at'];
+        }
         return self::formatExitPass($updated, $token);
     }
 
     public static function getExitPass(int $orderId, int $userId): ?array
     {
-        $order = self::rawOrderById($orderId, $userId);
+        $order = self::resolveUserOrderForConsumption($orderId, $userId);
         if (!$order || empty($order['salida_token'])) {
-            $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
-            $anchorId = min($targetOrderIds);
-            $order = self::rawOrderById($anchorId, $userId);
-            if (!$order || empty($order['salida_token'])) {
+            $targetOrderIds = self::getPaymentTargetOrderIds((int)($order['id'] ?? $orderId));
+            $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
+            $resolvedOrder = $order;
+
+            if (!$resolvedOrder && !empty($targetOrderIds)) {
+                $resolvedOrder = self::resolveUserOrderForConsumption(min($targetOrderIds), $userId);
+            }
+
+            if (!$resolvedOrder || empty($tokenOrder['salida_token'])) {
                 return null;
             }
+
+            $order = $resolvedOrder;
+            $order['salida_token'] = $tokenOrder['salida_token'];
+            $order['salida_qr_generado_at'] = $tokenOrder['salida_qr_generado_at'] ?? ($order['salida_qr_generado_at'] ?? null);
+            $order['salida_validado_at'] = $tokenOrder['salida_validado_at'] ?? ($order['salida_validado_at'] ?? null);
         }
 
         return self::formatExitPass($order, (string)$order['salida_token']);

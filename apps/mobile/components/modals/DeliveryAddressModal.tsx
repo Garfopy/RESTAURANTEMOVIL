@@ -5,7 +5,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -61,6 +61,7 @@ const DEFAULT_REGION: Region = {
 const ALIAS_OPTIONS = ['Casa', 'Trabajo', 'Otro'];
 
 export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: DeliveryAddressModalProps) {
+  const insets = useSafeAreaInsets();
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | string | null>(null);
   const [mode, setMode] = useState<'saved' | 'new'>('saved');
@@ -258,8 +259,13 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onDismiss}>
-      <SafeAreaView style={styles.safe}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
+      onRequestClose={onDismiss}
+    >
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
           <View style={styles.header}>
             <TouchableOpacity onPress={onDismiss} style={styles.closeButton} activeOpacity={0.8}>
@@ -447,7 +453,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                 ) : null}
               </ScrollView>
 
-              <View style={styles.footer}>
+              <View style={[styles.footer, { paddingBottom: (Spacing.base || 16) + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}>
                 <Button
                   label={mode === 'saved' ? 'Usar esta direccion' : 'Guardar y usar direccion'}
                   onPress={mode === 'saved' ? handleConfirmSavedAddress : handleSaveNewAddress}

@@ -5,12 +5,16 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../theme';
 import { useThemeColors } from '../../store/theme.store';
+import { useCartStore } from '../../store/cart.store';
 
 export function StoreFAB() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useThemeColors();
+  const itemCount = useCartStore((s) => s.itemCount);
   const scale = useRef(new Animated.Value(1)).current;
+  const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
+  const bottomOffset = safeBottom + (itemCount > 0 ? (Platform.OS === 'ios' ? 168 : 154) : (Platform.OS === 'ios' ? 88 : 80));
 
   function handlePress() {
     Animated.sequence([
@@ -25,7 +29,7 @@ export function StoreFAB() {
       style={[
         styles.container,
         {
-          bottom: insets.bottom + (Platform.OS === 'ios' ? 88 : 80),
+          bottom: bottomOffset,
           transform: [{ scale }],
         },
       ]}
@@ -51,6 +55,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     zIndex: 150,
+    elevation: 22,
   },
   button: {
     flexDirection: 'row',
@@ -64,7 +69,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 6,
+    elevation: 8,
   },
   label: {
     color: '#FFF',

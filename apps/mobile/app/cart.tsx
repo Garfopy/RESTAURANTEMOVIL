@@ -5,10 +5,10 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,6 +55,7 @@ function getItemCostBreakdown(item: CarritoItem) {
 export default function CartScreen() {
   const router = useRouter();
   const theme = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { items, removeItem, updateQty, clear, tipoPedido, setTipoPedido } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
   const displayTotal = useMemo(
@@ -68,7 +69,7 @@ export default function CartScreen() {
       return;
     }
 
-    router.push('/checkout/order-type');
+    router.replace('/checkout/order-type');
   }
 
   if (items.length === 0) {
@@ -116,7 +117,7 @@ export default function CartScreen() {
       <FlatList
         data={items}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: 140 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => <CartItemRow item={item} onRemove={removeItem} onQty={updateQty} />}
         ListFooterComponent={
@@ -141,7 +142,15 @@ export default function CartScreen() {
       />
 
       {/* --- FOOTER EN UNA SOLA FILA --- */}
-      <View style={[styles.footer, { backgroundColor: theme.background }]}>
+      <View
+        style={[
+          styles.footer,
+          {
+            backgroundColor: theme.background,
+            paddingBottom: (Platform.OS === 'ios' ? 28 : 16) + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0),
+          },
+        ]}
+      >
         <Button
           label="Seguir ordenando"
           onPress={() => router.back()}

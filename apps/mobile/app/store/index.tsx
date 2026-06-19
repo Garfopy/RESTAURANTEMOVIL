@@ -6,11 +6,11 @@ import {
   ScrollView,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
   StatusBar,
   Dimensions,
   TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,14 +46,14 @@ export default function StoreScreen() {
   }
 
   function handleProductPress(product: StoreProduct) {
-    router.push({
+    router.replace({
       pathname: '/store/product/[id]',
       params: { id: String(product.id) },
     });
   }
 
   function handleBuyPress(product: StoreProduct) {
-    router.push({
+    router.replace({
       pathname: '/store/product/[id]',
       params: { id: String(product.id), buyNow: '1' },
     });

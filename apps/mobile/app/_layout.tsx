@@ -18,6 +18,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { hydrateTableSession } from '../store/table-session.store';
@@ -122,40 +123,35 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
-          <ToastProvider>
-            <AuthGuard>
-              <StatusBar style="auto" />
-              <View style={{ flex: 1 }}>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="(auth)" />
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="(waiter)" />
-                  <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
-                  <Stack.Screen
-                    name="product/[id]"
-                    options={{
-                      presentation: 'transparentModal',
-                      animation: 'slide_from_bottom',
-                      contentStyle: { backgroundColor: 'transparent' },
-                    }}
-                  />
-                  <Stack.Screen name="store/index" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="store/product/[id]" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="checkout/order-type" />
-                  <Stack.Screen name="checkout/payment" />
-                  <Stack.Screen name="checkout/exit-pass" />
-                  <Stack.Screen name="order/[id]" />
-                </Stack>
-                <GlobalCartButton />
-              </View>
-            </AuthGuard>
-          </ToastProvider>
-        </StripeProvider>
-      </QueryClientProvider>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+            <ToastProvider>
+              <AuthGuard>
+                <StatusBar style="auto" />
+                <View style={{ flex: 1 }}>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="(auth)" />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="(waiter)" />
+                    <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
+                    <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
+                    <Stack.Screen name="product/[id]" />
+                    <Stack.Screen name="store/index" />
+                    <Stack.Screen name="store/product/[id]" />
+                    <Stack.Screen name="cart" />
+                    <Stack.Screen name="checkout/order-type" />
+                    <Stack.Screen name="checkout/payment" />
+                    <Stack.Screen name="checkout/exit-pass" />
+                    <Stack.Screen name="order/[id]" />
+                  </Stack>
+                  <GlobalCartButton />
+                </View>
+              </AuthGuard>
+            </ToastProvider>
+          </StripeProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

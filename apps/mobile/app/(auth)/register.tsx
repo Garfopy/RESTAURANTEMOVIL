@@ -1,17 +1,22 @@
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
+  Modal,
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Pressable,
+  TextInput,
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { register } from '../../services/auth.service';
 import { useUserStore } from '../../store/user.store';
 import { Button } from '../../components/ui/Button';
@@ -40,6 +45,34 @@ const AuthColors = {
   errorBorder: '#B85C63',
 };
 
+type CountryCodeOption = {
+  iso: string;
+  name: string;
+  dialCode: string;
+  flag: string;
+  example: string;
+};
+
+const COUNTRY_CODES: CountryCodeOption[] = [
+  { iso: 'MX', name: 'Mexico', dialCode: '52', flag: '🇲🇽', example: '55 1234 5678' },
+  { iso: 'US', name: 'Estados Unidos', dialCode: '1', flag: '🇺🇸', example: '201 555 0123' },
+  { iso: 'CA', name: 'Canada', dialCode: '1', flag: '🇨🇦', example: '416 555 0123' },
+  { iso: 'CO', name: 'Colombia', dialCode: '57', flag: '🇨🇴', example: '300 123 4567' },
+  { iso: 'AR', name: 'Argentina', dialCode: '54', flag: '🇦🇷', example: '11 2345 6789' },
+  { iso: 'CL', name: 'Chile', dialCode: '56', flag: '🇨🇱', example: '9 1234 5678' },
+  { iso: 'PE', name: 'Peru', dialCode: '51', flag: '🇵🇪', example: '912 345 678' },
+  { iso: 'BR', name: 'Brasil', dialCode: '55', flag: '🇧🇷', example: '11 91234 5678' },
+  { iso: 'ES', name: 'Espana', dialCode: '34', flag: '🇪🇸', example: '612 345 678' },
+  { iso: 'GT', name: 'Guatemala', dialCode: '502', flag: '🇬🇹', example: '5123 4567' },
+  { iso: 'SV', name: 'El Salvador', dialCode: '503', flag: '🇸🇻', example: '7123 4567' },
+];
+
+const DEFAULT_COUNTRY = COUNTRY_CODES[0];
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
 export default function RegisterScreen() {
   const router = useRouter();
   const loginStore = useUserStore((s) => s.login);
@@ -47,6 +80,9 @@ export default function RegisterScreen() {
 
   const [nombre, setNombre] = useState('');
   const [telefono, setTelefono] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState<CountryCodeOption>(DEFAULT_COUNTRY);
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
+  const [detectingCountry, setDetectingCountry] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -80,8 +116,10 @@ export default function RegisterScreen() {
   };
 
   const handleTelefonoChange = (value: string) => {
-    setTelefono(value);
-    setTelefonoError(value.trim() ? validatePhone(value) : null);
+    const next = digitsOnly(value).slice(0, 14);
+    setTelefono(next);
+    const fullPhone = `${selectedCountry.dialCode}${next}`;
+    setTelefonoError(next ? validatePhone(fullPhone) : null);
   };
 
   const handlePasswordChange = (value: string) => {
@@ -89,9 +127,47 @@ export default function RegisterScreen() {
     setPasswordError(value.trim() ? validatePassword(value) : null);
   };
 
+  function handleCountrySelect(country: CountryCodeOption) {
+    setSelectedCountry(country);
+    setCountryModalVisible(false);
+    const fullPhone = `${country.dialCode}${digitsOnly(telefono)}`;
+    setTelefonoError(telefono.trim() ? validatePhone(fullPhone) : null);
+  }
+
+  async function detectCountryFromLocation() {
+    try {
+      setDetectingCountry(true);
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        toast.warning('No se pudo acceder a tu ubicacion. Dejamos Mexico como lada.');
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const [place] = await Location.reverseGeocodeAsync({
+        latitude: current.coords.latitude,
+        longitude: current.coords.longitude,
+      });
+      const iso = String((place as { isoCountryCode?: string }).isoCountryCode ?? '').toUpperCase();
+      const match = COUNTRY_CODES.find((country) => country.iso === iso);
+      if (match) {
+        handleCountrySelect(match);
+        toast.success(`Lada detectada: ${match.flag} +${match.dialCode}`);
+      } else {
+        toast.info('No encontramos ese pais en la lista. Dejamos Mexico como lada.');
+      }
+    } catch {
+      toast.error('No se pudo detectar tu pais.');
+    } finally {
+      setDetectingCountry(false);
+    }
+  }
+
   async function handleRegister() {
+    const localPhone = digitsOnly(telefono);
+    const fullPhone = `${selectedCountry.dialCode}${localPhone}`;
     const nombreErr = validateName(nombre);
-    const telefonoErr = validatePhone(telefono);
+    const telefonoErr = validatePhone(fullPhone);
     const emailErr = validateOptionalEmail(email);
     const passwordErr = validatePassword(password);
 
@@ -110,7 +186,7 @@ export default function RegisterScreen() {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const sesion = await register({
         nombre: nombre.trim(),
-        telefono: telefono.trim(),
+        telefono: fullPhone,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         password,
       });
@@ -164,21 +240,42 @@ export default function RegisterScreen() {
               accessibilityHint="Ingresa tu nombre completo"
             />
 
-            <FormField
-              {...fieldTheme}
-              label="Telefono"
-              value={telefono}
-              onChangeText={handleTelefonoChange}
-              onBlur={() => setTelefonoError(telefono.trim() ? validatePhone(telefono) : 'Telefono es requerido')}
-              placeholder="55 1234 5678"
-              error={telefonoError}
-              keyboardType="phone-pad"
-              autoComplete="off"
-              icon="call-outline"
-              testID="phone-input"
-              accessibilityLabel="Telefono"
-              accessibilityHint="Ingresa tu numero telefonico"
-            />
+            <View style={styles.phoneField}>
+              <Text style={styles.fieldLabel}>Telefono</Text>
+              <View style={[styles.phoneInputRow, telefonoError && styles.fieldInputError]}>
+                <TouchableOpacity
+                  style={styles.countryButton}
+                  onPress={() => setCountryModalVisible(true)}
+                  activeOpacity={0.82}
+                  accessibilityLabel="Seleccionar lada"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.countryFlag}>{selectedCountry.flag}</Text>
+                  <Text style={styles.countryDial}>+{selectedCountry.dialCode}</Text>
+                  <Ionicons name="chevron-down" size={16} color={AuthColors.muted} />
+                </TouchableOpacity>
+                <View style={styles.phoneDivider} />
+                <TextInput
+                  value={telefono}
+                  onChangeText={handleTelefonoChange}
+                  onBlur={() => setTelefonoError(telefono.trim() ? validatePhone(`${selectedCountry.dialCode}${digitsOnly(telefono)}`) : 'Telefono es requerido')}
+                  placeholder={selectedCountry.example}
+                  placeholderTextColor={AuthColors.muted}
+                  keyboardType="phone-pad"
+                  autoComplete="off"
+                  style={styles.phoneInput}
+                  testID="phone-input"
+                  accessibilityLabel="Telefono"
+                  accessibilityHint="Ingresa tu numero telefonico"
+                />
+              </View>
+              {telefonoError ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={14} color={AuthColors.error} />
+                  <Text style={styles.fieldErrorText}>{telefonoError}</Text>
+                </View>
+              ) : null}
+            </View>
 
             <FormField
               {...fieldTheme}
@@ -239,6 +336,53 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal visible={countryModalVisible} transparent animationType="slide" onRequestClose={() => setCountryModalVisible(false)}>
+        <Pressable style={styles.countryOverlay} onPress={() => setCountryModalVisible(false)}>
+          <Pressable style={styles.countrySheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.countrySheetHandle} />
+            <View style={styles.countrySheetHeader}>
+              <View>
+                <Text style={styles.countrySheetTitle}>Selecciona tu lada</Text>
+                <Text style={styles.countrySheetSubtitle}>Mexico queda seleccionado por defecto.</Text>
+              </View>
+              <TouchableOpacity style={styles.detectButton} onPress={detectCountryFromLocation} disabled={detectingCountry}>
+                {detectingCountry ? (
+                  <ActivityIndicator color={AuthColors.buttonText} size="small" />
+                ) : (
+                  <Ionicons name="location-outline" size={17} color={AuthColors.buttonText} />
+                )}
+                <Text style={styles.detectButtonText}>Detectar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.countryList} showsVerticalScrollIndicator={false}>
+              {COUNTRY_CODES.map((country) => {
+                const active = country.iso === selectedCountry.iso;
+                return (
+                  <TouchableOpacity
+                    key={country.iso}
+                    style={[styles.countryOption, active && styles.countryOptionActive]}
+                    onPress={() => handleCountrySelect(country)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.countryOptionFlag}>{country.flag}</Text>
+                    <View style={styles.countryOptionCopy}>
+                      <Text style={styles.countryOptionName}>{country.name}</Text>
+                      <Text style={styles.countryOptionDial}>+{country.dialCode}</Text>
+                    </View>
+                    <Ionicons
+                      name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22}
+                      color={active ? AuthColors.accent : AuthColors.muted}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -274,7 +418,7 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   title: {
-    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif-condensed',
+    fontFamily: 'Inter_700Bold',
     fontWeight: '700',
     fontSize: 34,
     color: AuthColors.text,
@@ -290,8 +434,14 @@ const styles = StyleSheet.create({
   form: {
     gap: 24,
   },
+  phoneField: {
+    gap: 8,
+  },
   fieldLabel: {
     color: AuthColors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   fieldInput: {
     backgroundColor: AuthColors.inputBg,
@@ -306,8 +456,56 @@ const styles = StyleSheet.create({
   fieldText: {
     color: AuthColors.text,
   },
+  phoneInputRow: {
+    minHeight: 56,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: AuthColors.border,
+    backgroundColor: AuthColors.inputBg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  countryButton: {
+    minWidth: 112,
+    alignSelf: 'stretch',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  countryFlag: {
+    fontSize: 21,
+  },
+  countryDial: {
+    color: AuthColors.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  phoneDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: AuthColors.border,
+  },
+  phoneInput: {
+    flex: 1,
+    minHeight: 54,
+    paddingHorizontal: 14,
+    color: AuthColors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 4,
+  },
   fieldErrorText: {
     color: AuthColors.error,
+    fontSize: 13,
+    fontWeight: '500',
   },
   submitButton: {
     marginTop: 16,
@@ -339,5 +537,99 @@ const styles = StyleSheet.create({
   loginBold: {
     color: AuthColors.accent,
     fontWeight: '800',
+  },
+  countryOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  countrySheet: {
+    maxHeight: '78%',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    backgroundColor: AuthColors.bg,
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.12)',
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 18,
+  },
+  countrySheetHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: AuthColors.border,
+    marginBottom: 16,
+  },
+  countrySheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 14,
+  },
+  countrySheetTitle: {
+    color: AuthColors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  countrySheetSubtitle: {
+    marginTop: 3,
+    color: AuthColors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  detectButton: {
+    minHeight: 42,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    backgroundColor: AuthColors.accent,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  detectButtonText: {
+    color: AuthColors.buttonText,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  countryList: {
+    gap: 8,
+    paddingBottom: 6,
+  },
+  countryOption: {
+    minHeight: 58,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: AuthColors.border,
+    backgroundColor: AuthColors.inputBg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  countryOptionActive: {
+    borderColor: AuthColors.accent,
+    backgroundColor: AuthColors.inputFocused,
+  },
+  countryOptionFlag: {
+    fontSize: 26,
+    width: 34,
+    textAlign: 'center',
+  },
+  countryOptionCopy: {
+    flex: 1,
+  },
+  countryOptionName: {
+    color: AuthColors.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  countryOptionDial: {
+    marginTop: 2,
+    color: AuthColors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

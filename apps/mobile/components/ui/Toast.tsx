@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Animated, View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing } from '../../theme';
 import type { FriendlyError } from '../../services/error.service';
 
@@ -49,6 +50,7 @@ export function Toast({
   icon,
 }: ToastProps) {
   const config = typeConfig[type];
+  const insets = useSafeAreaInsets();
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -78,6 +80,7 @@ export function Toast({
       style={[
         styles.container,
         {
+          bottom: Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) + (Platform.OS === 'ios' ? 72 : 64),
           opacity: fadeAnim,
           transform: [
             {
@@ -132,7 +135,6 @@ export function Toast({
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 80 : 60,
     left: Spacing.base || 16,
     right: Spacing.base || 16,
     zIndex: 1000,

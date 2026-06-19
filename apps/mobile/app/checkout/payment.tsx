@@ -3,19 +3,19 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Alert,
   ScrollView,
   Platform,
   useWindowDimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
-import { confirmPayment, createOrder } from '../../services/orders.service';
+import { confirmPayment, createOrder, createPaymentIntent } from '../../services/orders.service';
 import { getRestaurantConfig } from '../../services/config.service';
 import { getApiError } from '../../services/api';
 import { Button } from '../../components/ui/Button';
@@ -171,9 +171,9 @@ export default function PaymentScreen() {
       }
 
       if (selectedMethod === 'card') {
-        if (!clientSecret) throw new Error('Falta el secreto del cliente para procesar la tarjeta.');
+        const paymentIntent = await resolvePaymentIntent();
 
-        const { error } = await stripeConfirm(clientSecret, {
+        const { error } = await stripeConfirm(paymentIntent.clientSecret, {
           paymentMethodType: 'Card',
         });
 
@@ -182,9 +182,9 @@ export default function PaymentScreen() {
           return;
         }
 
-        const order = existingOrderId ? null : await createOrderBackend('card');
+        const order = existingOrderId ? null : await createOrderBackend('card', paymentIntent.intentId);
         const targetOrderId = existingOrderId ?? order!.id;
-        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId, metodo: 'card' });
+        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: paymentIntent.intentId, metodo: 'card' });
 
         if (!existingOrderId) clear();
         if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
@@ -204,11 +204,12 @@ export default function PaymentScreen() {
       }
 
       if (selectedMethod === 'wallet') {
+        const paymentIntent = await resolvePaymentIntent();
         const walletMethod = isIOS ? 'apple_pay' : 'google_pay';
-        const order = existingOrderId ? null : await createOrderBackend(walletMethod);
+        const order = existingOrderId ? null : await createOrderBackend(walletMethod, paymentIntent.intentId);
         const targetOrderId = existingOrderId ?? order!.id;
         // TODO: Integrar Apple Pay / Google Pay con Stripe o pasarela nativa
-        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId ?? '', metodo: walletMethod });
+        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: paymentIntent.intentId, metodo: walletMethod });
         if (!existingOrderId) clear();
         if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
           router.replace({
@@ -233,7 +234,24 @@ export default function PaymentScreen() {
     }
   }
 
-  async function createOrderBackend(metodo_pago: string) {
+  async function resolvePaymentIntent(): Promise<{ clientSecret: string; intentId: string }> {
+    if (clientSecret && intentId) {
+      return { clientSecret, intentId };
+    }
+
+    const paymentIntent = await createPaymentIntent({
+      order_id: existingOrderId ?? undefined,
+      amount: paymentAmount,
+      currency: 'mxn',
+    });
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      intentId: paymentIntent.id,
+    };
+  }
+
+  async function createOrderBackend(metodo_pago: string, paymentIntentId?: string) {
     return await createOrder({
       restaurante_id: Number(resolvedRestaurantId),
       tipo_pedido: tipoPedido as never,
@@ -255,7 +273,7 @@ export default function PaymentScreen() {
           })),
         })),
       })),
-      payment_intent_id: intentId || undefined,
+      payment_intent_id: paymentIntentId || intentId || undefined,
       notas: `Pago vía: ${metodo_pago}`,
     });
   }
