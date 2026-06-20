@@ -32,8 +32,19 @@ $routes = [
     // Orders routes
     ['GET', '/orders', ['Amare\Api\Controllers\OrderController', 'index']],
     ['GET', '/orders/:id', ['Amare\Api\Controllers\OrderController', 'show']],
+    ['GET', '/orders/:id/exit-pass', ['Amare\Api\Controllers\OrderController', 'exitPass']],
     ['POST', '/orders', ['Amare\Api\Controllers\OrderController', 'store']],
     ['POST', '/orders/:id/confirm-payment', ['Amare\Api\Controllers\OrderController', 'confirmPayment']],
+    ['POST', '/orders/exit-pass/scan', ['Amare\Api\Controllers\OrderController', 'scanExitPass']],
+
+    // Waiter routes
+    ['GET', '/waiter/branches', ['Amare\Api\Controllers\WaiterController', 'branches']],
+    ['GET', '/waiter/tables', ['Amare\Api\Controllers\WaiterController', 'tables']],
+    ['POST', '/waiter/tables/:id/claim', ['Amare\Api\Controllers\WaiterController', 'claimTable']],
+    ['POST', '/waiter/tables/:id/release', ['Amare\Api\Controllers\WaiterController', 'releaseTable']],
+    ['GET', '/waiter/tables/:id/account', ['Amare\Api\Controllers\WaiterController', 'account']],
+    ['POST', '/waiter/tables/:id/orders', ['Amare\Api\Controllers\WaiterController', 'createOrder']],
+    ['POST', '/waiter/tables/:id/close', ['Amare\Api\Controllers\WaiterController', 'closeAccount']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],
@@ -62,11 +73,19 @@ $routes = [
     ['GET', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'getProfile']],
     ['PUT', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'updateProfile']],
     ['POST', '/users/social-profile/photo', ['Amare\Api\Controllers\SocialController', 'uploadPhoto']],
+    ['DELETE', '/users/social-profile/photo', ['Amare\Api\Controllers\SocialController', 'deletePhoto']],
+    ['POST', '/users/social-profile/photo/primary', ['Amare\Api\Controllers\SocialController', 'setPrimaryPhoto']],
     ['POST', '/users/social-photo', ['Amare\Api\Controllers\SocialController', 'uploadPhoto']],
     ['GET', '/users/:id/public-profile', ['Amare\Api\Controllers\SocialController', 'publicProfile']],
     ['GET', '/restaurants/:id/active-diners', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/active-users', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/tables', ['Amare\Api\Controllers\SocialController', 'restaurantTables']],
+    ['POST', '/restaurants/tables/scan', ['Amare\Api\Controllers\SocialController', 'scanTable']],
+    ['POST', '/social/likes', ['Amare\Api\Controllers\SocialController', 'likeDiner']],
+    ['DELETE', '/social/likes/:id', ['Amare\Api\Controllers\SocialController', 'unlikeDiner']],
+    ['GET', '/social/likes/received', ['Amare\Api\Controllers\SocialController', 'receivedLikes']],
+    ['GET', '/social/likes/sent', ['Amare\Api\Controllers\SocialController', 'sentLikes']],
+    ['GET', '/social/matches', ['Amare\Api\Controllers\SocialController', 'matches']],
     ['GET', '/gift-products', ['Amare\Api\Controllers\SocialController', 'giftProducts']],
     ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'sendGift']],
     
