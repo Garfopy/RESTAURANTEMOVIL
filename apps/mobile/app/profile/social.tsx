@@ -146,21 +146,7 @@ type SocialDiner = {
   que_busca: string | null;
   redes_sociales: string | null;
   mesa: string | null;
-  relationship_status: 'none' | 'liked' | 'matched';
-  matched_at?: string | null;
-  match_restaurante_id?: number | null;
-  liked_at?: string | null;
-  like_restaurante_id?: number | null;
 };
-
-type SocialLikeResponse = {
-  liked: boolean;
-  matched: boolean;
-  relationship_status: 'liked' | 'matched';
-  match?: DinerApiItem | null;
-};
-
-type SocialView = 'discover' | 'matches';
 
 type GiftProduct = {
   id: number;
@@ -534,8 +520,6 @@ export default function SocialProfileScreen() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
   const [dinersLoading, setDinersLoading] = useState(false);
-  const [matchesLoading, setMatchesLoading] = useState(false);
-  const [likingUserId, setLikingUserId] = useState<number | null>(null);
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
   const [giftSending, setGiftSending] = useState(false);
   const [giftCardComplete, setGiftCardComplete] = useState(false);
@@ -552,8 +536,6 @@ export default function SocialProfileScreen() {
   const [socialConsentChecked, setSocialConsentChecked] = useState(false);
   const [socialPhotos, setSocialPhotos] = useState<string[]>([]);
   const [diners, setDiners] = useState<SocialDiner[]>([]);
-  const [matches, setMatches] = useState<SocialDiner[]>([]);
-  const [receivedLikes, setReceivedLikes] = useState<SocialDiner[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
@@ -564,9 +546,6 @@ export default function SocialProfileScreen() {
   const [mesaInput, setMesaInput] = useState('');
   const [mesaOptions, setMesaOptions] = useState<SelectOption[]>([]);
   const [pendingActivationAfterBranch, setPendingActivationAfterBranch] = useState(false);
-  const [pendingSocialMesaValue, setPendingSocialMesaValue] = useState<string | null>(null);
-  const [socialView, setSocialView] = useState<SocialView>('discover');
-  const userSocialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
@@ -599,17 +578,6 @@ export default function SocialProfileScreen() {
       : currentDinerBase;
   const detailDiner = focusedDiner ?? currentDiner;
   const selectedGift = giftProducts.find((item) => item.id === selectedGiftId) ?? null;
-  const detailPhotos = detailDiner
-    ? normalizePhotoList(detailDiner.social_photos, detailDiner.foto_url)
-    : [];
-  const detailImageWidth = Math.max(260, width - 36);
-  const topReceivedLike = receivedLikes[0] ?? null;
-  const receivedLikeTitle = topReceivedLike
-    ? receivedLikes.length > 1
-      ? `${topReceivedLike.nombre} y ${receivedLikes.length - 1} mas te dieron me gusta`
-      : `${topReceivedLike.nombre} te dio me gusta`
-    : '';
-  const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
 
   function advanceToDiner(direction: 'next' | 'prev') {
     if (diners.length <= 1) {
@@ -941,65 +909,6 @@ export default function SocialProfileScreen() {
     };
   }, [currentDiner?.user_id, modoSocial]);
 
-  async function refreshMatches(showLoading = false) {
-    try {
-      if (showLoading) {
-        setMatchesLoading(true);
-      }
-      const response = await apiClient.get<ApiEnvelope<{ matches: DinerApiItem[] }> | { matches: DinerApiItem[] }>(
-        '/social/matches',
-        { _suppressConsoleError: true } as any
-      );
-      const data = unwrapApiData(response.data);
-      const rawMatches = Array.isArray(data.matches) ? data.matches : [];
-      setMatches(rawMatches.map(buildDiner));
-    } catch {
-      if (showLoading) {
-        setMatches([]);
-      }
-    } finally {
-      if (showLoading) {
-        setMatchesLoading(false);
-      }
-    }
-  }
-
-  async function refreshReceivedLikes() {
-    try {
-      const response = await apiClient.get<ApiEnvelope<{ likes: DinerApiItem[] }> | { likes: DinerApiItem[] }>(
-        '/social/likes/received',
-        { _suppressConsoleError: true } as any
-      );
-      const data = unwrapApiData(response.data);
-      const rawLikes = Array.isArray(data.likes) ? data.likes : [];
-      setReceivedLikes(rawLikes.map(buildDiner));
-    } catch {
-      // Best effort: older API deployments simply won't show the notification card.
-    }
-  }
-
-  useEffect(() => {
-    if (!user?.id) {
-      return undefined;
-    }
-
-    void refreshMatches(true);
-    void refreshReceivedLikes();
-
-    const refreshTimer = setInterval(() => {
-      void refreshMatches(false);
-      void refreshReceivedLikes();
-    }, 7000);
-
-    return () => clearInterval(refreshTimer);
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (receivedLikesVisible && receivedLikes.length === 0) {
-      setReceivedLikesVisible(false);
-    }
-  }, [receivedLikes.length, receivedLikesVisible]);
-
   function updateField<K extends keyof SocialFormState>(field: K, value: SocialFormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
   }
@@ -1017,89 +926,6 @@ export default function SocialProfileScreen() {
   function handleDinerCardPress(diner?: SocialDiner | null) {
     setFocusedDiner(diner ?? null);
     setDetailsVisible(true);
-  }
-
-  function handleOpenReceivedLikes() {
-    if (receivedLikes.length === 0) return;
-    setReceivedLikesVisible(true);
-  }
-
-  function handleCloseReceivedLikes() {
-    setReceivedLikesVisible(false);
-  }
-
-  function handleReceivedLikePress(diner: SocialDiner) {
-    setReceivedLikesVisible(false);
-    handleDinerCardPress(diner);
-  }
-
-  function handleCloseDinerDetails() {
-    setDetailsVisible(false);
-    setFocusedDiner(null);
-  }
-
-  function handleNextDiner() {
-    advanceToDiner('next');
-  }
-
-  async function handleLikeDiner(userId: number) {
-    if (likingUserId !== null) return;
-
-    const diner = diners.find((item) => item.user_id === userId) ?? currentDiner;
-    if (!diner) return;
-
-    if (!selectedBranch?.id) {
-      Alert.alert('Sucursal requerida', 'Selecciona una sucursal antes de dar like.');
-      return;
-    }
-
-    try {
-      setLikingUserId(userId);
-      const response = await apiClient.post<ApiEnvelope<SocialLikeResponse> | SocialLikeResponse>('/social/likes', {
-        liked_user_id: userId,
-        restaurant_id: selectedBranch.id,
-      });
-      const result = unwrapApiData(response.data);
-      const matchedDiner = result.match ? buildDiner(result.match) : { ...diner, relationship_status: result.relationship_status };
-
-      updateDinerRelationship(userId, result.relationship_status, matchedDiner);
-      setReceivedLikes((current) => current.filter((item) => item.user_id !== userId));
-
-      if (result.matched) {
-        setMatches((current) => {
-          const withoutDuplicate = current.filter((item) => item.user_id !== matchedDiner.user_id);
-          return [{ ...matchedDiner, relationship_status: 'matched' }, ...withoutDuplicate];
-        });
-        Alert.alert('¡Es match!', `${matchedDiner.nombre} tambien te dio like. Lo agregamos a Mis matches.`);
-      }
-      void refreshMatches(false);
-      void refreshReceivedLikes();
-    } catch (error) {
-      Alert.alert('No se pudo enviar el like', getApiError(error));
-    } finally {
-      setLikingUserId(null);
-    }
-  }
-
-  function applyPhotoResponse(payload: SocialPhotoResponse) {
-    const hasGalleryPayload = Array.isArray(payload.social_photos);
-    const photos = normalizePhotoList(
-      hasGalleryPayload ? payload.social_photos : undefined,
-      hasGalleryPayload ? payload.foto_url ?? null : payload.foto_url ?? user?.foto_url ?? null
-    );
-    const photoUrl = photos[0] ?? resolvePhotoUrl(payload.foto_url) ?? null;
-
-    setSocialPhotos(photos);
-    updateProfile({ foto_url: photoUrl, social_photos: photos });
-    setHasCompleteProfile((current) =>
-      isProfileReady({
-        foto_url: photoUrl,
-        edad: Number(form.edad) || null,
-        sexualidad: form.sexualidad,
-        genero: form.genero,
-        descripcion: form.biografia,
-      }) || current
-    );
   }
 
   async function handlePickImage() {
@@ -1646,7 +1472,7 @@ export default function SocialProfileScreen() {
           onPress={() => {
             options?.onPress?.();
           }}
-          style={styles.dinerImageWrap}
+          style={[styles.dinerImageWrap, { height: discoveryImageHeight }]}
         >
           {diner.foto_url ? (
             <Image source={{ uri: diner.foto_url }} style={styles.dinerImage} contentFit="cover" cachePolicy="disk" />
@@ -1690,7 +1516,11 @@ export default function SocialProfileScreen() {
                 <Text style={styles.metaChipText}>{diner.genero}</Text>
               </View>
             ) : null}
-            {renderSexualityChip(diner.sexualidad)}
+            {diner.sexualidad ? (
+              <View style={styles.metaChip}>
+                <Text style={styles.metaChipText}>{diner.sexualidad}</Text>
+              </View>
+            ) : null}
           </View>
 
           <Text style={styles.previewText} numberOfLines={3}>
@@ -1703,7 +1533,7 @@ export default function SocialProfileScreen() {
       </>
     );
 
-    return <View style={styles.dinerCard}>{cardBody}</View>;
+    return <View style={[styles.dinerCard, { minHeight: discoveryCardHeight }]}>{cardBody}</View>;
   }
 
   function renderDinerDetailsContent(diner: SocialDiner) {
@@ -1755,29 +1585,6 @@ export default function SocialProfileScreen() {
             </View>
           </View>
         ) : null}
-
-        {diner.relationship_status !== 'matched' ? (
-          <TouchableOpacity
-            activeOpacity={0.88}
-            onPress={() => handleLikeDiner(diner.user_id)}
-            style={[styles.likeDetailButton, likingUserId === diner.user_id && styles.saveButtonDisabled]}
-            disabled={likingUserId === diner.user_id || diner.relationship_status === 'liked'}
-          >
-            {likingUserId === diner.user_id ? (
-              <ActivityIndicator size="small" color={Colors.white} />
-            ) : (
-              <Ionicons name={diner.relationship_status === 'liked' ? 'heart' : 'heart-outline'} size={20} color={Colors.white} />
-            )}
-            <Text style={styles.giftButtonText}>
-              {diner.relationship_status === 'liked' ? 'Like enviado' : 'Me gusta'}
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
-          <Ionicons name="gift-outline" size={20} color={Colors.white} />
-          <Text style={styles.giftButtonText}>Enviar regalo</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -1825,6 +1632,15 @@ export default function SocialProfileScreen() {
       );
     }
 
+    const currentDinerHasRelationship = currentDiner.relationship_status === 'matched';
+    const currentDinerLikeLabel =
+      currentDiner.relationship_status === 'matched'
+        ? 'Match'
+        : currentDiner.relationship_status === 'liked'
+          ? 'Like enviado'
+          : 'Me gusta';
+    const giftButtonDisabled = !currentDiner || giftSending;
+
     const currentDinerHasRelationship = currentDiner.relationship_status !== 'none';
     const currentDinerLikeLabel =
       currentDiner.relationship_status === 'matched'
@@ -1842,7 +1658,7 @@ export default function SocialProfileScreen() {
         <View style={styles.tinderCardContainer}>
           {currentDiner && (
             <GestureDetector gesture={panGesture}>
-              <Animated.View style={[styles.tinderCard, animatedCardStyle]}>
+              <Animated.View style={[styles.tinderCard, { height: discoveryCardHeight }, animatedCardStyle]}>
                 {renderSwipeCard(currentDiner, {
                   onPress: () => handleDinerCardPress(),
                 })}
@@ -1851,46 +1667,10 @@ export default function SocialProfileScreen() {
           )}
         </View>
 
-        <View style={styles.discoveryActions}>
-          <TouchableOpacity
-            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
-            activeOpacity={0.86}
-            onPress={() => advanceToDiner('prev')}
-            disabled={diners.length <= 1}
-            accessibilityRole="button"
-            accessibilityLabel="Perfil anterior"
-          >
-            <Ionicons name="chevron-back" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.likeButton,
-              (likingUserId === currentDiner?.user_id || currentDinerHasRelationship) && styles.saveButtonDisabled,
-            ]}
-            activeOpacity={0.86}
-            onPress={() => currentDiner && handleLikeDiner(currentDiner.user_id)}
-            disabled={!currentDiner || likingUserId === currentDiner.user_id || currentDinerHasRelationship}
-          >
-            {likingUserId === currentDiner?.user_id ? (
-              <ActivityIndicator size="small" color={Colors.white} />
-            ) : (
-              <Ionicons name="heart" size={24} color={Colors.white} />
-            )}
-            <Text style={styles.likeButtonText}>{currentDinerLikeLabel}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
-            activeOpacity={0.86}
-            onPress={handleNextDiner}
-            disabled={diners.length <= 1}
-            accessibilityRole="button"
-            accessibilityLabel="Siguiente perfil"
-          >
-            <Ionicons name="chevron-forward" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
+          <Ionicons name="gift-outline" size={20} color={Colors.white} />
+          <Text style={styles.giftButtonText}>Enviar regalo</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -1987,13 +1767,16 @@ export default function SocialProfileScreen() {
             <View style={[styles.statusDot, { backgroundColor: modoSocial ? '#21A453' : '#D0D5DD' }]} />
             <View style={styles.statusBody}>
               <Text style={styles.statusTitle}>Modo social {modoSocial ? 'encendido' : 'apagado'}</Text>
-              {modoSocial ? (
-                <Text style={styles.statusHint}>Tu perfil sera visible para comensales de esta sucursal mientras este activo.</Text>
-              ) : null}
+              <Text style={styles.statusSubtitle}>
+                {modoSocial
+                  ? 'Tu perfil esta visible para otros comensales activos.'
+                  : 'Activalo para aparecer en el carrusel de la sucursal actual.'}
+              </Text>
             </View>
           </View>
 
           <Switch
+            style={styles.statusSwitch}
             value={modoSocial}
             onValueChange={updateSocialStatus}
             disabled={statusUpdating}
@@ -2004,13 +1787,6 @@ export default function SocialProfileScreen() {
         </View>
 
         <View style={styles.summaryRow}>
-          <TouchableOpacity style={styles.summaryPill} activeOpacity={0.8} onPress={() => setModalVisible(true)}>
-            <Ionicons name="person-circle-outline" size={18} color={Colors.primary} />
-            <Text numberOfLines={1} style={styles.summaryPillText}>
-              {hasCompleteProfile ? 'Mi perfil' : 'Completar'}
-            </Text>
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.summaryPill}
             activeOpacity={0.8}
@@ -2032,45 +1808,11 @@ export default function SocialProfileScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+      </LinearGradient>
 
-        <View style={styles.socialViewSwitch}>
-          <TouchableOpacity
-            activeOpacity={0.82}
-            style={[styles.socialViewButton, socialView === 'discover' && styles.socialViewButtonActive]}
-            onPress={() => setSocialView('discover')}
-          >
-            <Ionicons
-              name="people-outline"
-              size={17}
-              color={socialView === 'discover' ? Colors.white : Colors.primary}
-            />
-            <Text style={[styles.socialViewText, socialView === 'discover' && styles.socialViewTextActive]}>
-              Descubrir
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.82}
-            style={[styles.socialViewButton, socialView === 'matches' && styles.socialViewButtonActive]}
-            onPress={() => setSocialView('matches')}
-          >
-            <Ionicons
-              name="heart-outline"
-              size={17}
-              color={socialView === 'matches' ? Colors.white : Colors.primary}
-            />
-            <Text style={[styles.socialViewText, socialView === 'matches' && styles.socialViewTextActive]}>
-              Mis matches {matches.length > 0 ? `(${matches.length})` : ''}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {topReceivedLike ? (
-          <TouchableOpacity
-            style={styles.incomingLikeCard}
-            activeOpacity={0.88}
-            onPress={handleOpenReceivedLikes}
-          >
+      <View style={styles.contentArea}>
+        {socialView === 'discover' && floatingLikeVisible && topReceivedLike ? (
+          <TouchableOpacity style={styles.floatingLikeCard} activeOpacity={0.9} onPress={() => handleOpenLikesView('received')}>
             {topReceivedLike.foto_url ? (
               <Image source={{ uri: topReceivedLike.foto_url }} style={styles.incomingLikeAvatar} contentFit="cover" />
             ) : (
@@ -2089,17 +1831,13 @@ export default function SocialProfileScreen() {
             <Ionicons name="heart" size={18} color="#E11D48" />
           </TouchableOpacity>
         ) : null}
-      </LinearGradient>
 
-      <View style={styles.contentArea}>
         {profileLoading ? (
           <View style={styles.centerStateCard}>
             <ActivityIndicator size="large" color={Colors.primary} />
             <Text style={styles.centerStateTitle}>Preparando tu espacio social</Text>
             <Text style={styles.centerStateText}>Estamos cargando tu perfil y los datos de la sucursal.</Text>
           </View>
-        ) : socialView === 'matches' ? (
-          renderMatchesView()
         ) : modoSocial ? (
           renderCurrentDiner()
         ) : (
@@ -2520,72 +2258,9 @@ export default function SocialProfileScreen() {
         </View>
       </Modal>
 
-      <Modal visible={receivedLikesVisible} transparent animationType="slide" onRequestClose={handleCloseReceivedLikes}>
+      <Modal visible={detailsVisible} transparent animationType="slide" onRequestClose={() => setDetailsVisible(false)}>
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={handleCloseReceivedLikes} />
-
-          <View style={styles.modalCard}>
-            <View style={styles.modalHandle} />
-
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Likes recibidos</Text>
-                <Text style={styles.receivedLikesModalSubtitle}>
-                  {receivedLikes.length === 1
-                    ? '1 persona quiere conocerte'
-                    : `${receivedLikes.length} personas quieren conocerte`}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={handleCloseReceivedLikes} style={styles.closeButton} activeOpacity={0.8}>
-                <Ionicons name="close" size={24} color={Colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView contentContainerStyle={styles.receivedLikesList} showsVerticalScrollIndicator={false}>
-              {receivedLikes.map((like) => {
-                const likedDate = formatMatchDate(like.liked_at);
-
-                return (
-                  <TouchableOpacity
-                    key={like.user_id}
-                    activeOpacity={0.88}
-                    style={styles.matchCard}
-                    onPress={() => handleReceivedLikePress(like)}
-                  >
-                    {like.foto_url ? (
-                      <Image source={{ uri: like.foto_url }} style={styles.matchImage} contentFit="cover" cachePolicy="disk" />
-                    ) : (
-                      <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.matchFallback}>
-                        <Text style={styles.matchFallbackLetter}>{like.nombre[0]?.toUpperCase() ?? '?'}</Text>
-                      </LinearGradient>
-                    )}
-
-                    <View style={styles.matchInfo}>
-                      <View style={styles.matchTitleRow}>
-                        <Text numberOfLines={1} style={styles.matchName}>{like.nombre}</Text>
-                        <Ionicons name="heart" size={18} color="#E11D48" />
-                      </View>
-                      <Text numberOfLines={1} style={styles.matchMeta}>
-                        {like.mesa ? `Mesa ${like.mesa}` : 'Te dio me gusta'}
-                      </Text>
-                      {like.que_busca ? <Text numberOfLines={1} style={styles.matchIntent}>{like.que_busca}</Text> : null}
-                      {likedDate ? (
-                        <Text numberOfLines={1} style={styles.matchDate}>Like recibido el {likedDate}</Text>
-                      ) : null}
-                    </View>
-
-                    <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={detailsVisible} transparent animationType="slide" onRequestClose={handleCloseDinerDetails}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={handleCloseDinerDetails} />
+          <Pressable style={styles.modalBackdrop} onPress={() => setDetailsVisible(false)} />
 
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
@@ -2916,8 +2591,9 @@ const styles = StyleSheet.create({
   },
   statusCard: {
     backgroundColor: Colors.white,
-    borderRadius: 26,
-    padding: 16,
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: '#E7EAF0',
     flexDirection: 'row',
@@ -2932,17 +2608,17 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginTop: 6,
-    marginRight: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    marginTop: 5,
+    marginRight: 9,
   },
   statusBody: {
     flex: 1,
   },
   statusTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '800',
     color: Colors.text,
     letterSpacing: -0.3,
@@ -2953,25 +2629,19 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: Colors.textSecondary,
   },
-  statusHint: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 17,
-    color: Colors.textMuted,
-  },
   summaryRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     gap: 10,
-    marginTop: 14,
+    marginTop: 10,
   },
   summaryPill: {
     flex: 1,
     minWidth: 0,
-    minHeight: 42,
+    minHeight: 38,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     backgroundColor: '#FFFFFFCC',
     borderWidth: 1,
     borderColor: '#E7EAF0',
@@ -2982,37 +2652,30 @@ const styles = StyleSheet.create({
   },
   summaryPillText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: Colors.primary,
     textAlign: 'center',
   },
-  socialViewSwitch: {
-    marginTop: 14,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFFB8',
-    borderWidth: 1,
-    borderColor: '#E7EAF0',
-    padding: 4,
-    flexDirection: 'row',
-    gap: 4,
-  },
-  socialViewButton: {
+  contentArea: {
     flex: 1,
-    minHeight: 42,
-    borderRadius: 15,
+    minHeight: 38,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
+    paddingHorizontal: 8,
   },
   socialViewButtonActive: {
     backgroundColor: Colors.primary,
   },
   socialViewText: {
-    fontSize: 13,
+    flexShrink: 1,
+    fontSize: 11,
     fontWeight: '800',
     color: Colors.primary,
+    textAlign: 'center',
   },
   socialViewTextActive: {
     color: Colors.white,
@@ -3075,8 +2738,25 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
+    position: 'relative',
     paddingHorizontal: 20,
-    paddingBottom: 24,
+    paddingBottom: 16,
+  },
+  floatingLikeCard: {
+    position: 'absolute',
+    top: 2,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFFF2',
+    borderWidth: 1,
+    borderColor: '#F2D7E2',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    ...Shadows.card,
   },
   centerStateCard: {
     flex: 1,
@@ -3144,23 +2824,75 @@ const styles = StyleSheet.create({
   },
   carouselArea: {
     flex: 1,
-    paddingTop: 6,
+    paddingTop: 0,
+    paddingBottom: 8,
   },
   counterText: {
-    marginBottom: 12,
-    fontSize: 16,
+    marginBottom: 6,
+    fontSize: 15,
     fontWeight: '700',
     color: Colors.textSecondary,
   },
   tinderCardContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    width: '100%',
     alignItems: 'center',
   },
   tinderCard: {
     width: '100%',
-    height: '100%',
-    maxHeight: 620,
+    maxWidth: 480,
+  },
+  discoveryActions: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    marginTop: 10,
+    paddingBottom: 2,
+  },
+  discoveryActionCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  discoveryArrowButton: {
+    width: 50,
+    minHeight: 50,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  discoveryArrowButtonDisabled: {
+    opacity: 0.45,
+  },
+  likeButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 18,
+    backgroundColor: '#E11D48',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    ...Shadows.md,
+  },
+  discoveryGiftButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 18,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    ...Shadows.md,
+  },
+  discoveryButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.white,
   },
   discoveryActions: {
     flexDirection: 'row',
@@ -3199,7 +2931,6 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   dinerCard: {
-    minHeight: 560,
     borderRadius: 30,
     backgroundColor: Colors.white,
     borderWidth: 1,
@@ -3208,7 +2939,7 @@ const styles = StyleSheet.create({
     ...Shadows.lg,
   },
   dinerImageWrap: {
-    height: 360,
+    height: 340,
     backgroundColor: '#E8EBF3',
   },
   dinerImage: {
@@ -3276,7 +3007,8 @@ const styles = StyleSheet.create({
   },
   dinerPreview: {
     paddingHorizontal: 22,
-    paddingVertical: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   previewEyebrow: {
     fontSize: 15,
@@ -3289,13 +3021,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
-  },
-  previewText: {
-    marginTop: 12,
-    fontSize: 14,
-    lineHeight: 21,
-    color: Colors.textSecondary,
+    marginTop: 10,
   },
   dinerContent: {
     paddingHorizontal: 22,
@@ -3462,72 +3188,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  matchesList: {
-    paddingTop: 10,
-    paddingBottom: 26,
-    gap: 12,
-  },
-  matchCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#E7EAF0',
-    backgroundColor: Colors.white,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    ...Shadows.card,
-  },
-  matchImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
-    backgroundColor: '#E8EBF3',
-  },
-  matchFallback: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  matchFallbackLetter: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: Colors.white,
-  },
-  matchInfo: {
-    flex: 1,
-    marginHorizontal: 12,
-  },
-  matchTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  matchName: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '800',
-    color: Colors.text,
-    letterSpacing: -0.4,
-  },
-  matchMeta: {
-    marginTop: 5,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  matchIntent: {
-    marginTop: 3,
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  matchDate: {
-    marginTop: 3,
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.textMuted,
   },
   giftModalSubtitle: {
     marginTop: -2,

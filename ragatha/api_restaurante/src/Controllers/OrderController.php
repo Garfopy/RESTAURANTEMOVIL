@@ -45,11 +45,6 @@ class OrderController
         Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
 
         $order = Order::findById($id);
-        $exitPass = null;
-        if (($order['tipo_pedido'] ?? null) === 'eat_in') {
-            $exitPass = Order::ensureExitPass($id, $user->id);
-        }
-
         Response::success([
             'ok' => true,
             'pedido_id' => $order['id'],
@@ -158,10 +153,6 @@ class OrderController
                 'subtotal' => $input['subtotal'],
                 'total' => $input['total'],
                 'notes' => $input['notas'] ?? null,
-                'direccion_id' => $input['direccion_id'] ?? null,
-                'direccion_entrega' => $input['direccion_entrega'] ?? null,
-                'mesa_id' => $input['mesa_id'] ?? null,
-                'payment_intent_id' => $input['payment_intent_id'] ?? null,
                 'items' => $items
             ]);
         } catch (\RuntimeException $e) {
@@ -177,6 +168,9 @@ class OrderController
                 ]);
                 exit;
             }
+            if (str_contains($message, 'cuentas separadas')) {
+                Response::error($message, 409, 'SPLIT_ACCOUNT_ACTIVE');
+            }
             Response::serverError($message);
         }
 
@@ -184,7 +178,7 @@ class OrderController
             Response::serverError('No se pudo crear el pedido');
         }
 
-        $order = Order::findById($orderId);
+        $order = Order::findById($orderId, $user->id);
         
         Response::success(['order' => $order], 'Pedido creado exitosamente', 201);
     }
