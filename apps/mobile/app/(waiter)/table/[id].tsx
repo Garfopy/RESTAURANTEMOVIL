@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +29,7 @@ import {
   type WaiterPaymentMethod,
 } from '../../../services/waiter.service';
 import { useWaiterCartStore } from '../../../store/waiter-cart.store';
+import { SplitAccountModal } from '../../../components/waiter/SplitAccountModal';
 
 const PLACEHOLDER_FOOD = require('../../../assets/placeholder-food.jpg');
 
@@ -97,6 +98,7 @@ export default function WaiterTableScreen() {
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [closeVisible, setCloseVisible] = useState(false);
+  const [splitVisible, setSplitVisible] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<WaiterPaymentMethod>('efectivo');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [menuSearch, setMenuSearch] = useState('');
@@ -107,6 +109,7 @@ export default function WaiterTableScreen() {
   const [selectedMods, setSelectedMods] = useState<ModificadorSeleccionado[]>([]);
   const [sending, setSending] = useState(false);
   const [closing, setClosing] = useState(false);
+  const resumedSplitId = useRef<number | null>(null);
 
   const waiterCart = useWaiterCartStore();
   const cartItems = waiterCart.tableId === tableId && waiterCart.restaurantId === restaurantId ? waiterCart.items : [];
@@ -139,9 +142,16 @@ export default function WaiterTableScreen() {
   const waiterName = account?.mesero_nombre || account?.table?.mesero_nombre || initialWaiterName || 'Mesero';
   const sentItems = account?.items ?? [];
   const sentTotal = account?.total ?? 0;
+  const activeSplit = account?.active_split ?? null;
   const totalDue = sentTotal + cartTotal;
   const hasPendingCart = cartItems.length > 0;
   const canCloseAccount = sentItems.length > 0 && !hasPendingCart;
+
+  useEffect(() => {
+    if (!activeSplit || resumedSplitId.current === activeSplit.id) return;
+    resumedSplitId.current = activeSplit.id;
+    setSplitVisible(true);
+  }, [activeSplit]);
 
   const menuCategories = useMemo<MenuCategory[]>(
     () => [{ id: 0, nombre: 'Todo' }, ...((categoriesQuery.data ?? []) as MenuCategory[])],
@@ -295,6 +305,26 @@ export default function WaiterTableScreen() {
     }
   }
 
+  function openCloseFlow() {
+    if (activeSplit) {
+      setSplitVisible(true);
+      return;
+    }
+    Alert.alert('Cerrar cuenta', '¿Como deseas cobrar esta mesa?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Una sola cuenta', onPress: () => setCloseVisible(true) },
+      { text: 'Cuentas separadas', onPress: () => setSplitVisible(true) },
+    ]);
+  }
+
+  function finishSplitPayment() {
+    waiterCart.clear();
+    setSplitVisible(false);
+    Alert.alert('Mesa liquidada', 'Todas las cuentas fueron pagadas y la mesa quedo disponible.', [
+      { text: 'Aceptar', onPress: () => router.replace('/(waiter)' as never) },
+    ]);
+  }
+
   function renderPendingItem(item: (typeof cartItems)[number]) {
     return (
       <View key={item.id} style={styles.pendingItem}>
@@ -373,18 +403,23 @@ export default function WaiterTableScreen() {
         </View>
 
         <View style={styles.actionGrid}>
-          <TouchableOpacity style={styles.primaryActionButton} activeOpacity={0.88} onPress={() => setMenuVisible(true)}>
+          <TouchableOpacity
+            style={[styles.primaryActionButton, activeSplit && styles.actionButtonDisabled]}
+            activeOpacity={0.88}
+            onPress={() => setMenuVisible(true)}
+            disabled={Boolean(activeSplit)}
+          >
             <Ionicons name="restaurant-outline" size={20} color="#FFFFFF" />
             <Text style={styles.primaryActionText}>Agregar productos</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.secondaryActionButton, !canCloseAccount && styles.actionButtonDisabled]}
             activeOpacity={0.88}
-            onPress={() => setCloseVisible(true)}
+            onPress={openCloseFlow}
             disabled={!canCloseAccount}
           >
             <Ionicons name="cash-outline" size={20} color="#111827" />
-            <Text style={styles.secondaryActionText}>Cerrar cuenta</Text>
+            <Text style={styles.secondaryActionText}>{activeSplit ? 'Continuar cobro' : 'Cerrar cuenta'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -443,6 +478,18 @@ export default function WaiterTableScreen() {
           )}
         </View>
       </ScrollView>
+
+      <SplitAccountModal
+        visible={splitVisible}
+        tableId={tableId}
+        restaurantId={restaurantId}
+        tableLabel={tableLabel}
+        items={sentItems}
+        activeSplit={activeSplit}
+        onClose={() => setSplitVisible(false)}
+        onSplitChanged={() => { void accountQuery.refetch(); }}
+        onFullyPaid={finishSplitPayment}
+      />
 
       <Modal visible={menuVisible} animationType="slide" onRequestClose={() => setMenuVisible(false)}>
         <SafeAreaView style={styles.modalSafe}>

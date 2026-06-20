@@ -66,6 +66,7 @@ export type WaiterAccount = {
   orders_count: number;
   cliente_nombre?: string | null;
   mesero_nombre?: string | null;
+  active_split?: WaiterSplit | null;
 };
 
 export type WaiterOrderItemPayload = {
@@ -77,6 +78,76 @@ export type WaiterOrderItemPayload = {
 };
 
 export type WaiterPaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia';
+
+export type WaiterSplitItem = {
+  pedido_item_id: number;
+  cantidad: number;
+  precio_unit: number;
+  subtotal: number;
+};
+
+export type WaiterSplitAccount = {
+  id: number;
+  numero: number;
+  nombre: string;
+  total: number;
+  estado: 'pendiente' | 'pagada';
+  metodo_pago?: WaiterPaymentMethod | null;
+  pagado_por_nombre?: string | null;
+  pagado_at?: string | null;
+  items: WaiterSplitItem[];
+};
+
+export type WaiterSplit = {
+  id: number;
+  restaurant_id: number;
+  table_id: number;
+  estado: 'activa' | 'pagada' | 'cancelada';
+  total: number;
+  paid_count: number;
+  accounts_count: number;
+  created_at?: string | null;
+  completed_at?: string | null;
+  accounts: WaiterSplitAccount[];
+};
+
+export type WaiterSplitDraftAccount = {
+  name: string;
+  items: Array<{ pedido_item_id: number; cantidad: number }>;
+};
+
+export type WaiterGiftStatus = 'listo' | 'reclamado' | 'entregado';
+
+export type WaiterGift = {
+  id: number;
+  folio?: string | null;
+  restaurant_id: number;
+  table_id: number;
+  gift_name: string;
+  gift_description?: string | null;
+  gift_price: number;
+  gift_image?: string | null;
+  sender_name: string;
+  recipient_name: string;
+  sender_table?: string | null;
+  recipient_table?: string | null;
+  status: WaiterGiftStatus;
+  claimed_by?: number | null;
+  claimed_by_name?: string | null;
+  claimed_by_me: boolean;
+  claimed_at?: string | null;
+  delivered_by?: number | null;
+  delivered_by_name?: string | null;
+  delivered_at?: string | null;
+  created_at?: string | null;
+  paid_at?: string | null;
+};
+
+export type WaiterGiftInbox = {
+  active: WaiterGift[];
+  history: WaiterGift[];
+  pending_count: number;
+};
 
 export type WaiterCloseAccountResponse = {
   table_id: number;
@@ -161,3 +232,82 @@ export async function closeWaiterAccount(params: {
   );
   return unwrap(data);
 }
+
+export async function createWaiterSplit(params: {
+  tableId: number;
+  restaurantId: number;
+  accounts: WaiterSplitDraftAccount[];
+}): Promise<WaiterSplit> {
+  const { data } = await apiClient.post<Envelope<{ split: WaiterSplit }>>(
+    `/waiter/tables/${params.tableId}/splits`,
+    { restaurant_id: params.restaurantId, accounts: params.accounts }
+  );
+  return unwrap(data).split;
+}
+
+export async function payWaiterSplitAccount(params: {
+  tableId: number;
+  restaurantId: number;
+  splitId: number;
+  accountId: number;
+  metodoPago: WaiterPaymentMethod;
+}): Promise<{ split: WaiterSplit; closed: boolean }> {
+  const { data } = await apiClient.post<Envelope<{ split: WaiterSplit; closed: boolean }>>(
+    `/waiter/tables/${params.tableId}/splits/${params.splitId}/accounts/${params.accountId}/pay`,
+    { restaurant_id: params.restaurantId, metodo_pago: params.metodoPago }
+  );
+  return unwrap(data);
+}
+
+export async function cancelWaiterSplit(params: {
+  tableId: number;
+  restaurantId: number;
+  splitId: number;
+}): Promise<void> {
+  await apiClient.delete(`/waiter/tables/${params.tableId}/splits/${params.splitId}`, {
+    data: { restaurant_id: params.restaurantId },
+  });
+}
+
+export async function getWaiterGifts(restaurantId: number): Promise<WaiterGiftInbox> {
+  const { data } = await apiClient.get<Envelope<WaiterGiftInbox>>('/waiter/gifts', {
+    params: { restaurant_id: restaurantId },
+  });
+  const inbox = unwrap(data);
+  const normalize = (gift: WaiterGift): WaiterGift => ({
+    ...gift,
+    gift_price: Number(gift.gift_price || 0),
+    gift_image: formatImageUrl(gift.gift_image ?? null) ?? gift.gift_image ?? null,
+  });
+  return {
+    active: (inbox.active ?? []).map(normalize),
+    history: (inbox.history ?? []).map(normalize),
+    pending_count: Number(inbox.pending_count || 0),
+  };
+}
+
+async function updateWaiterGift(params: {
+  giftId: number;
+  restaurantId: number;
+  action: 'claim' | 'release' | 'deliver';
+}): Promise<WaiterGift> {
+  const { data } = await apiClient.post<Envelope<{ gift: WaiterGift }>>(
+    `/waiter/gifts/${params.giftId}/${params.action}`,
+    { restaurant_id: params.restaurantId }
+  );
+  const gift = unwrap(data).gift;
+  return {
+    ...gift,
+    gift_price: Number(gift.gift_price || 0),
+    gift_image: formatImageUrl(gift.gift_image ?? null) ?? gift.gift_image ?? null,
+  };
+}
+
+export const claimWaiterGift = (giftId: number, restaurantId: number) =>
+  updateWaiterGift({ giftId, restaurantId, action: 'claim' });
+
+export const releaseWaiterGift = (giftId: number, restaurantId: number) =>
+  updateWaiterGift({ giftId, restaurantId, action: 'release' });
+
+export const deliverWaiterGift = (giftId: number, restaurantId: number) =>
+  updateWaiterGift({ giftId, restaurantId, action: 'deliver' });

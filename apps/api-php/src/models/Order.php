@@ -498,6 +498,23 @@ class Order
         try {
             $pdo->beginTransaction();
 
+            $isEatIn = in_array(($data['order_type'] ?? null), ['eat_in', 'dine_in'], true);
+            $tableId = !empty($data['mesa_id']) ? (int)$data['mesa_id'] : 0;
+            if ($isEatIn && $tableId > 0 && self::tableExists('rest_cuenta_divisiones')) {
+                $splitStmt = $pdo->prepare(
+                    "SELECT id FROM rest_cuenta_divisiones
+                      WHERE restaurante_id = :restaurant_id AND mesa_id = :table_id AND estado = 'activa'
+                      LIMIT 1 FOR UPDATE"
+                );
+                $splitStmt->execute([
+                    ':restaurant_id' => (int)$data['restaurante_id'],
+                    ':table_id' => $tableId,
+                ]);
+                if ($splitStmt->fetch()) {
+                    throw new \RuntimeException('No se pueden agregar productos mientras se cobran cuentas separadas.');
+                }
+            }
+
             $folio = 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
 
             // Detectar tipo_origen del pedido según los items

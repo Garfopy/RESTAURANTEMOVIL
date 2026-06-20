@@ -8,6 +8,8 @@ use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Models\User;
+use Stripe\PaymentIntent;
+use Stripe\Stripe;
 
 class SocialController
 {
@@ -809,6 +811,220 @@ class SocialController
             error_log('SocialController::sendGift ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo enviar el regalo en este momento.');
         }
+    }
+
+    public function createGiftPayment(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+        $giftProductId = (int)($input['gift_product_id'] ?? 0);
+        $recipientUserId = (int)($input['recipient_user_id'] ?? 0);
+        $requestKey = trim((string)($input['request_key'] ?? ''));
+
+        $errors = [];
+        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
+        if ($giftProductId <= 0) $errors['gift_product_id'] = ['Selecciona un regalo valido'];
+        if ($recipientUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
+        if ($recipientUserId === (int)$user->id) $errors['recipient_user_id'] = ['No puedes enviarte un regalo a ti mismo'];
+        if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
+            $errors['request_key'] = ['La clave de solicitud no es valida'];
+        }
+        if (!empty($errors)) Response::validationError($errors);
+        if (!$this->tableExists('social_gift_orders')) {
+            Response::serverError('La tabla de regalos sociales no existe.');
+        }
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        foreach (['stripe_payment_intent_id', 'payment_request_key', 'pagado_at', 'moneda'] as $required) {
+            if (!in_array($required, $giftColumns, true)) {
+                Response::serverError('Ejecuta la migracion 030 antes de cobrar regalos.');
+            }
+        }
+
+        $sender = $this->fetchSocialProfile((int)$user->id);
+        if (!$sender || !$this->hasSocialProfile($sender)) {
+            Response::error('Completa tu perfil social antes de enviar regalos.', 400);
+        }
+        $senderRestaurantId = (int)($sender['current_restaurante_id'] ?? 0);
+        $senderMesa = $this->sanitizeNullableString($sender['mesa'] ?? null);
+        if (!(bool)($sender['is_social_active'] ?? false) || $senderRestaurantId !== $restaurantId) {
+            Response::error('Activa tu modo social en la sucursal actual antes de enviar regalos.', 400);
+        }
+        if ($senderMesa === null) Response::error('Necesitas seleccionar tu mesa antes de enviar un regalo.', 400);
+
+        $recipient = $this->fetchSocialProfile($recipientUserId);
+        if (!$recipient || !(bool)($recipient['is_social_active'] ?? false) || (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId) {
+            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
+        }
+        $recipientMesa = $this->sanitizeNullableString($recipient['mesa'] ?? null);
+        if ($recipientMesa === null) Response::error('No pudimos ubicar la mesa del comensal seleccionado.', 409);
+        $mesa = $this->resolveMesaForRestaurant($restaurantId, $recipientMesa);
+        if ($mesa === null) Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
+
+        $giftProduct = $this->findGiftProduct($giftProductId);
+        if ($giftProduct === null) Response::notFound('Regalo no encontrado');
+        $amountCents = (int)round((float)($giftProduct['precio'] ?? 0) * 100);
+        if ($amountCents <= 0) Response::error('Este regalo no tiene un precio valido.', 409);
+
+        $gift = Database::queryOne(
+            'SELECT * FROM social_gift_orders WHERE sender_user_id = :sender_id AND payment_request_key = :request_key LIMIT 1',
+            [':sender_id' => (int)$user->id, ':request_key' => $requestKey]
+        );
+        if ($gift && (
+            (int)$gift['restaurante_id'] !== $restaurantId ||
+            (int)$gift['recipient_user_id'] !== $recipientUserId ||
+            (int)$gift['gift_product_id'] !== $giftProductId
+        )) {
+            Response::error('La clave de solicitud ya pertenece a otro regalo.', 409);
+        }
+
+        if (!$gift) {
+            $pdo = Database::getInstance();
+            try {
+                $pdo->beginTransaction();
+                $giftId = Database::execute(
+                    "INSERT INTO social_gift_orders (
+                        restaurante_id, mesa_id, gift_product_id, sender_user_id, recipient_user_id,
+                        sender_nombre, recipient_nombre, sender_mesa, recipient_mesa,
+                        gift_nombre, gift_descripcion, gift_precio, gift_imagen,
+                        status, moneda, payment_request_key, created_at, updated_at
+                    ) VALUES (
+                        :restaurant_id, :table_id, :product_id, :sender_id, :recipient_id,
+                        :sender_name, :recipient_name, :sender_table, :recipient_table,
+                        :gift_name, :gift_description, :gift_price, :gift_image,
+                        'pendiente_pago', 'MXN', :request_key, NOW(), NOW()
+                    )",
+                    [
+                        ':restaurant_id' => $restaurantId,
+                        ':table_id' => (int)$mesa['id'],
+                        ':product_id' => $giftProductId,
+                        ':sender_id' => (int)$user->id,
+                        ':recipient_id' => $recipientUserId,
+                        ':sender_name' => $sender['nombre'] ?? 'Comensal',
+                        ':recipient_name' => $recipient['nombre'] ?? 'Comensal',
+                        ':sender_table' => $senderMesa,
+                        ':recipient_table' => $recipientMesa,
+                        ':gift_name' => $giftProduct['nombre'] ?? 'Regalo',
+                        ':gift_description' => $giftProduct['descripcion'] ?? null,
+                        ':gift_price' => $amountCents / 100,
+                        ':gift_image' => $giftProduct['imagen'] ?? null,
+                        ':request_key' => $requestKey,
+                    ]
+                );
+                if ($giftId <= 0) throw new \RuntimeException('No se pudo crear el regalo');
+                Database::rowCount(
+                    'UPDATE social_gift_orders SET folio = :folio WHERE id = :id',
+                    [':folio' => $this->buildGiftFolio($giftId), ':id' => $giftId]
+                );
+                $pdo->commit();
+                $gift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+            } catch (\Throwable $exception) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                error_log('SocialController::createGiftPayment DB ERROR: ' . $exception->getMessage());
+                Response::serverError('No se pudo preparar el regalo.');
+            }
+        }
+
+        try {
+            Stripe::setApiKey($this->getStripeSecret());
+            $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
+            $intent = $intentId !== '' ? PaymentIntent::retrieve($intentId) : PaymentIntent::create([
+                'amount' => $amountCents,
+                'currency' => 'mxn',
+                'description' => 'Regalo social ' . ($gift['folio'] ?? ''),
+                'metadata' => [
+                    'gift_order_id' => (string)$gift['id'],
+                    'user_id' => (string)$user->id,
+                ],
+                'automatic_payment_methods' => ['enabled' => true],
+            ], ['idempotency_key' => 'social_gift_' . $requestKey]);
+
+            if ((int)$intent->amount !== $amountCents || strtolower((string)$intent->currency) !== 'mxn') {
+                throw new \RuntimeException('El importe del intento no coincide');
+            }
+            Database::rowCount(
+                "UPDATE social_gift_orders
+                    SET stripe_payment_intent_id = :intent_id, status = IF(status = 'pago_fallido', 'pendiente_pago', status), updated_at = NOW()
+                  WHERE id = :id",
+                [':intent_id' => $intent->id, ':id' => (int)$gift['id']]
+            );
+            Response::success([
+                'gift' => $this->giftPaymentResponse($gift),
+                'client_secret' => $intent->client_secret,
+                'payment_intent_id' => $intent->id,
+            ], 'Pago de regalo preparado', 201);
+        } catch (\Throwable $exception) {
+            Database::rowCount(
+                "UPDATE social_gift_orders SET status = 'pago_fallido', updated_at = NOW()
+                  WHERE id = :id AND status = 'pendiente_pago'",
+                [':id' => (int)$gift['id']]
+            );
+            error_log('SocialController::createGiftPayment STRIPE ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo iniciar el pago del regalo.');
+        }
+    }
+
+    public function confirmGiftPayment(int $giftId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $gift = Database::queryOne(
+            'SELECT * FROM social_gift_orders WHERE id = :id AND sender_user_id = :user_id LIMIT 1',
+            [':id' => $giftId, ':user_id' => (int)$user->id]
+        );
+        if (!$gift) Response::notFound('Regalo no encontrado');
+        $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
+        if ($intentId === '') Response::error('El regalo no tiene un intento de pago.', 409);
+
+        try {
+            Stripe::setApiKey($this->getStripeSecret());
+            $intent = PaymentIntent::retrieve($intentId);
+            $expectedCents = (int)round((float)$gift['gift_precio'] * 100);
+            $metadataGiftId = (int)($intent->metadata['gift_order_id'] ?? 0);
+            $metadataUserId = (int)($intent->metadata['user_id'] ?? 0);
+            if ($metadataGiftId !== $giftId || $metadataUserId !== (int)$user->id || (int)$intent->amount !== $expectedCents || strtolower((string)$intent->currency) !== 'mxn') {
+                Response::error('La informacion del pago no coincide con el regalo.', 409);
+            }
+            if ($intent->status !== 'succeeded') {
+                Response::error('Stripe aun no confirma el pago del regalo.', 409);
+            }
+            Database::rowCount(
+                "UPDATE social_gift_orders
+                    SET status = IF(status IN ('pendiente_pago','pago_fallido'), 'listo', status),
+                        pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
+                  WHERE id = :id AND stripe_payment_intent_id = :intent_id",
+                [':id' => $giftId, ':intent_id' => $intentId]
+            );
+            $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+            Response::success($this->giftPaymentResponse($paidGift), 'Regalo pagado y enviado');
+        } catch (\Stripe\Exception\ApiErrorException $exception) {
+            error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo verificar el pago con Stripe.');
+        }
+    }
+
+    private function getStripeSecret(): string
+    {
+        $key = $_ENV['STRIPE_SECRET_KEY'] ?? $_SERVER['STRIPE_SECRET_KEY'] ?? getenv('STRIPE_SECRET_KEY');
+        if (!is_string($key) || trim($key) === '') {
+            throw new \RuntimeException('STRIPE_SECRET_KEY no configurada');
+        }
+        return trim($key);
+    }
+
+    private function giftPaymentResponse(array $gift): array
+    {
+        return [
+            'id' => (int)$gift['id'],
+            'folio' => $gift['folio'] ?? null,
+            'mesa_id' => (int)$gift['mesa_id'],
+            'mesa_label' => $this->formatMesaLabel((string)($gift['recipient_mesa'] ?? $gift['mesa_id'])),
+            'gift_nombre' => $gift['gift_nombre'],
+            'gift_precio' => (float)$gift['gift_precio'],
+            'recipient_nombre' => $gift['recipient_nombre'],
+            'sender_nombre' => $gift['sender_nombre'],
+            'recipient_mesa' => $gift['recipient_mesa'] ?? null,
+            'status' => $gift['status'],
+        ];
     }
 
     public function restaurantTables(int $restaurantId): void

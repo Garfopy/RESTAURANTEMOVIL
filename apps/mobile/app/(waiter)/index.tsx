@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,15 +17,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { getApiError } from '../../services/api';
 import {
   claimWaiterTable,
   getWaiterBranches,
+  getWaiterGifts,
   getWaiterTables,
   type WaiterTable,
 } from '../../services/waiter.service';
 import { useUserStore } from '../../store/user.store';
 import { Colors } from '../../theme';
+import { useToast } from '../../context/ToastContext';
+import { GiftInboxModal } from '../../components/waiter/GiftInboxModal';
 
 type StatusIcon = keyof typeof Ionicons.glyphMap;
 
@@ -74,11 +78,14 @@ export default function WaiterHomeScreen() {
   const router = useRouter();
   const user = useUserStore((state) => state.user);
   const logout = useUserStore((state) => state.logout);
+  const toast = useToast();
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [searchText, setSearchText] = useState('');
   const [claimingTable, setClaimingTable] = useState<WaiterTable | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [claiming, setClaiming] = useState(false);
+  const [giftsVisible, setGiftsVisible] = useState(false);
+  const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
 
   const branchesQuery = useQuery({
     queryKey: ['waiter', 'branches'],
@@ -102,6 +109,41 @@ export default function WaiterHomeScreen() {
     queryFn: () => getWaiterTables(selectedBranch!.id),
     enabled: Boolean(selectedBranch?.id),
   });
+
+  const giftsQuery = useQuery({
+    queryKey: ['waiter', 'gifts', selectedBranch?.id],
+    queryFn: () => getWaiterGifts(selectedBranch!.id),
+    enabled: Boolean(selectedBranch?.id),
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
+  });
+
+  const giftInbox = giftsQuery.data ?? { active: [], history: [], pending_count: 0 };
+  const giftCountByTable = useMemo(() => giftInbox.active.reduce<Record<number, number>>((counts, gift) => {
+    counts[gift.table_id] = (counts[gift.table_id] ?? 0) + 1;
+    return counts;
+  }, {}), [giftInbox.active]);
+
+  useEffect(() => {
+    if (!selectedBranch?.id || !giftsQuery.data) return;
+    const readyIds = new Set(giftsQuery.data.active.filter((gift) => gift.status === 'listo').map((gift) => gift.id));
+    if (seenGiftIds.current.branchId !== selectedBranch.id) {
+      seenGiftIds.current = { branchId: selectedBranch.id, ids: readyIds };
+      return;
+    }
+    const newIds = [...readyIds].filter((id) => !seenGiftIds.current.ids.has(id));
+    seenGiftIds.current.ids = readyIds;
+    if (newIds.length > 0) {
+      const newest = giftsQuery.data.active.find((gift) => gift.id === newIds[newIds.length - 1]);
+      toast.info(
+        newIds.length === 1 && newest
+          ? `Nuevo regalo para Mesa ${newest.recipient_table ?? newest.table_id}: ${newest.gift_name}`
+          : `${newIds.length} regalos nuevos por entregar`,
+        { duration: 6000, icon: 'gift' }
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [giftsQuery.data, selectedBranch?.id, toast]);
 
   const tables = tablesQuery.data ?? [];
   const filteredTables = useMemo(() => {
@@ -172,6 +214,7 @@ export default function WaiterHomeScreen() {
   }
 
   function renderTableCard(table: WaiterTable) {
+    const giftCount = giftCountByTable[table.id] ?? 0;
     return (
       <TouchableOpacity key={table.id} activeOpacity={0.9} style={styles.tableCard} onPress={() => openTable(table)}>
         <View style={styles.tableTopRow}>
@@ -181,6 +224,12 @@ export default function WaiterHomeScreen() {
               {STATUS_LABEL[table.status]}
             </Text>
           </View>
+          {giftCount > 0 ? (
+            <View style={styles.tableGiftBadge}>
+              <Ionicons name="gift" size={14} color="#BE123C" />
+              <Text style={styles.tableGiftBadgeText}>{giftCount}</Text>
+            </View>
+          ) : null}
           <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
         </View>
 
@@ -286,6 +335,12 @@ export default function WaiterHomeScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerIconButton} onPress={() => setGiftsVisible(true)} activeOpacity={0.8}>
+            <Ionicons name="gift-outline" size={20} color="#111827" />
+            {giftInbox.pending_count > 0 ? (
+              <View style={styles.headerBadge}><Text style={styles.headerBadgeText}>{Math.min(99, giftInbox.pending_count)}</Text></View>
+            ) : null}
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerIconButton} onPress={() => tablesQuery.refetch()} activeOpacity={0.8}>
             {tablesQuery.isRefetching ? <ActivityIndicator size="small" color="#111827" /> : <Ionicons name="refresh" size={19} color="#111827" />}
           </TouchableOpacity>
@@ -339,6 +394,17 @@ export default function WaiterHomeScreen() {
               <Text style={styles.summaryLabel}>Activo</Text>
             </View>
           </View>
+
+          {giftInbox.active.length > 0 ? (
+            <TouchableOpacity style={styles.giftBanner} activeOpacity={0.88} onPress={() => setGiftsVisible(true)}>
+              <View style={styles.giftBannerIcon}><Ionicons name="gift" size={21} color="#FFFFFF" /></View>
+              <View style={styles.giftBannerCopy}>
+                <Text style={styles.giftBannerTitle}>{giftInbox.pending_count > 0 ? `${giftInbox.pending_count} regalos esperan entrega` : 'Entregas de regalos en curso'}</Text>
+                <Text style={styles.giftBannerText}>Revisa destinos y coordina la entrega.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#BE123C" />
+            </TouchableOpacity>
+          ) : null}
 
           <View style={styles.searchWrap}>
             <Ionicons name="search-outline" size={18} color="#64748B" />
@@ -445,6 +511,16 @@ export default function WaiterHomeScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {selectedBranch ? (
+        <GiftInboxModal
+          visible={giftsVisible}
+          restaurantId={selectedBranch.id}
+          inbox={giftInbox}
+          onClose={() => setGiftsVisible(false)}
+          onChanged={() => giftsQuery.refetch()}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -504,6 +580,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  headerBadge: { position: 'absolute', top: -4, right: -4, minWidth: 19, height: 19, borderRadius: 10, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: '#BE123C', borderWidth: 2, borderColor: '#F4F6F8' },
+  headerBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
   branchList: {
     paddingHorizontal: 18,
     gap: 8,
@@ -518,6 +596,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  giftBanner: { marginHorizontal: 18, marginBottom: 12, padding: 13, borderRadius: 17, borderWidth: 1, borderColor: '#FECDD3', flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFF1F2' },
+  giftBannerIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#BE123C' },
+  giftBannerCopy: { flex: 1 },
+  giftBannerTitle: { color: '#881337', fontSize: 14, fontWeight: '900' },
+  giftBannerText: { marginTop: 2, color: '#9F1239', fontSize: 11 },
+  tableGiftBadge: { marginLeft: 'auto', paddingHorizontal: 7, height: 25, borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFE4E6' },
+  tableGiftBadgeText: { color: '#BE123C', fontSize: 11, fontWeight: '900' },
   branchChipActive: {
     backgroundColor: '#111827',
     borderColor: '#111827',

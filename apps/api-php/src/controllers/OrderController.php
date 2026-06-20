@@ -178,6 +178,9 @@ class OrderController
                 ]);
                 exit;
             }
+            if (str_contains($message, 'cuentas separadas')) {
+                Response::error($message, 409, 'SPLIT_ACCOUNT_ACTIVE');
+            }
             Response::serverError($message);
         }
 
