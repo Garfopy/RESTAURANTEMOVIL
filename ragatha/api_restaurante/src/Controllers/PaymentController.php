@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Amare\Api\Controllers;
 
+use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
@@ -20,7 +21,10 @@ class PaymentController
     private function getStripeSecret(): string
     {
         $key = $_ENV['STRIPE_SECRET_KEY'] ?? $_SERVER['STRIPE_SECRET_KEY'] ?? getenv('STRIPE_SECRET_KEY');
-        return $key ?: 'sk_test_51TeJtC40bT4RaBUH5oNKSSOKjzreEfOUiLdswY7CYEYOfp9MdkMR43U1QdK9TGnc0DpY3KhJ41smmvQLNYhx8Rjj00sbJNzOfi';
+        if (!is_string($key) || trim($key) === '') {
+            throw new \RuntimeException('STRIPE_SECRET_KEY no configurada');
+        }
+        return trim($key);
     }
 
     /**
@@ -29,7 +33,10 @@ class PaymentController
     private function getStripeWebhookSecret(): string
     {
         $key = $_ENV['STRIPE_WEBHOOK_SECRET'] ?? $_SERVER['STRIPE_WEBHOOK_SECRET'] ?? getenv('STRIPE_WEBHOOK_SECRET');
-        return $key ?: 'whsec_0NeYzmDe2OFW6mvfOF0TZ3WRjoYivXLB';
+        if (!is_string($key) || trim($key) === '') {
+            throw new \RuntimeException('STRIPE_WEBHOOK_SECRET no configurada');
+        }
+        return trim($key);
     }
 
     public function createPaymentIntent(): void
@@ -75,7 +82,8 @@ class PaymentController
                 'payment_intent_id' => $paymentIntent->id
             ], 'Payment intent creado exitosamente');
         } catch (\Exception $e) {
-            Response::serverError('Error al crear payment intent: ' . $e->getMessage());
+            error_log('PaymentController::createPaymentIntent ERROR: ' . $e->getMessage());
+            Response::serverError('No se pudo iniciar el pago.');
         }
     }
 
@@ -99,17 +107,44 @@ class PaymentController
                 case 'payment_intent.succeeded':
                     $paymentIntent = $event->data->object;
                     $orderId = (int) ($paymentIntent->metadata['order_id'] ?? 0);
+                    $giftOrderId = (int) ($paymentIntent->metadata['gift_order_id'] ?? 0);
                     if ($orderId > 0) {
                         Order::updatePaymentMethod($orderId, 'card', $paymentIntent->id);
+                    }
+                    if ($giftOrderId > 0) {
+                        $gift = Database::queryOne(
+                            'SELECT gift_precio, moneda FROM social_gift_orders WHERE id = :id AND stripe_payment_intent_id = :intent_id',
+                            [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
+                        );
+                        $expectedCents = $gift ? (int)round((float)$gift['gift_precio'] * 100) : -1;
+                        if ($gift && $expectedCents === (int)$paymentIntent->amount && strtolower((string)$paymentIntent->currency) === strtolower((string)$gift['moneda'])) {
+                            Database::rowCount(
+                                "UPDATE social_gift_orders
+                                    SET status = IF(status IN ('pendiente_pago','pago_fallido'), 'listo', status),
+                                        pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
+                                  WHERE id = :id AND stripe_payment_intent_id = :intent_id",
+                                [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
+                            );
+                        } else {
+                            error_log("Pago de regalo #{$giftOrderId} con importe o moneda inconsistente");
+                        }
                     }
                     break;
                     
                 case 'payment_intent.payment_failed':
                     $paymentIntent = $event->data->object;
                     $orderId = (int) ($paymentIntent->metadata['order_id'] ?? 0);
+                    $giftOrderId = (int) ($paymentIntent->metadata['gift_order_id'] ?? 0);
                     if ($orderId > 0) {
                         // Registrar el fallo sin cambiar estado
                         error_log("Pago fallido para pedido #{$orderId}: {$paymentIntent->last_payment_error?->message}");
+                    }
+                    if ($giftOrderId > 0) {
+                        Database::rowCount(
+                            "UPDATE social_gift_orders SET status = 'pago_fallido', updated_at = NOW()
+                              WHERE id = :id AND stripe_payment_intent_id = :intent_id AND status = 'pendiente_pago'",
+                            [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
+                        );
                     }
                     break;
             }
@@ -119,6 +154,9 @@ class PaymentController
             Response::error('Webhook inválido', 400);
         } catch (\Stripe\Exception\SignatureVerificationException $e) {
             Response::error('Firma inválida', 400);
+        } catch (\Throwable $e) {
+            error_log('PaymentController::webhook ERROR: ' . $e->getMessage());
+            Response::serverError('No se pudo procesar el webhook.');
         }
     }
 }

@@ -16,6 +16,7 @@ $routes = [
     
     // Branches routes
     ['GET', '/branches', ['Amare\Api\Controllers\BranchController', 'index']],
+    ['GET', '/branches/nearest', ['Amare\Api\Controllers\BranchController', 'nearest']],
 
     // Config routes (configuración por restaurante) - DEBEN ir antes de /branches/:id
     ['GET', '/settings/theme', ['Amare\Api\Controllers\SettingsController', 'theme']],
@@ -40,10 +41,17 @@ $routes = [
     // Waiter routes
     ['GET', '/waiter/branches', ['Amare\Api\Controllers\WaiterController', 'branches']],
     ['GET', '/waiter/tables', ['Amare\Api\Controllers\WaiterController', 'tables']],
+    ['GET', '/waiter/gifts', ['Amare\Api\Controllers\WaiterController', 'gifts']],
+    ['POST', '/waiter/gifts/:id/claim', ['Amare\Api\Controllers\WaiterController', 'claimGift']],
+    ['POST', '/waiter/gifts/:id/release', ['Amare\Api\Controllers\WaiterController', 'releaseGift']],
+    ['POST', '/waiter/gifts/:id/deliver', ['Amare\Api\Controllers\WaiterController', 'deliverGift']],
     ['POST', '/waiter/tables/:id/claim', ['Amare\Api\Controllers\WaiterController', 'claimTable']],
     ['POST', '/waiter/tables/:id/release', ['Amare\Api\Controllers\WaiterController', 'releaseTable']],
     ['GET', '/waiter/tables/:id/account', ['Amare\Api\Controllers\WaiterController', 'account']],
     ['POST', '/waiter/tables/:id/orders', ['Amare\Api\Controllers\WaiterController', 'createOrder']],
+    ['POST', '/waiter/tables/:id/splits', ['Amare\Api\Controllers\WaiterController', 'createSplit']],
+    ['POST', '/waiter/tables/:id/splits/:splitId/accounts/:accountId/pay', ['Amare\Api\Controllers\WaiterController', 'paySplitAccount']],
+    ['DELETE', '/waiter/tables/:id/splits/:splitId', ['Amare\Api\Controllers\WaiterController', 'cancelSplit']],
     ['POST', '/waiter/tables/:id/close', ['Amare\Api\Controllers\WaiterController', 'closeAccount']],
     
     // Payments routes
@@ -80,8 +88,13 @@ $routes = [
     ['GET', '/restaurants/:id/active-diners', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/active-users', ['Amare\Api\Controllers\SocialController', 'activeDiners']],
     ['GET', '/restaurants/:id/tables', ['Amare\Api\Controllers\SocialController', 'restaurantTables']],
+    ['POST', '/restaurants/tables/scan', ['Amare\Api\Controllers\SocialController', 'scanTable']],
+    ['POST', '/social/likes', ['Amare\Api\Controllers\SocialController', 'likeDiner']],
+    ['GET', '/social/likes/received', ['Amare\Api\Controllers\SocialController', 'receivedLikes']],
+    ['GET', '/social/matches', ['Amare\Api\Controllers\SocialController', 'matches']],
     ['GET', '/gift-products', ['Amare\Api\Controllers\SocialController', 'giftProducts']],
-    ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'sendGift']],
+    ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'createGiftPayment']],
+    ['POST', '/social-gifts/:id/confirm-payment', ['Amare\Api\Controllers\SocialController', 'confirmGiftPayment']],
     
     // Promotions routes (app movil - SOLO LECTURA)
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],

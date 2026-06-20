@@ -22,8 +22,6 @@ class AuthMiddleware
 
     public static function authenticate(): ?object
     {
-        error_log('API JWT SECRET=' . self::getSecret());
-
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 
         if (empty($authHeader) || !str_starts_with($authHeader, 'Bearer ')) {

@@ -146,7 +146,28 @@ type SocialDiner = {
   que_busca: string | null;
   redes_sociales: string | null;
   mesa: string | null;
+  relationship_status: 'none' | 'liked' | 'matched';
+  matched_at?: string | null;
+  match_restaurante_id?: number | null;
+  liked_at?: string | null;
+  like_restaurante_id?: number | null;
 };
+
+type SocialLikeResponse = {
+  liked: boolean;
+  matched: boolean;
+  relationship_status: 'liked' | 'matched';
+  match?: DinerApiItem | null;
+};
+
+type SocialUnlikeResponse = {
+  liked: false;
+  matched: false;
+  relationship_status: 'none';
+};
+
+type SocialView = 'discover' | 'matches' | 'likes';
+type LikesView = 'received' | 'sent';
 
 type GiftProduct = {
   id: number;
@@ -513,13 +534,15 @@ export default function SocialProfileScreen() {
   const [consentModalVisible, setConsentModalVisible] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
-  const [receivedLikesVisible, setReceivedLikesVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
   const [dinersLoading, setDinersLoading] = useState(false);
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [likesLoading, setLikesLoading] = useState(false);
+  const [likingUserId, setLikingUserId] = useState<number | null>(null);
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
   const [giftSending, setGiftSending] = useState(false);
   const [giftCardComplete, setGiftCardComplete] = useState(false);
@@ -536,6 +559,9 @@ export default function SocialProfileScreen() {
   const [socialConsentChecked, setSocialConsentChecked] = useState(false);
   const [socialPhotos, setSocialPhotos] = useState<string[]>([]);
   const [diners, setDiners] = useState<SocialDiner[]>([]);
+  const [matches, setMatches] = useState<SocialDiner[]>([]);
+  const [receivedLikes, setReceivedLikes] = useState<SocialDiner[]>([]);
+  const [sentLikes, setSentLikes] = useState<SocialDiner[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
@@ -546,6 +572,11 @@ export default function SocialProfileScreen() {
   const [mesaInput, setMesaInput] = useState('');
   const [mesaOptions, setMesaOptions] = useState<SelectOption[]>([]);
   const [pendingActivationAfterBranch, setPendingActivationAfterBranch] = useState(false);
+  const [pendingSocialMesaValue, setPendingSocialMesaValue] = useState<string | null>(null);
+  const [socialView, setSocialView] = useState<SocialView>('discover');
+  const [likesView, setLikesView] = useState<LikesView>('received');
+  const [floatingLikeVisible, setFloatingLikeVisible] = useState(false);
+  const userSocialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
@@ -578,6 +609,30 @@ export default function SocialProfileScreen() {
       : currentDinerBase;
   const detailDiner = focusedDiner ?? currentDiner;
   const selectedGift = giftProducts.find((item) => item.id === selectedGiftId) ?? null;
+  const detailPhotos = detailDiner
+    ? normalizePhotoList(detailDiner.social_photos, detailDiner.foto_url)
+    : [];
+  const detailImageWidth = Math.max(260, width - 36);
+  const discoveryCardHeight = Math.min(470, Math.max(400, width * 1.14));
+  const discoveryImageHeight = Math.min(320, Math.max(270, discoveryCardHeight * 0.66));
+  const topReceivedLike = receivedLikes[0] ?? null;
+  const receivedLikeTitle = topReceivedLike
+    ? receivedLikes.length > 1
+      ? `${topReceivedLike.nombre} y ${receivedLikes.length - 1} mas te dieron me gusta`
+      : `${topReceivedLike.nombre} te dio me gusta`
+    : '';
+  const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
+
+  useEffect(() => {
+    if (!topReceivedLike) {
+      setFloatingLikeVisible(false);
+      return undefined;
+    }
+
+    setFloatingLikeVisible(true);
+    const timer = setTimeout(() => setFloatingLikeVisible(false), 5000);
+    return () => clearTimeout(timer);
+  }, [topReceivedLike?.user_id, topReceivedLike?.liked_at]);
 
   function advanceToDiner(direction: 'next' | 'prev') {
     if (diners.length <= 1) {
@@ -909,6 +964,90 @@ export default function SocialProfileScreen() {
     };
   }, [currentDiner?.user_id, modoSocial]);
 
+  async function refreshMatches(showLoading = false) {
+    try {
+      if (showLoading) {
+        setMatchesLoading(true);
+      }
+      const response = await apiClient.get<ApiEnvelope<{ matches: DinerApiItem[] }> | { matches: DinerApiItem[] }>(
+        '/social/matches',
+        { _suppressConsoleError: true } as any
+      );
+      const data = unwrapApiData(response.data);
+      const rawMatches = Array.isArray(data.matches) ? data.matches : [];
+      setMatches(rawMatches.map(buildDiner));
+    } catch {
+      if (showLoading) {
+        setMatches([]);
+      }
+    } finally {
+      if (showLoading) {
+        setMatchesLoading(false);
+      }
+    }
+  }
+
+  async function refreshReceivedLikes(trackLoading = false) {
+    try {
+      if (trackLoading) {
+        setLikesLoading(true);
+      }
+      const response = await apiClient.get<ApiEnvelope<{ likes: DinerApiItem[] }> | { likes: DinerApiItem[] }>(
+        '/social/likes/received',
+        { _suppressConsoleError: true } as any
+      );
+      const data = unwrapApiData(response.data);
+      const rawLikes = Array.isArray(data.likes) ? data.likes : [];
+      setReceivedLikes(rawLikes.map(buildDiner));
+    } catch {
+      // Best effort: older API deployments simply won't show the notification card.
+    } finally {
+      if (trackLoading) {
+        setLikesLoading(false);
+      }
+    }
+  }
+
+  async function refreshSentLikes(trackLoading = false) {
+    try {
+      if (trackLoading) {
+        setLikesLoading(true);
+      }
+      const response = await apiClient.get<ApiEnvelope<{ likes: DinerApiItem[] }> | { likes: DinerApiItem[] }>(
+        '/social/likes/sent',
+        { _suppressConsoleError: true } as any
+      );
+      const data = unwrapApiData(response.data);
+      const rawLikes = Array.isArray(data.likes) ? data.likes : [];
+      setSentLikes(rawLikes.map(buildDiner));
+    } catch {
+      if (trackLoading) {
+        setSentLikes([]);
+      }
+    } finally {
+      if (trackLoading) {
+        setLikesLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!user?.id) {
+      return undefined;
+    }
+
+    void refreshMatches(true);
+    void Promise.all([refreshReceivedLikes(true), refreshSentLikes(false)]);
+
+    const refreshTimer = setInterval(() => {
+      void refreshMatches(false);
+      void refreshReceivedLikes();
+      void refreshSentLikes();
+    }, 7000);
+
+    return () => clearInterval(refreshTimer);
+  }, [user?.id]);
+
   function updateField<K extends keyof SocialFormState>(field: K, value: SocialFormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
   }
@@ -926,6 +1065,108 @@ export default function SocialProfileScreen() {
   function handleDinerCardPress(diner?: SocialDiner | null) {
     setFocusedDiner(diner ?? null);
     setDetailsVisible(true);
+  }
+
+  function handleOpenLikesView(view: LikesView = 'received') {
+    setLikesView(view);
+    setSocialView('likes');
+    setFloatingLikeVisible(false);
+  }
+
+  function handleLikeListPress(diner: SocialDiner) {
+    handleDinerCardPress(diner);
+  }
+
+  function handleCloseDinerDetails() {
+    setDetailsVisible(false);
+    setFocusedDiner(null);
+  }
+
+  function handleNextDiner() {
+    advanceToDiner('next');
+  }
+
+  async function handleLikeDiner(userId: number) {
+    if (likingUserId !== null) return;
+
+    const diner = diners.find((item) => item.user_id === userId) ?? currentDiner;
+    if (!diner) return;
+
+    if (!selectedBranch?.id) {
+      Alert.alert('Sucursal requerida', 'Selecciona una sucursal antes de dar like.');
+      return;
+    }
+
+    try {
+      setLikingUserId(userId);
+      const response = await apiClient.post<ApiEnvelope<SocialLikeResponse> | SocialLikeResponse>('/social/likes', {
+        liked_user_id: userId,
+        restaurant_id: selectedBranch.id,
+      });
+      const result = unwrapApiData(response.data);
+      const matchedDiner = result.match ? buildDiner(result.match) : { ...diner, relationship_status: result.relationship_status };
+
+      updateDinerRelationship(userId, result.relationship_status, matchedDiner);
+      setReceivedLikes((current) => current.filter((item) => item.user_id !== userId));
+
+      if (result.matched) {
+        setMatches((current) => {
+          const withoutDuplicate = current.filter((item) => item.user_id !== matchedDiner.user_id);
+          return [{ ...matchedDiner, relationship_status: 'matched' }, ...withoutDuplicate];
+        });
+        Alert.alert('¡Es match!', `${matchedDiner.nombre} tambien te dio like. Lo agregamos a Mis matches.`);
+      }
+      void refreshMatches(false);
+      void refreshReceivedLikes();
+      void refreshSentLikes();
+    } catch (error) {
+      Alert.alert('No se pudo enviar el like', getApiError(error));
+    } finally {
+      setLikingUserId(null);
+    }
+  }
+
+  async function handleUnlikeDiner(userId: number) {
+    if (likingUserId !== null) return;
+
+    const diner = diners.find((item) => item.user_id === userId) ?? currentDiner;
+    if (!diner) return;
+
+    try {
+      setLikingUserId(userId);
+      const response = await apiClient.delete<ApiEnvelope<SocialUnlikeResponse> | SocialUnlikeResponse>(`/social/likes/${userId}`);
+      const result = unwrapApiData(response.data);
+      updateDinerRelationship(userId, result.relationship_status, { ...diner, relationship_status: 'none' });
+      setSentLikes((current) => current.filter((item) => item.user_id !== userId));
+      void refreshMatches(false);
+      void refreshReceivedLikes();
+      void refreshSentLikes();
+    } catch (error) {
+      Alert.alert('No se pudo quitar el like', getApiError(error));
+    } finally {
+      setLikingUserId(null);
+    }
+  }
+
+  function applyPhotoResponse(payload: SocialPhotoResponse) {
+    const hasGalleryPayload = Array.isArray(payload.social_photos);
+    const photos = normalizePhotoList(
+      hasGalleryPayload ? payload.social_photos : undefined,
+      hasGalleryPayload ? payload.foto_url ?? null : payload.foto_url ?? user?.foto_url ?? null
+    );
+    const photoUrl = photos[0] ?? resolvePhotoUrl(payload.foto_url) ?? null;
+
+    setSocialPhotos(photos);
+    updateProfile({ foto_url: photoUrl, social_photos: photos });
+    setHasCompleteProfile((current) =>
+      isProfileReady({
+        foto_url: photoUrl,
+        edad: Number(form.edad) || null,
+        sexualidad: form.sexualidad,
+        genero: form.genero,
+        descripcion: form.biografia,
+      }) || current
+    );
   }
 
   async function handlePickImage() {
@@ -1516,19 +1757,8 @@ export default function SocialProfileScreen() {
                 <Text style={styles.metaChipText}>{diner.genero}</Text>
               </View>
             ) : null}
-            {diner.sexualidad ? (
-              <View style={styles.metaChip}>
-                <Text style={styles.metaChipText}>{diner.sexualidad}</Text>
-              </View>
-            ) : null}
+            {renderSexualityChip(diner.sexualidad)}
           </View>
-
-          <Text style={styles.previewText} numberOfLines={3}>
-            {diner.descripcion?.trim()
-              ? diner.descripcion
-              : 'Desliza para conocer mas comensales y toca la foto para abrir su perfil completo.'}
-          </Text>
-
         </View>
       </>
     );
@@ -1585,6 +1815,29 @@ export default function SocialProfileScreen() {
             </View>
           </View>
         ) : null}
+
+        {diner.relationship_status !== 'matched' ? (
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => (diner.relationship_status === 'liked' ? handleUnlikeDiner(diner.user_id) : handleLikeDiner(diner.user_id))}
+            style={[styles.likeDetailButton, likingUserId === diner.user_id && styles.saveButtonDisabled]}
+            disabled={likingUserId === diner.user_id}
+          >
+            {likingUserId === diner.user_id ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Ionicons name={diner.relationship_status === 'liked' ? 'heart' : 'heart-outline'} size={20} color={Colors.white} />
+            )}
+            <Text style={styles.giftButtonText}>
+              {diner.relationship_status === 'liked' ? 'Like enviado' : 'Me gusta'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
+          <Ionicons name="gift-outline" size={20} color={Colors.white} />
+          <Text style={styles.giftButtonText}>Regalo</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -1641,14 +1894,6 @@ export default function SocialProfileScreen() {
           : 'Me gusta';
     const giftButtonDisabled = !currentDiner || giftSending;
 
-    const currentDinerHasRelationship = currentDiner.relationship_status !== 'none';
-    const currentDinerLikeLabel =
-      currentDiner.relationship_status === 'matched'
-        ? 'Match'
-        : currentDiner.relationship_status === 'liked'
-          ? 'Like enviado'
-          : 'Me gusta';
-
     return (
       <View style={styles.carouselArea}>
         <Text style={styles.counterText}>
@@ -1667,10 +1912,71 @@ export default function SocialProfileScreen() {
           )}
         </View>
 
-        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
-          <Ionicons name="gift-outline" size={20} color={Colors.white} />
-          <Text style={styles.giftButtonText}>Enviar regalo</Text>
-        </TouchableOpacity>
+        <View style={styles.discoveryActions}>
+          <TouchableOpacity
+            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
+            activeOpacity={0.86}
+            onPress={() => advanceToDiner('prev')}
+            disabled={diners.length <= 1}
+            accessibilityRole="button"
+            accessibilityLabel="Perfil anterior"
+          >
+            <Ionicons name="chevron-back" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
+          </TouchableOpacity>
+
+          <View style={styles.discoveryActionCenter}>
+            <TouchableOpacity
+              style={[
+                styles.likeButton,
+                (likingUserId === currentDiner?.user_id || currentDinerHasRelationship) && styles.saveButtonDisabled,
+              ]}
+              activeOpacity={0.86}
+              onPress={() =>
+                currentDiner &&
+                (currentDiner.relationship_status === 'liked'
+                  ? handleUnlikeDiner(currentDiner.user_id)
+                  : handleLikeDiner(currentDiner.user_id))
+              }
+              disabled={!currentDiner || likingUserId === currentDiner.user_id || currentDinerHasRelationship}
+            >
+              {likingUserId === currentDiner?.user_id ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <Ionicons name="heart" size={20} color={Colors.white} />
+              )}
+              <Text style={styles.discoveryButtonText} numberOfLines={1}>
+                {currentDinerLikeLabel}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.discoveryGiftButton, giftButtonDisabled && styles.saveButtonDisabled]}
+              activeOpacity={0.86}
+              onPress={openGiftSelector}
+              disabled={giftButtonDisabled}
+            >
+              {giftProductsLoading ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <Ionicons name="gift-outline" size={20} color={Colors.white} />
+              )}
+              <Text style={styles.discoveryButtonText} numberOfLines={1}>
+                Regalo
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
+            activeOpacity={0.86}
+            onPress={handleNextDiner}
+            disabled={diners.length <= 1}
+            accessibilityRole="button"
+            accessibilityLabel="Siguiente perfil"
+          >
+            <Ionicons name="chevron-forward" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -1740,6 +2046,106 @@ export default function SocialProfileScreen() {
     );
   }
 
+  function renderLikesView() {
+    const likes = likesView === 'received' ? receivedLikes : sentLikes;
+    const emptyTitle = likesView === 'received' ? 'Aun no te dan likes' : 'Aun no has dado likes';
+    const emptyText =
+      likesView === 'received'
+        ? 'Cuando alguien te de me gusta, aparecera aqui para que puedas ver su perfil.'
+        : 'Los perfiles a los que les des like apareceran aqui mientras no hagan match.';
+
+    if (likesLoading && likes.length === 0) {
+      return (
+        <View style={styles.centerStateCard}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.centerStateTitle}>Cargando likes</Text>
+          <Text style={styles.centerStateText}>Estamos reuniendo tus conexiones pendientes.</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.likesViewWrap}>
+        <View style={styles.likesSegmentedControl}>
+          <TouchableOpacity
+            activeOpacity={0.82}
+            style={[styles.likesSegmentButton, likesView === 'received' && styles.likesSegmentButtonActive]}
+            onPress={() => setLikesView('received')}
+          >
+            <Text style={[styles.likesSegmentText, likesView === 'received' && styles.likesSegmentTextActive]}>
+              Me dieron {receivedLikes.length > 0 ? `(${receivedLikes.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.82}
+            style={[styles.likesSegmentButton, likesView === 'sent' && styles.likesSegmentButtonActive]}
+            onPress={() => setLikesView('sent')}
+          >
+            <Text style={[styles.likesSegmentText, likesView === 'sent' && styles.likesSegmentTextActive]}>
+              He dado {sentLikes.length > 0 ? `(${sentLikes.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {likes.length === 0 ? (
+          <View style={styles.centerStateCard}>
+            <Ionicons name={likesView === 'received' ? 'heart-outline' : 'send-outline'} size={64} color={Colors.textMuted} />
+            <Text style={styles.centerStateTitle}>{emptyTitle}</Text>
+            <Text style={styles.centerStateText}>{emptyText}</Text>
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.matchesList} showsVerticalScrollIndicator={false}>
+            {likes.map((like) => {
+              const likedDate = formatMatchDate(like.liked_at);
+              const metaLabel =
+                likesView === 'received'
+                  ? like.mesa
+                    ? `Mesa ${like.mesa}`
+                    : 'Te dio me gusta'
+                  : like.mesa
+                    ? `Mesa ${like.mesa}`
+                    : 'Le diste me gusta';
+
+              return (
+                <TouchableOpacity
+                  key={`${likesView}-${like.user_id}`}
+                  activeOpacity={0.88}
+                  style={styles.matchCard}
+                  onPress={() => handleLikeListPress(like)}
+                >
+                  {like.foto_url ? (
+                    <Image source={{ uri: like.foto_url }} style={styles.matchImage} contentFit="cover" cachePolicy="disk" />
+                  ) : (
+                    <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.matchFallback}>
+                      <Text style={styles.matchFallbackLetter}>{like.nombre[0]?.toUpperCase() ?? '?'}</Text>
+                    </LinearGradient>
+                  )}
+
+                  <View style={styles.matchInfo}>
+                    <View style={styles.matchTitleRow}>
+                      <Text numberOfLines={1} style={styles.matchName}>{like.nombre}</Text>
+                      <Ionicons name={likesView === 'received' ? 'heart' : 'paper-plane-outline'} size={18} color="#E11D48" />
+                    </View>
+                    <Text numberOfLines={1} style={styles.matchMeta}>{metaLabel}</Text>
+                    {like.que_busca ? <Text numberOfLines={1} style={styles.matchIntent}>{like.que_busca}</Text> : null}
+                    {likedDate ? (
+                      <Text numberOfLines={1} style={styles.matchDate}>
+                        {likesView === 'received' ? `Like recibido el ${likedDate}` : `Like enviado el ${likedDate}`}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -1767,11 +2173,6 @@ export default function SocialProfileScreen() {
             <View style={[styles.statusDot, { backgroundColor: modoSocial ? '#21A453' : '#D0D5DD' }]} />
             <View style={styles.statusBody}>
               <Text style={styles.statusTitle}>Modo social {modoSocial ? 'encendido' : 'apagado'}</Text>
-              <Text style={styles.statusSubtitle}>
-                {modoSocial
-                  ? 'Tu perfil esta visible para otros comensales activos.'
-                  : 'Activalo para aparecer en el carrusel de la sucursal actual.'}
-              </Text>
             </View>
           </View>
 
@@ -1808,6 +2209,53 @@ export default function SocialProfileScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        <View style={styles.socialViewSwitch}>
+          <TouchableOpacity
+            activeOpacity={0.82}
+            style={[styles.socialViewButton, socialView === 'discover' && styles.socialViewButtonActive]}
+            onPress={() => setSocialView('discover')}
+          >
+            <Ionicons
+              name="people-outline"
+              size={17}
+              color={socialView === 'discover' ? Colors.white : Colors.primary}
+            />
+            <Text style={[styles.socialViewText, socialView === 'discover' && styles.socialViewTextActive]}>
+              Descubrir
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.82}
+            style={[styles.socialViewButton, socialView === 'matches' && styles.socialViewButtonActive]}
+            onPress={() => setSocialView('matches')}
+          >
+            <Ionicons
+              name="heart-outline"
+              size={17}
+              color={socialView === 'matches' ? Colors.white : Colors.primary}
+            />
+            <Text style={[styles.socialViewText, socialView === 'matches' && styles.socialViewTextActive]}>
+              Mis matches {matches.length > 0 ? `(${matches.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.82}
+            style={[styles.socialViewButton, socialView === 'likes' && styles.socialViewButtonActive]}
+            onPress={() => handleOpenLikesView('received')}
+          >
+            <Ionicons
+              name="heart-half-outline"
+              size={17}
+              color={socialView === 'likes' ? Colors.white : Colors.primary}
+            />
+            <Text style={[styles.socialViewText, socialView === 'likes' && styles.socialViewTextActive]}>
+              Likes {receivedLikes.length + sentLikes.length > 0 ? `(${receivedLikes.length + sentLikes.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </LinearGradient>
 
       <View style={styles.contentArea}>
@@ -1838,6 +2286,10 @@ export default function SocialProfileScreen() {
             <Text style={styles.centerStateTitle}>Preparando tu espacio social</Text>
             <Text style={styles.centerStateText}>Estamos cargando tu perfil y los datos de la sucursal.</Text>
           </View>
+        ) : socialView === 'matches' ? (
+          renderMatchesView()
+        ) : socialView === 'likes' ? (
+          renderLikesView()
         ) : modoSocial ? (
           renderCurrentDiner()
         ) : (
@@ -2258,9 +2710,9 @@ export default function SocialProfileScreen() {
         </View>
       </Modal>
 
-      <Modal visible={detailsVisible} transparent animationType="slide" onRequestClose={() => setDetailsVisible(false)}>
+      <Modal visible={detailsVisible} transparent animationType="slide" onRequestClose={handleCloseDinerDetails}>
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setDetailsVisible(false)} />
+          <Pressable style={styles.modalBackdrop} onPress={handleCloseDinerDetails} />
 
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
@@ -2629,6 +3081,16 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: Colors.textSecondary,
   },
+  statusHint: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 15,
+    color: Colors.textMuted,
+  },
+  statusSwitch: {
+    transform: [{ scaleX: 0.64 }, { scaleY: 0.64 }],
+    marginRight: -10,
+  },
   summaryRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
@@ -2657,7 +3119,17 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     textAlign: 'center',
   },
-  contentArea: {
+  socialViewSwitch: {
+    marginTop: 10,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFFB8',
+    borderWidth: 1,
+    borderColor: '#E7EAF0',
+    padding: 4,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  socialViewButton: {
     flex: 1,
     minHeight: 38,
     borderRadius: 14,
@@ -2891,42 +3363,6 @@ const styles = StyleSheet.create({
   },
   discoveryButtonText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: Colors.white,
-  },
-  discoveryActions: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingTop: 14,
-    paddingBottom: 2,
-  },
-  discoveryArrowButton: {
-    width: 58,
-    minHeight: 56,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#D8DDE8',
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  discoveryArrowButtonDisabled: {
-    opacity: 0.45,
-  },
-  likeButton: {
-    flex: 1,
-    minHeight: 56,
-    borderRadius: 20,
-    backgroundColor: '#E11D48',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    ...Shadows.md,
-  },
-  likeButtonText: {
-    fontSize: 16,
     fontWeight: '800',
     color: Colors.white,
   },
@@ -3188,6 +3624,106 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  matchesList: {
+    paddingTop: 8,
+    paddingBottom: 26,
+    gap: 12,
+  },
+  likesViewWrap: {
+    flex: 1,
+  },
+  likesSegmentedControl: {
+    marginTop: 6,
+    marginBottom: 10,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFFB8',
+    borderWidth: 1,
+    borderColor: '#E7EAF0',
+    padding: 4,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  likesSegmentButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  likesSegmentButtonActive: {
+    backgroundColor: Colors.primary,
+  },
+  likesSegmentText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Colors.primary,
+    textAlign: 'center',
+  },
+  likesSegmentTextActive: {
+    color: Colors.white,
+  },
+  matchCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E7EAF0',
+    backgroundColor: Colors.white,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    ...Shadows.card,
+  },
+  matchImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    backgroundColor: '#E8EBF3',
+  },
+  matchFallback: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matchFallbackLetter: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: Colors.white,
+  },
+  matchInfo: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+  matchTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  matchName: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.text,
+    letterSpacing: -0.4,
+  },
+  matchMeta: {
+    marginTop: 5,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  matchIntent: {
+    marginTop: 3,
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  matchDate: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textMuted,
   },
   giftModalSubtitle: {
     marginTop: -2,

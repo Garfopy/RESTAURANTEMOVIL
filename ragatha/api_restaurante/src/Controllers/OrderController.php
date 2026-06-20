@@ -44,7 +44,12 @@ class OrderController
         // Actualizar pedido con método de pago
         Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
 
-        $order = Order::findById($id);
+        $order = Order::findById($id, $user->id);
+        $exitPass = null;
+        if (($order['tipo_pedido'] ?? null) === 'eat_in') {
+            $exitPass = Order::ensureExitPass($id, $user->id);
+        }
+
         Response::success([
             'ok' => true,
             'pedido_id' => $order['id'],
@@ -153,6 +158,11 @@ class OrderController
                 'subtotal' => $input['subtotal'],
                 'total' => $input['total'],
                 'notes' => $input['notas'] ?? null,
+                'direccion_id' => $input['direccion_id'] ?? null,
+                'direccion_entrega' => $input['direccion_entrega'] ?? null,
+                'mesa_id' => $input['mesa_id'] ?? null,
+                'consumo_por_mesa' => !empty($input['consumo_por_mesa']),
+                'payment_intent_id' => $input['payment_intent_id'] ?? null,
                 'items' => $items
             ]);
         } catch (\RuntimeException $e) {

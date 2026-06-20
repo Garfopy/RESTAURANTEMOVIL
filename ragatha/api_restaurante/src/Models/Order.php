@@ -109,6 +109,251 @@ class Order
         }
     }
 
+    private static function isConsumableEatInOrder(array $order): bool
+    {
+        return ($order['tipo_pedido'] ?? null) === 'eat_in' && self::columnExists('rest_pedidos', 'consumo_id');
+    }
+
+    private static function resolveOpenConsumptionId(int $restaurantId, int $userId, ?int $mesaId, bool $byTableOnly = false): string
+    {
+        if ($mesaId !== null && self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+            $sql = "SELECT consumo_id
+                      FROM rest_pedidos
+                     WHERE restaurante_id = :restaurant_id
+                       AND mesa_id = :mesa_id
+                       AND tipo_pedido = 'eat_in'
+                       AND consumo_id IS NOT NULL
+                       AND consumo_id <> ''
+                       AND cuenta_abierta = 1";
+            $params = [
+                ':restaurant_id' => $restaurantId,
+                ':mesa_id' => $mesaId,
+            ];
+
+            if (!$byTableOnly) {
+                $sql .= ' AND mobile_usuario_id = :user_id';
+                $params[':user_id'] = $userId;
+            }
+
+            if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
+                $sql .= ' AND salida_qr_generado_at IS NULL';
+            }
+            if (self::columnExists('rest_pedidos', 'salida_validado_at')) {
+                $sql .= ' AND salida_validado_at IS NULL';
+            }
+
+            $sql .= ' ORDER BY created_at DESC, id DESC LIMIT 1';
+            $existing = Database::queryOne($sql, $params);
+            if (!empty($existing['consumo_id'])) {
+                return (string)$existing['consumo_id'];
+            }
+        }
+
+        return 'CON-' . date('Ymd') . '-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     * @return array<int, array<string, mixed>>
+     */
+    private static function groupConsumptionOrders(array $orders): array
+    {
+        $grouped = [];
+        $regular = [];
+
+        foreach ($orders as $order) {
+            if (self::isConsumableEatInOrder($order) && !empty($order['consumo_id'])) {
+                $grouped[(string)$order['consumo_id']][] = $order;
+                continue;
+            }
+
+            $order['items'] = self::getOrderItems((int)$order['id']);
+            $regular[] = $order;
+        }
+
+        foreach ($grouped as $consumptionOrders) {
+            $regular[] = self::buildConsumptionOrder($consumptionOrders);
+        }
+
+        usort($regular, static function (array $a, array $b): int {
+            return strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? ''));
+        });
+
+        return $regular;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     * @return array<string, mixed>
+     */
+    private static function buildConsumptionOrder(array $orders): array
+    {
+        usort($orders, static fn(array $a, array $b): int => (int)$a['id'] <=> (int)$b['id']);
+
+        $anchor = $orders[0];
+        $latest = $orders[count($orders) - 1];
+        $items = [];
+        $subtotal = 0.0;
+        $total = 0.0;
+        $isOpen = false;
+        $validatedAt = null;
+        $generatedAt = null;
+
+        foreach ($orders as $order) {
+            $subtotal += (float)($order['subtotal'] ?? 0);
+            $total += (float)($order['total'] ?? 0);
+            $isOpen = $isOpen || (int)($order['cuenta_abierta'] ?? 0) === 1;
+            $generatedAt = $generatedAt ?? ($order['salida_qr_generado_at'] ?? null);
+            $validatedAt = $validatedAt ?? ($order['salida_validado_at'] ?? null);
+
+            foreach (self::getOrderItems((int)$order['id']) as $item) {
+                $item['pedido_id'] = (int)$order['id'];
+                $item['pedido_folio'] = $order['folio'] ?? null;
+                $items[] = $item;
+            }
+        }
+
+        $anchor['id'] = (int)$anchor['id'];
+        $anchor['folio'] = $anchor['folio'] ?? ('Cuenta #' . $anchor['id']);
+        $anchor['subtotal'] = $subtotal;
+        $anchor['total'] = $total;
+        $anchor['items'] = $items;
+        $anchor['estado'] = $validatedAt ? 'entregado' : ($generatedAt ? 'listo' : 'pendiente');
+        $anchor['created_at'] = $latest['created_at'] ?? $anchor['created_at'];
+        $anchor['cuenta_abierta'] = $isOpen ? 1 : 0;
+        $anchor['salida_qr_generado_at'] = $generatedAt;
+        $anchor['salida_validado_at'] = $validatedAt;
+        $anchor['pedidos_count'] = count($orders);
+        $anchor['es_consumo'] = true;
+        $anchor['consumo_id'] = $anchor['consumo_id'] ?? null;
+        $anchor['mesa_id'] = $anchor['mesa_id'] ?? null;
+
+        return $anchor;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private static function getConsumptionOrdersForOrder(array $order, ?int $userId = null, bool $fallbackToAnchor = true): array
+    {
+        if (empty($order['consumo_id'])) {
+            return [$order];
+        }
+
+        $sql = "SELECT p.*, r.nombre AS restaurante_nombre
+                  FROM rest_pedidos p
+                  JOIN rest_restaurantes r ON r.id = p.restaurante_id
+                 WHERE p.consumo_id = :consumo_id
+                   AND p.tipo_pedido = 'eat_in'";
+        $params = [':consumo_id' => $order['consumo_id']];
+
+        if ($userId !== null) {
+            $sql .= ' AND p.mobile_usuario_id = :user_id';
+            $params[':user_id'] = $userId;
+        }
+
+        $sql .= ' ORDER BY p.id ASC';
+        $orders = Database::query($sql, $params);
+
+        return empty($orders) && $fallbackToAnchor ? [$order] : $orders;
+    }
+
+    /**
+     * @return array<int>
+     */
+    private static function getPaymentTargetOrderIds(int $orderId): array
+    {
+        if (!self::columnExists('rest_pedidos', 'consumo_id')) {
+            return [$orderId];
+        }
+
+        $order = Database::queryOne('SELECT id, tipo_pedido, consumo_id FROM rest_pedidos WHERE id = :id', [':id' => $orderId]);
+        if (!$order || ($order['tipo_pedido'] ?? null) !== 'eat_in' || empty($order['consumo_id'])) {
+            return [$orderId];
+        }
+
+        $rows = Database::query(
+            "SELECT id FROM rest_pedidos WHERE consumo_id = :consumo_id AND tipo_pedido = 'eat_in'",
+            [':consumo_id' => $order['consumo_id']]
+        );
+        $ids = array_map(static fn(array $row): int => (int)$row['id'], $rows);
+
+        return empty($ids) ? [$orderId] : $ids;
+    }
+
+    private static function rawOrderById(int $orderId, ?int $userId = null): ?array
+    {
+        $sql = 'SELECT * FROM rest_pedidos WHERE id = :id';
+        $params = [':id' => $orderId];
+
+        if ($userId !== null) {
+            $sql .= ' AND mobile_usuario_id = :user_id';
+            $params[':user_id'] = $userId;
+        }
+
+        return Database::queryOne($sql, $params);
+    }
+
+    private static function resolveUserOrderForConsumption(int $orderId, ?int $userId = null): ?array
+    {
+        $order = self::rawOrderById($orderId, $userId);
+        if ($order) {
+            return $order;
+        }
+
+        if ($userId === null || !self::columnExists('rest_pedidos', 'consumo_id')) {
+            return null;
+        }
+
+        $anchor = self::rawOrderById($orderId);
+        if (!$anchor || ($anchor['tipo_pedido'] ?? null) !== 'eat_in' || empty($anchor['consumo_id'])) {
+            return null;
+        }
+
+        return Database::queryOne(
+            "SELECT *
+               FROM rest_pedidos
+              WHERE consumo_id = :consumo_id
+                AND tipo_pedido = 'eat_in'
+                AND mobile_usuario_id = :user_id
+              ORDER BY id ASC
+              LIMIT 1",
+            [
+                ':consumo_id' => $anchor['consumo_id'],
+                ':user_id' => $userId,
+            ]
+        );
+    }
+
+    /**
+     * @param array<int> $orderIds
+     */
+    private static function getExitTokenOrderForIds(array $orderIds): ?array
+    {
+        if (empty($orderIds) || !self::columnExists('rest_pedidos', 'salida_token')) {
+            return null;
+        }
+
+        $params = [];
+        $placeholders = [];
+        foreach (array_values(array_unique($orderIds)) as $index => $orderId) {
+            $key = ':id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+
+        return Database::queryOne(
+            'SELECT *
+               FROM rest_pedidos
+              WHERE id IN (' . implode(', ', $placeholders) . ')
+                AND salida_token IS NOT NULL
+                AND salida_token <> \'\'
+              ORDER BY id ASC
+              LIMIT 1',
+            $params
+        );
+    }
+
     public static function getByUser(int $userId, ?string $tipo = null): array
     {
         $hasTipoOrigen = self::columnExists('rest_pedidos', 'tipo_origen');
@@ -214,7 +459,31 @@ class Order
         }
         
         $order = Database::queryOne($sql, $params);
-        
+
+        if (!$order && $userId !== null && self::columnExists('rest_pedidos', 'consumo_id')) {
+            $anchor = Database::queryOne(
+                "SELECT p.*, r.nombre AS restaurante_nombre
+                   FROM rest_pedidos p
+                   JOIN rest_restaurantes r ON r.id = p.restaurante_id
+                  WHERE p.id = :id",
+                [':id' => $id]
+            );
+
+            if ($anchor && self::isConsumableEatInOrder($anchor)) {
+                $consumptionOrders = self::getConsumptionOrdersForOrder($anchor, $userId, false);
+                if (!empty($consumptionOrders)) {
+                    return self::buildConsumptionOrder($consumptionOrders);
+                }
+            }
+        }
+
+        if ($order && self::isConsumableEatInOrder($order)) {
+            $consumptionOrders = self::getConsumptionOrdersForOrder($order, $userId);
+            if (count($consumptionOrders) > 1 || !empty($order['consumo_id'])) {
+                return self::buildConsumptionOrder($consumptionOrders);
+            }
+        }
+
         if ($order) {
             $order['items'] = self::getOrderItems((int)$order['id']);
         }
@@ -502,6 +771,277 @@ class Order
 
             throw $e;
         }
+    }
+
+    public static function ensureExitPass(int $orderId, ?int $userId = null): ?array
+    {
+        $order = self::resolveUserOrderForConsumption($orderId, $userId);
+        if (!$order) {
+            return null;
+        }
+
+        if (($order['tipo_pedido'] ?? null) !== 'eat_in') {
+            return null;
+        }
+
+        $tokenColumn = self::columnExists('rest_pedidos', 'salida_token');
+        if (!$tokenColumn) {
+            return null;
+        }
+
+        $targetOrderIds = self::getPaymentTargetOrderIds((int)$order['id']);
+        $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
+        $token = $tokenOrder['salida_token'] ?? ($order['salida_token'] ?? null);
+
+        if (!$token) {
+            $token = bin2hex(random_bytes(24));
+        }
+
+        $tokenFields = ['salida_token = :token'];
+        $tokenParams = [':token' => $token];
+        $tokenPlaceholders = [];
+        foreach ($targetOrderIds as $index => $targetId) {
+            $key = ':token_id_' . $index;
+            $tokenPlaceholders[] = $key;
+            $tokenParams[$key] = $targetId;
+        }
+
+        if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
+            $tokenFields[] = 'salida_qr_generado_at = COALESCE(salida_qr_generado_at, NOW())';
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $tokenFields[] = 'updated_at = NOW()';
+        }
+
+        Database::rowCount(
+            'UPDATE rest_pedidos SET ' . implode(', ', $tokenFields) . ' WHERE id IN (' . implode(', ', $tokenPlaceholders) . ')',
+            $tokenParams
+        );
+
+        $closeFields = [];
+        if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+            $closeFields[] = 'cuenta_abierta = 0';
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $closeFields[] = 'updated_at = NOW()';
+        }
+        if (!empty($closeFields)) {
+            $closeParams = [];
+            $placeholders = [];
+            foreach ($targetOrderIds as $index => $targetId) {
+                $key = ':id_' . $index;
+                $placeholders[] = $key;
+                $closeParams[$key] = $targetId;
+            }
+            Database::rowCount(
+                'UPDATE rest_pedidos SET ' . implode(', ', $closeFields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')',
+                $closeParams
+            );
+        }
+
+        $updated = self::rawOrderById((int)$order['id'], $userId) ?? $order;
+        $updated['salida_token'] = $token;
+        if (empty($updated['salida_qr_generado_at']) && isset($tokenOrder['salida_qr_generado_at'])) {
+            $updated['salida_qr_generado_at'] = $tokenOrder['salida_qr_generado_at'];
+        }
+        return self::formatExitPass($updated, $token);
+    }
+
+    public static function getExitPass(int $orderId, int $userId): ?array
+    {
+        $order = self::resolveUserOrderForConsumption($orderId, $userId);
+        if (!$order || empty($order['salida_token'])) {
+            $targetOrderIds = self::getPaymentTargetOrderIds((int)($order['id'] ?? $orderId));
+            $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
+            $resolvedOrder = $order;
+
+            if (!$resolvedOrder && !empty($targetOrderIds)) {
+                $resolvedOrder = self::resolveUserOrderForConsumption(min($targetOrderIds), $userId);
+            }
+
+            if (!$resolvedOrder || empty($tokenOrder['salida_token'])) {
+                return null;
+            }
+
+            $order = $resolvedOrder;
+            $order['salida_token'] = $tokenOrder['salida_token'];
+            $order['salida_qr_generado_at'] = $tokenOrder['salida_qr_generado_at'] ?? ($order['salida_qr_generado_at'] ?? null);
+            $order['salida_validado_at'] = $tokenOrder['salida_validado_at'] ?? ($order['salida_validado_at'] ?? null);
+        }
+
+        return self::formatExitPass($order, (string)$order['salida_token']);
+    }
+
+    public static function validateExitPass(string $payload, int $validatorUserId): ?array
+    {
+        $payload = trim($payload);
+        if ($payload === '') {
+            return null;
+        }
+
+        $orderId = null;
+        $token = $payload;
+        $parts = explode('|', $payload);
+
+        if (count($parts) >= 3 && $parts[0] === 'AMARE_EXIT') {
+            $orderId = (int)$parts[1];
+            $token = $parts[2];
+        }
+
+        $sql = "SELECT * FROM rest_pedidos WHERE salida_token = :token";
+        $params = [':token' => $token];
+
+        if ($orderId !== null && $orderId > 0) {
+            $sql .= ' AND id = :id';
+            $params[':id'] = $orderId;
+        }
+
+        $order = Database::queryOne($sql, $params);
+        if (!$order || ($order['tipo_pedido'] ?? null) !== 'eat_in') {
+            return null;
+        }
+
+        if (!empty($order['salida_validado_at'])) {
+            return self::formatExitPass($order, (string)$order['salida_token']);
+        }
+
+        $targetOrderIds = self::getPaymentTargetOrderIds((int)$order['id']);
+        $fields = [];
+        $updateParams = [':validator_id' => $validatorUserId];
+
+        if (self::columnExists('rest_pedidos', 'salida_validado_at')) {
+            $fields[] = 'salida_validado_at = NOW()';
+        }
+        if (self::columnExists('rest_pedidos', 'salida_validado_por')) {
+            $fields[] = 'salida_validado_por = :validator_id';
+        }
+        if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+            $fields[] = 'cuenta_abierta = 0';
+        }
+        if (self::columnExists('rest_pedidos', 'estado')) {
+            $fields[] = "estado = 'entregado'";
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (!empty($fields)) {
+            $placeholders = [];
+            foreach ($targetOrderIds as $index => $targetId) {
+                $key = ':id_' . $index;
+                $placeholders[] = $key;
+                $updateParams[$key] = $targetId;
+            }
+
+            Database::rowCount(
+                'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')',
+                $updateParams
+            );
+        }
+
+        if (!empty($order['mesa_id'])) {
+            self::setTableOccupied((int)$order['mesa_id'], false);
+        }
+
+        if (!empty($order['mobile_usuario_id'])) {
+            self::clearDinerTableSession((int)$order['mobile_usuario_id']);
+        }
+
+        $updated = self::rawOrderById((int)$order['id']);
+        return self::formatExitPass($updated ?? $order, (string)$order['salida_token']);
+    }
+
+    private static function formatExitPass(?array $order, string $token): ?array
+    {
+        if (!$order) {
+            return null;
+        }
+
+        $payload = 'AMARE_EXIT|' . (int)$order['id'] . '|' . $token;
+
+        return [
+            'pedido_id' => (int)$order['id'],
+            'folio' => $order['folio'] ?? null,
+            'restaurante_id' => isset($order['restaurante_id']) ? (int)$order['restaurante_id'] : null,
+            'mesa_id' => isset($order['mesa_id']) && $order['mesa_id'] !== null ? (int)$order['mesa_id'] : null,
+            'payload' => $payload,
+            'token' => $token,
+            'generated_at' => $order['salida_qr_generado_at'] ?? null,
+            'validated_at' => $order['salida_validado_at'] ?? null,
+            'is_validated' => !empty($order['salida_validado_at']),
+        ];
+    }
+
+    private static function setTableOccupied(int $mesaId, bool $occupied): void
+    {
+        if ($mesaId <= 0 || !self::tableExists('rest_mesas')) {
+            return;
+        }
+
+        $columns = self::getTableColumns('rest_mesas');
+        $fields = [];
+        $params = [':id' => $mesaId];
+
+        if (in_array('ocupada', $columns, true)) {
+            $fields[] = 'ocupada = :ocupada';
+            $params[':ocupada'] = $occupied ? 1 : 0;
+        }
+        if (in_array('disponible', $columns, true)) {
+            $fields[] = 'disponible = :disponible';
+            $params[':disponible'] = $occupied ? 0 : 1;
+        }
+        if (in_array('estado', $columns, true)) {
+            $fields[] = 'estado = :estado';
+            $params[':estado'] = $occupied ? 'ocupada' : 'libre';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (empty($fields)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE rest_mesas SET ' . implode(', ', $fields) . ' WHERE id = :id',
+            $params
+        );
+    }
+
+    private static function clearDinerTableSession(int $userId): void
+    {
+        if ($userId <= 0 || !self::tableExists('mobile_usuarios')) {
+            return;
+        }
+
+        $columns = self::getTableColumns('mobile_usuarios');
+        $fields = [];
+        $params = [':id' => $userId];
+
+        if (in_array('is_social_active', $columns, true)) {
+            $fields[] = 'is_social_active = 0';
+        }
+        if (in_array('current_restaurante_id', $columns, true)) {
+            $fields[] = 'current_restaurante_id = NULL';
+        }
+        if (in_array('mesa', $columns, true)) {
+            $fields[] = 'mesa = NULL';
+        }
+        if (in_array('social_updated_at', $columns, true)) {
+            $fields[] = 'social_updated_at = NOW()';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (empty($fields)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_usuarios SET ' . implode(', ', $fields) . ' WHERE id = :id',
+            $params
+        );
     }
 
     /**
