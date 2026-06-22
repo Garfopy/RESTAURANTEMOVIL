@@ -9,7 +9,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  initialWindowMetrics,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { getApiError } from '../../services/api';
@@ -52,6 +56,8 @@ function elapsed(value?: string | null): string {
 }
 
 export function GiftInboxModal({ visible, restaurantId, inbox, onClose, onChanged }: Props) {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, initialWindowMetrics?.insets.top ?? 0);
   const [filter, setFilter] = useState<Filter>('pending');
   const [busyId, setBusyId] = useState<number | null>(null);
 
@@ -148,9 +154,9 @@ export function GiftInboxModal({ visible, restaurantId, inbox, onClose, onChange
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
+    <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+        <View style={[styles.header, { paddingTop: topInset + 12 }]}>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Ionicons name="close" size={23} color="#111827" />
           </TouchableOpacity>
@@ -185,7 +191,7 @@ export function GiftInboxModal({ visible, restaurantId, inbox, onClose, onChange
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F5F6F8' },
-  header: { padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  header: { paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
   closeButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F5F9' },
   headerCopy: { flex: 1 },
   title: { color: '#111827', fontSize: 20, fontWeight: '900' },
