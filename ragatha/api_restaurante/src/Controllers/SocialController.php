@@ -8,8 +8,6 @@ use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Models\User;
-use Stripe\PaymentIntent;
-use Stripe\Stripe;
 
 class SocialController
 {
@@ -162,200 +160,7 @@ class SocialController
         $sql .= " ORDER BY social_updated_at DESC";
         $diners = Database::query($sql, $params);
 
-        Response::success(array_map(function (array $row) use ($user): array {
-            $profile = $this->normalizeProfileRow($row, false);
-            $profile['relationship_status'] = $this->getRelationshipStatus((int)$user->id, (int)$profile['user_id']);
-            return $profile;
-        }, $diners));
-    }
-
-    public function likeDiner(): void
-    {
-        $user = AuthMiddleware::authenticate();
-        $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        $likedUserId = isset($input['liked_user_id']) ? (int)$input['liked_user_id'] : 0;
-        $restaurantId = isset($input['restaurant_id']) ? (int)$input['restaurant_id'] : 0;
-
-        if ($likedUserId <= 0) {
-            Response::validationError(['liked_user_id' => ['Selecciona un comensal valido']]);
-        }
-        if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
-        }
-        if ($likedUserId === (int)$user->id) {
-            Response::validationError(['liked_user_id' => ['No puedes darte like a ti mismo']]);
-        }
-        if (!$this->tableExists('social_likes')) {
-            Response::serverError('La tabla social_likes aun no existe. Ejecuta la migracion 027.');
-        }
-
-        $sender = $this->fetchSocialProfile((int)$user->id);
-        if (
-            !$sender ||
-            !$this->hasSocialProfile($sender) ||
-            !(bool)($sender['is_social_active'] ?? false) ||
-            (int)($sender['current_restaurante_id'] ?? 0) !== $restaurantId
-        ) {
-            Response::error('Activa tu modo social en la sucursal actual antes de dar like.', 400);
-        }
-
-        $target = $this->fetchSocialProfile($likedUserId);
-        if (!$target || !$this->hasSocialProfile($target)) {
-            Response::notFound('Comensal no encontrado o sin perfil social completo');
-        }
-
-        $pdo = Database::getInstance();
-
-        try {
-            $pdo->beginTransaction();
-
-            Database::rowCount(
-                "INSERT INTO social_likes (liker_user_id, liked_user_id, restaurante_id, created_at, updated_at)
-                 VALUES (:liker_user_id, :liked_user_id, :restaurante_id, NOW(), NOW())
-                 ON DUPLICATE KEY UPDATE restaurante_id = VALUES(restaurante_id), updated_at = NOW()",
-                [
-                    ':liker_user_id' => (int)$user->id,
-                    ':liked_user_id' => $likedUserId,
-                    ':restaurante_id' => $restaurantId,
-                ]
-            );
-
-            $reverseLike = Database::queryOne(
-                "SELECT id
-                   FROM social_likes
-                  WHERE liker_user_id = :liked_user_id
-                    AND liked_user_id = :liker_user_id
-                  LIMIT 1",
-                [
-                    ':liked_user_id' => $likedUserId,
-                    ':liker_user_id' => (int)$user->id,
-                ]
-            );
-
-            $matched = $reverseLike !== null;
-            if ($matched) {
-                Database::rowCount(
-                    "UPDATE social_likes
-                        SET matched_at = COALESCE(matched_at, NOW()), updated_at = NOW()
-                      WHERE (liker_user_id = :user_id_a AND liked_user_id = :liked_user_id_a)
-                         OR (liker_user_id = :liked_user_id_b AND liked_user_id = :user_id_b)",
-                    [
-                        ':user_id_a' => (int)$user->id,
-                        ':liked_user_id_a' => $likedUserId,
-                        ':liked_user_id_b' => $likedUserId,
-                        ':user_id_b' => (int)$user->id,
-                    ]
-                );
-            }
-
-            $pdo->commit();
-        } catch (\Throwable $exception) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-
-            error_log('SocialController::likeDiner ERROR: ' . $exception->getMessage());
-            Response::serverError('No se pudo guardar el like en este momento.');
-        }
-
-        $matchProfile = null;
-        if ($matched) {
-            $target = $this->fetchSocialProfile($likedUserId);
-            if ($target) {
-                $matchProfile = $this->normalizeProfileRow($target, false);
-                $matchProfile['relationship_status'] = 'matched';
-                $matchProfile['matched_at'] = $this->getMatchDate((int)$user->id, $likedUserId);
-            }
-        }
-
-        Response::success([
-            'liked' => true,
-            'matched' => $matched,
-            'relationship_status' => $matched ? 'matched' : 'liked',
-            'match' => $matchProfile,
-        ], $matched ? 'Hicieron match' : 'Like enviado');
-    }
-
-    public function matches(): void
-    {
-        $user = AuthMiddleware::authenticate();
-
-        if (!$this->tableExists('social_likes')) {
-            Response::success(['matches' => []]);
-        }
-
-        $rows = Database::query(
-            "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
-                    mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
-                    mu.is_social_active, mu.current_restaurante_id, mu.social_updated_at,
-                    sl.matched_at, sl.restaurante_id AS match_restaurante_id" .
-                    ($this->hasSocialPhotosColumn() ? ", mu.social_photos_json" : "") .
-                    ($this->hasMesaColumn() ? ", mu.mesa" : "") . "
-               FROM social_likes sl
-               JOIN mobile_usuarios mu ON mu.id = sl.liked_user_id
-              WHERE sl.liker_user_id = :user_id
-                AND sl.matched_at IS NOT NULL
-           ORDER BY sl.matched_at DESC",
-            [':user_id' => (int)$user->id]
-        );
-
-        $matches = array_map(function (array $row): array {
-            $profile = $this->normalizeProfileRow($row, false);
-            $profile['relationship_status'] = 'matched';
-            $profile['matched_at'] = $row['matched_at'] ?? null;
-            $profile['match_restaurante_id'] = isset($row['match_restaurante_id']) && $row['match_restaurante_id'] !== null
-                ? (int)$row['match_restaurante_id']
-                : null;
-            return $profile;
-        }, $rows);
-
-        Response::success(['matches' => $matches]);
-    }
-
-    public function receivedLikes(): void
-    {
-        $user = AuthMiddleware::authenticate();
-
-        if (!$this->tableExists('social_likes')) {
-            Response::success(['likes' => []]);
-        }
-
-        $rows = Database::query(
-            "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
-                    mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
-                    mu.is_social_active, mu.current_restaurante_id, mu.social_updated_at,
-                    sl.created_at AS liked_at, sl.restaurante_id AS like_restaurante_id" .
-                    ($this->hasSocialPhotosColumn() ? ", mu.social_photos_json" : "") .
-                    ($this->hasMesaColumn() ? ", mu.mesa" : "") . "
-               FROM social_likes sl
-               JOIN mobile_usuarios mu ON mu.id = sl.liker_user_id
-              WHERE sl.liked_user_id = :user_id
-                AND sl.matched_at IS NULL
-                AND NOT EXISTS (
-                    SELECT 1
-                      FROM social_likes mine
-                     WHERE mine.liker_user_id = :user_id_for_mine
-                       AND mine.liked_user_id = sl.liker_user_id
-                     LIMIT 1
-                )
-           ORDER BY sl.created_at DESC",
-            [
-                ':user_id' => (int)$user->id,
-                ':user_id_for_mine' => (int)$user->id,
-            ]
-        );
-
-        $likes = array_map(function (array $row): array {
-            $profile = $this->normalizeProfileRow($row, false);
-            $profile['relationship_status'] = 'none';
-            $profile['liked_at'] = $row['liked_at'] ?? null;
-            $profile['like_restaurante_id'] = isset($row['like_restaurante_id']) && $row['like_restaurante_id'] !== null
-                ? (int)$row['like_restaurante_id']
-                : null;
-            return $profile;
-        }, $rows);
-
-        Response::success(['likes' => $likes]);
+        Response::success(array_map(fn(array $row): array => $this->normalizeProfileRow($row, false), $diners));
     }
 
     public function getProfile(): void
@@ -710,6 +515,16 @@ class SocialController
             Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
         }
 
+        $senderTable = $this->resolveMesaForRestaurant($restaurantId, $senderMesa);
+        if ($senderTable === null) {
+            Response::error('No encontramos tu mesa en la sucursal actual.', 409);
+        }
+
+        $openAccount = $this->findLatestOpenAccountForUser($restaurantId, (int)$user->id, (int)$senderTable['id']);
+        if ($openAccount === null) {
+            Response::error('Necesitas una cuenta abierta en tu mesa para enviar regalos.', 409);
+        }
+
         $giftProduct = $this->findGiftProduct($giftProductId);
         if ($giftProduct === null) {
             Response::notFound('Regalo no encontrado');
@@ -720,58 +535,26 @@ class SocialController
         try {
             $pdo->beginTransaction();
 
-            $giftOrderId = Database::execute(
-                "INSERT INTO social_gift_orders (
-                    restaurante_id,
-                    mesa_id,
-                    gift_product_id,
-                    sender_user_id,
-                    recipient_user_id,
-                    sender_nombre,
-                    recipient_nombre,
-                    sender_mesa,
-                    recipient_mesa,
-                    gift_nombre,
-                    gift_descripcion,
-                    gift_precio,
-                    gift_imagen,
-                    status,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    :restaurante_id,
-                    :mesa_id,
-                    :gift_product_id,
-                    :sender_user_id,
-                    :recipient_user_id,
-                    :sender_nombre,
-                    :recipient_nombre,
-                    :sender_mesa,
-                    :recipient_mesa,
-                    :gift_nombre,
-                    :gift_descripcion,
-                    :gift_precio,
-                    :gift_imagen,
-                    'listo',
-                    NOW(),
-                    NOW()
-                )",
-                [
-                    ':restaurante_id' => $restaurantId,
-                    ':mesa_id' => $mesa['id'],
-                    ':gift_product_id' => $giftProductId,
-                    ':sender_user_id' => (int)$user->id,
-                    ':recipient_user_id' => $recipientUserId,
-                    ':sender_nombre' => $sender['nombre'] ?? 'Comensal',
-                    ':recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
-                    ':sender_mesa' => $senderMesa,
-                    ':recipient_mesa' => $recipientMesa,
-                    ':gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
-                    ':gift_descripcion' => $giftProduct['descripcion'] ?? null,
-                    ':gift_precio' => isset($giftProduct['precio']) ? (float)$giftProduct['precio'] : 0,
-                    ':gift_imagen' => $giftProduct['imagen'] ?? null,
-                ]
-            );
+            $giftOrderId = $this->insertGiftOrder([
+                'restaurante_id' => $restaurantId,
+                'mesa_id' => $mesa['id'],
+                'gift_product_id' => $giftProductId,
+                'sender_user_id' => (int)$user->id,
+                'recipient_user_id' => $recipientUserId,
+                'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                'recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
+                'sender_mesa' => $senderMesa,
+                'recipient_mesa' => $recipientMesa,
+                'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
+                'gift_descripcion' => $giftProduct['descripcion'] ?? null,
+                'gift_precio' => isset($giftProduct['precio']) ? (float)$giftProduct['precio'] : 0,
+                'gift_imagen' => $giftProduct['imagen'] ?? null,
+                'status' => 'listo',
+                'consumo_id' => $openAccount['consumo_id'] ?? null,
+                'pedido_id' => $openAccount['id'] ?? null,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
 
             if ($giftOrderId <= 0) {
                 throw new \RuntimeException('No se pudo crear el registro del regalo');
@@ -811,220 +594,6 @@ class SocialController
             error_log('SocialController::sendGift ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo enviar el regalo en este momento.');
         }
-    }
-
-    public function createGiftPayment(): void
-    {
-        $user = AuthMiddleware::authenticate();
-        $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        $restaurantId = (int)($input['restaurant_id'] ?? 0);
-        $giftProductId = (int)($input['gift_product_id'] ?? 0);
-        $recipientUserId = (int)($input['recipient_user_id'] ?? 0);
-        $requestKey = trim((string)($input['request_key'] ?? ''));
-
-        $errors = [];
-        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
-        if ($giftProductId <= 0) $errors['gift_product_id'] = ['Selecciona un regalo valido'];
-        if ($recipientUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
-        if ($recipientUserId === (int)$user->id) $errors['recipient_user_id'] = ['No puedes enviarte un regalo a ti mismo'];
-        if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
-            $errors['request_key'] = ['La clave de solicitud no es valida'];
-        }
-        if (!empty($errors)) Response::validationError($errors);
-        if (!$this->tableExists('social_gift_orders')) {
-            Response::serverError('La tabla de regalos sociales no existe.');
-        }
-        $giftColumns = $this->getTableColumns('social_gift_orders');
-        foreach (['stripe_payment_intent_id', 'payment_request_key', 'pagado_at', 'moneda'] as $required) {
-            if (!in_array($required, $giftColumns, true)) {
-                Response::serverError('Ejecuta la migracion 030 antes de cobrar regalos.');
-            }
-        }
-
-        $sender = $this->fetchSocialProfile((int)$user->id);
-        if (!$sender || !$this->hasSocialProfile($sender)) {
-            Response::error('Completa tu perfil social antes de enviar regalos.', 400);
-        }
-        $senderRestaurantId = (int)($sender['current_restaurante_id'] ?? 0);
-        $senderMesa = $this->sanitizeNullableString($sender['mesa'] ?? null);
-        if (!(bool)($sender['is_social_active'] ?? false) || $senderRestaurantId !== $restaurantId) {
-            Response::error('Activa tu modo social en la sucursal actual antes de enviar regalos.', 400);
-        }
-        if ($senderMesa === null) Response::error('Necesitas seleccionar tu mesa antes de enviar un regalo.', 400);
-
-        $recipient = $this->fetchSocialProfile($recipientUserId);
-        if (!$recipient || !(bool)($recipient['is_social_active'] ?? false) || (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId) {
-            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
-        }
-        $recipientMesa = $this->sanitizeNullableString($recipient['mesa'] ?? null);
-        if ($recipientMesa === null) Response::error('No pudimos ubicar la mesa del comensal seleccionado.', 409);
-        $mesa = $this->resolveMesaForRestaurant($restaurantId, $recipientMesa);
-        if ($mesa === null) Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
-
-        $giftProduct = $this->findGiftProduct($giftProductId);
-        if ($giftProduct === null) Response::notFound('Regalo no encontrado');
-        $amountCents = (int)round((float)($giftProduct['precio'] ?? 0) * 100);
-        if ($amountCents <= 0) Response::error('Este regalo no tiene un precio valido.', 409);
-
-        $gift = Database::queryOne(
-            'SELECT * FROM social_gift_orders WHERE sender_user_id = :sender_id AND payment_request_key = :request_key LIMIT 1',
-            [':sender_id' => (int)$user->id, ':request_key' => $requestKey]
-        );
-        if ($gift && (
-            (int)$gift['restaurante_id'] !== $restaurantId ||
-            (int)$gift['recipient_user_id'] !== $recipientUserId ||
-            (int)$gift['gift_product_id'] !== $giftProductId
-        )) {
-            Response::error('La clave de solicitud ya pertenece a otro regalo.', 409);
-        }
-
-        if (!$gift) {
-            $pdo = Database::getInstance();
-            try {
-                $pdo->beginTransaction();
-                $giftId = Database::execute(
-                    "INSERT INTO social_gift_orders (
-                        restaurante_id, mesa_id, gift_product_id, sender_user_id, recipient_user_id,
-                        sender_nombre, recipient_nombre, sender_mesa, recipient_mesa,
-                        gift_nombre, gift_descripcion, gift_precio, gift_imagen,
-                        status, moneda, payment_request_key, created_at, updated_at
-                    ) VALUES (
-                        :restaurant_id, :table_id, :product_id, :sender_id, :recipient_id,
-                        :sender_name, :recipient_name, :sender_table, :recipient_table,
-                        :gift_name, :gift_description, :gift_price, :gift_image,
-                        'pendiente_pago', 'MXN', :request_key, NOW(), NOW()
-                    )",
-                    [
-                        ':restaurant_id' => $restaurantId,
-                        ':table_id' => (int)$mesa['id'],
-                        ':product_id' => $giftProductId,
-                        ':sender_id' => (int)$user->id,
-                        ':recipient_id' => $recipientUserId,
-                        ':sender_name' => $sender['nombre'] ?? 'Comensal',
-                        ':recipient_name' => $recipient['nombre'] ?? 'Comensal',
-                        ':sender_table' => $senderMesa,
-                        ':recipient_table' => $recipientMesa,
-                        ':gift_name' => $giftProduct['nombre'] ?? 'Regalo',
-                        ':gift_description' => $giftProduct['descripcion'] ?? null,
-                        ':gift_price' => $amountCents / 100,
-                        ':gift_image' => $giftProduct['imagen'] ?? null,
-                        ':request_key' => $requestKey,
-                    ]
-                );
-                if ($giftId <= 0) throw new \RuntimeException('No se pudo crear el regalo');
-                Database::rowCount(
-                    'UPDATE social_gift_orders SET folio = :folio WHERE id = :id',
-                    [':folio' => $this->buildGiftFolio($giftId), ':id' => $giftId]
-                );
-                $pdo->commit();
-                $gift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
-            } catch (\Throwable $exception) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                error_log('SocialController::createGiftPayment DB ERROR: ' . $exception->getMessage());
-                Response::serverError('No se pudo preparar el regalo.');
-            }
-        }
-
-        try {
-            Stripe::setApiKey($this->getStripeSecret());
-            $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
-            $intent = $intentId !== '' ? PaymentIntent::retrieve($intentId) : PaymentIntent::create([
-                'amount' => $amountCents,
-                'currency' => 'mxn',
-                'description' => 'Regalo social ' . ($gift['folio'] ?? ''),
-                'metadata' => [
-                    'gift_order_id' => (string)$gift['id'],
-                    'user_id' => (string)$user->id,
-                ],
-                'automatic_payment_methods' => ['enabled' => true],
-            ], ['idempotency_key' => 'social_gift_' . $requestKey]);
-
-            if ((int)$intent->amount !== $amountCents || strtolower((string)$intent->currency) !== 'mxn') {
-                throw new \RuntimeException('El importe del intento no coincide');
-            }
-            Database::rowCount(
-                "UPDATE social_gift_orders
-                    SET stripe_payment_intent_id = :intent_id, status = IF(status = 'pago_fallido', 'pendiente_pago', status), updated_at = NOW()
-                  WHERE id = :id",
-                [':intent_id' => $intent->id, ':id' => (int)$gift['id']]
-            );
-            Response::success([
-                'gift' => $this->giftPaymentResponse($gift),
-                'client_secret' => $intent->client_secret,
-                'payment_intent_id' => $intent->id,
-            ], 'Pago de regalo preparado', 201);
-        } catch (\Throwable $exception) {
-            Database::rowCount(
-                "UPDATE social_gift_orders SET status = 'pago_fallido', updated_at = NOW()
-                  WHERE id = :id AND status = 'pendiente_pago'",
-                [':id' => (int)$gift['id']]
-            );
-            error_log('SocialController::createGiftPayment STRIPE ERROR: ' . $exception->getMessage());
-            Response::serverError('No se pudo iniciar el pago del regalo.');
-        }
-    }
-
-    public function confirmGiftPayment(int $giftId): void
-    {
-        $user = AuthMiddleware::authenticate();
-        $gift = Database::queryOne(
-            'SELECT * FROM social_gift_orders WHERE id = :id AND sender_user_id = :user_id LIMIT 1',
-            [':id' => $giftId, ':user_id' => (int)$user->id]
-        );
-        if (!$gift) Response::notFound('Regalo no encontrado');
-        $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
-        if ($intentId === '') Response::error('El regalo no tiene un intento de pago.', 409);
-
-        try {
-            Stripe::setApiKey($this->getStripeSecret());
-            $intent = PaymentIntent::retrieve($intentId);
-            $expectedCents = (int)round((float)$gift['gift_precio'] * 100);
-            $metadataGiftId = (int)($intent->metadata['gift_order_id'] ?? 0);
-            $metadataUserId = (int)($intent->metadata['user_id'] ?? 0);
-            if ($metadataGiftId !== $giftId || $metadataUserId !== (int)$user->id || (int)$intent->amount !== $expectedCents || strtolower((string)$intent->currency) !== 'mxn') {
-                Response::error('La informacion del pago no coincide con el regalo.', 409);
-            }
-            if ($intent->status !== 'succeeded') {
-                Response::error('Stripe aun no confirma el pago del regalo.', 409);
-            }
-            Database::rowCount(
-                "UPDATE social_gift_orders
-                    SET status = IF(status IN ('pendiente_pago','pago_fallido'), 'listo', status),
-                        pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
-                  WHERE id = :id AND stripe_payment_intent_id = :intent_id",
-                [':id' => $giftId, ':intent_id' => $intentId]
-            );
-            $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
-            Response::success($this->giftPaymentResponse($paidGift), 'Regalo pagado y enviado');
-        } catch (\Stripe\Exception\ApiErrorException $exception) {
-            error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
-            Response::serverError('No se pudo verificar el pago con Stripe.');
-        }
-    }
-
-    private function getStripeSecret(): string
-    {
-        $key = $_ENV['STRIPE_SECRET_KEY'] ?? $_SERVER['STRIPE_SECRET_KEY'] ?? getenv('STRIPE_SECRET_KEY');
-        if (!is_string($key) || trim($key) === '') {
-            throw new \RuntimeException('STRIPE_SECRET_KEY no configurada');
-        }
-        return trim($key);
-    }
-
-    private function giftPaymentResponse(array $gift): array
-    {
-        return [
-            'id' => (int)$gift['id'],
-            'folio' => $gift['folio'] ?? null,
-            'mesa_id' => (int)$gift['mesa_id'],
-            'mesa_label' => $this->formatMesaLabel((string)($gift['recipient_mesa'] ?? $gift['mesa_id'])),
-            'gift_nombre' => $gift['gift_nombre'],
-            'gift_precio' => (float)$gift['gift_precio'],
-            'recipient_nombre' => $gift['recipient_nombre'],
-            'sender_nombre' => $gift['sender_nombre'],
-            'recipient_mesa' => $gift['recipient_mesa'] ?? null,
-            'status' => $gift['status'],
-        ];
     }
 
     public function restaurantTables(int $restaurantId): void

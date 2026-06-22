@@ -74,6 +74,181 @@ class Order
     }
 
     /**
+     * Convierte la seleccion de la app (grupos/opciones) o de CarniHub
+     * (modificador_id/cantidad) a cantidades por id.
+     * @return array<int, int>
+     */
+    private static function flattenModifierSelection(array $selection): array
+    {
+        $quantities = [];
+        foreach ($selection as $entry) {
+            if (!is_array($entry)) continue;
+
+            if (isset($entry['modificador_id']) && !isset($entry['opciones'])) {
+                $id = (int)$entry['modificador_id'];
+                $quantity = max(1, (int)($entry['cantidad'] ?? 1));
+                if ($id > 0) $quantities[$id] = ($quantities[$id] ?? 0) + $quantity;
+                continue;
+            }
+
+            foreach (($entry['opciones'] ?? []) as $option) {
+                if (!is_array($option)) continue;
+                $id = (int)($option['opcion_id'] ?? $option['modificador_id'] ?? 0);
+                $quantity = max(1, (int)($option['cantidad'] ?? 1));
+                if ($id > 0) $quantities[$id] = ($quantities[$id] ?? 0) + $quantity;
+            }
+        }
+        return $quantities;
+    }
+
+    /**
+     * Fija precios desde la BD y valida el catalogo sincronizado antes de cobrar.
+     */
+    private static function normalizeAndPriceOrder(array $data): array
+    {
+        if (empty($data['items']) || !is_array($data['items'])) {
+            throw new \InvalidArgumentException('El pedido no contiene productos.');
+        }
+
+        $restaurantId = (int)($data['restaurante_id'] ?? 0);
+        $hasCatalog = self::tableExists('rest_platillo_modificadores')
+            && self::columnExists('rest_platillos', 'modificadores_sincronizados_at');
+        $config = $hasCatalog ? Database::queryOne(
+            'SELECT exclusiones_habilitadas, extras_habilitados FROM rest_configuracion
+              WHERE restaurante_id = :restaurant_id LIMIT 1',
+            [':restaurant_id' => $restaurantId]
+        ) : null;
+        $subtotal = 0.0;
+        $normalizedItems = [];
+
+        foreach ($data['items'] as $item) {
+            $quantity = (int)($item['cantidad'] ?? $item['quantity'] ?? 0);
+            $dishId = (int)($item['platillo_id'] ?? $item['product_id'] ?? 0);
+            $origin = (string)($item['origen'] ?? 'menu');
+            if ($dishId <= 0 || $quantity <= 0) {
+                throw new \InvalidArgumentException('Producto o cantidad invalida.');
+            }
+
+            if ($origin === 'store') {
+                $storeProduct = Database::queryOne(
+                    'SELECT precio FROM store_productos WHERE id = :id AND activo = 1 LIMIT 1',
+                    [':id' => $dishId]
+                );
+                if (!$storeProduct) throw new \RuntimeException('Producto de tienda no disponible.');
+                $item['precio_unit'] = round((float)$storeProduct['precio'], 2);
+                $item['modificadores'] = [];
+                $subtotal += $item['precio_unit'] * $quantity;
+                $normalizedItems[] = $item;
+                continue;
+            }
+
+            $dish = Database::queryOne(
+                'SELECT id, nombre, precio, disponible, modificadores_sincronizados_at
+                   FROM rest_platillos
+                  WHERE id = :id AND restaurante_id = :restaurant_id AND activo = 1 LIMIT 1',
+                [':id' => $dishId, ':restaurant_id' => $restaurantId]
+            );
+            if (!$dish || !(bool)$dish['disponible']) {
+                throw new \RuntimeException('El platillo solicitado no esta disponible.');
+            }
+
+            $selection = self::flattenModifierSelection((array)($item['modificadores'] ?? []));
+            $snapshots = [];
+            $extrasTotal = 0.0;
+
+            $catalogRows = $hasCatalog ? Database::query(
+                    'SELECT id, tipo, nombre, ingrediente_id, cantidad_unidad, unidad,
+                            precio_unitario, max_cantidad
+                       FROM rest_platillo_modificadores
+                      WHERE restaurante_id = :restaurant_id AND platillo_id = :dish_id AND activo = 1',
+                    [':restaurant_id' => $restaurantId, ':dish_id' => $dishId]
+                ) : [];
+
+            if ($hasCatalog && (!empty($dish['modificadores_sincronizados_at']) || !empty($catalogRows))) {
+                $catalog = [];
+                foreach ($catalogRows as $row) $catalog[(int)$row['id']] = $row;
+
+                foreach ($selection as $modifierId => $modifierQuantity) {
+                    if (!isset($catalog[$modifierId])) {
+                        throw new \InvalidArgumentException('Un modificador no pertenece al platillo.');
+                    }
+                    $modifier = $catalog[$modifierId];
+                    $type = (string)$modifier['tipo'];
+                    if ($type === 'exclusion' && !($config['exclusiones_habilitadas'] ?? true)) {
+                        throw new \InvalidArgumentException('Las exclusiones estan deshabilitadas en esta sucursal.');
+                    }
+                    if ($type === 'extra' && !($config['extras_habilitados'] ?? true)) {
+                        throw new \InvalidArgumentException('Los extras estan deshabilitados en esta sucursal.');
+                    }
+                    $max = $type === 'exclusion' ? 1 : max(1, (int)$modifier['max_cantidad']);
+                    if ($modifierQuantity > $max) {
+                        throw new \InvalidArgumentException('La cantidad de un modificador excede el maximo permitido.');
+                    }
+                    $price = $type === 'exclusion' ? 0.0 : round((float)$modifier['precio_unitario'], 2);
+                    $modifierSubtotal = round($price * $modifierQuantity, 2);
+                    $extrasTotal += $modifierSubtotal;
+                    $snapshots[] = [
+                        'modificador_id' => $modifierId,
+                        'tipo' => $type,
+                        'nombre' => (string)$modifier['nombre'],
+                        'ingrediente_id' => $modifier['ingrediente_id'] !== null ? (int)$modifier['ingrediente_id'] : null,
+                        'cantidad' => $modifierQuantity,
+                        'cantidad_unidad' => (float)$modifier['cantidad_unidad'],
+                        'unidad' => $modifier['unidad'],
+                        'precio_unitario' => $price,
+                        'subtotal' => $modifierSubtotal,
+                    ];
+                }
+                $item['modificadores'] = $snapshots;
+            } else {
+                // Catalogo anterior: valida las opciones contra la receta y conserva el formato historico.
+                foreach ($selection as $recipeIngredientId => $modifierQuantity) {
+                    $legacy = Database::queryOne(
+                        'SELECT ri.id, ri.ingrediente_id, ri.precio_extra, i.nombre
+                           FROM rest_receta_ingredientes ri
+                           JOIN rest_recetas r ON r.id = ri.receta_id
+                           JOIN rest_ingredientes i ON i.id = ri.ingrediente_id
+                          WHERE ri.id = :id AND r.platillo_id = :dish_id LIMIT 1',
+                        [':id' => $recipeIngredientId, ':dish_id' => $dishId]
+                    );
+                    if (!$legacy) throw new \InvalidArgumentException('Un extra no pertenece al platillo.');
+                    $legacyPrice = round((float)$legacy['precio_extra'], 2);
+                    $legacySubtotal = round($legacyPrice * $modifierQuantity, 2);
+                    $extrasTotal += $legacySubtotal;
+                    $snapshots[] = [
+                        'modificador_id' => $recipeIngredientId,
+                        'tipo' => 'extra',
+                        'nombre' => (string)$legacy['nombre'],
+                        'ingrediente_id' => (int)$legacy['ingrediente_id'],
+                        'cantidad' => $modifierQuantity,
+                        'cantidad_unidad' => 0,
+                        'unidad' => null,
+                        'precio_unitario' => $legacyPrice,
+                        'subtotal' => $legacySubtotal,
+                    ];
+                }
+                $item['modificadores'] = $snapshots;
+            }
+
+            $item['platillo_id'] = $dishId;
+            $item['cantidad'] = $quantity;
+            $item['precio_unit'] = round((float)$dish['precio'] + $extrasTotal, 2);
+            $subtotal += $item['precio_unit'] * $quantity;
+            $normalizedItems[] = $item;
+        }
+
+        $data['items'] = $normalizedItems;
+        $data['subtotal'] = round($subtotal, 2);
+        $data['total'] = round($subtotal, 2);
+        return $data;
+    }
+
+    public static function quote(array $data): array
+    {
+        return self::normalizeAndPriceOrder($data);
+    }
+
+    /**
      * Normaliza el método de pago al valor esperado por esquemas legacy.
      */
     private static function normalizePaymentMethod(string $metodo): string
@@ -156,7 +331,7 @@ class Order
      * @param array<int, array<string, mixed>> $orders
      * @return array<int, array<string, mixed>>
      */
-    private static function groupConsumptionOrders(array $orders): array
+    private static function groupConsumptionOrders(array $orders, ?int $userId = null): array
     {
         $grouped = [];
         $regular = [];
@@ -172,7 +347,7 @@ class Order
         }
 
         foreach ($grouped as $consumptionOrders) {
-            $regular[] = self::buildConsumptionOrder($consumptionOrders);
+            $regular[] = self::buildConsumptionOrder($consumptionOrders, $userId);
         }
 
         usort($regular, static function (array $a, array $b): int {
@@ -186,7 +361,7 @@ class Order
      * @param array<int, array<string, mixed>> $orders
      * @return array<string, mixed>
      */
-    private static function buildConsumptionOrder(array $orders): array
+    private static function buildConsumptionOrder(array $orders, ?int $userId = null): array
     {
         usort($orders, static fn(array $a, array $b): int => (int)$a['id'] <=> (int)$b['id']);
 
@@ -198,6 +373,8 @@ class Order
         $isOpen = false;
         $validatedAt = null;
         $generatedAt = null;
+        $paidAt = null;
+        $closedAt = null;
 
         foreach ($orders as $order) {
             $subtotal += (float)($order['subtotal'] ?? 0);
@@ -205,12 +382,29 @@ class Order
             $isOpen = $isOpen || (int)($order['cuenta_abierta'] ?? 0) === 1;
             $generatedAt = $generatedAt ?? ($order['salida_qr_generado_at'] ?? null);
             $validatedAt = $validatedAt ?? ($order['salida_validado_at'] ?? null);
+            $paidAt = $paidAt ?? ($order['pagado_at'] ?? null);
+            $closedAt = $closedAt ?? ($order['cerrado_at'] ?? null);
 
             foreach (self::getOrderItems((int)$order['id']) as $item) {
                 $item['pedido_id'] = (int)$order['id'];
                 $item['pedido_folio'] = $order['folio'] ?? null;
                 $items[] = $item;
             }
+        }
+
+        $giftCharges = self::getGiftChargesForConsumption(
+            $anchor,
+            $userId,
+            $isOpen,
+            $anchor['created_at'] ?? null,
+            $validatedAt ?? $paidAt ?? $closedAt ?? ($isOpen ? null : ($latest['updated_at'] ?? $latest['created_at'] ?? null))
+        );
+
+        foreach ($giftCharges as $gift) {
+            $giftPrice = (float)($gift['gift_precio'] ?? 0);
+            $subtotal += $giftPrice;
+            $total += $giftPrice;
+            $items[] = self::normalizeGiftChargeAsOrderItem($gift);
         }
 
         $anchor['id'] = (int)$anchor['id'];
@@ -234,7 +428,7 @@ class Order
     /**
      * @return array<int, array<string, mixed>>
      */
-    private static function getConsumptionOrdersForOrder(array $order, ?int $userId = null, bool $fallbackToAnchor = true): array
+    private static function getConsumptionOrdersForOrder(array $order, ?int $userId = null): array
     {
         if (empty($order['consumo_id'])) {
             return [$order];
@@ -360,7 +554,7 @@ class Order
         $hasConsumoId = self::columnExists('rest_pedidos', 'consumo_id');
 
         $extraFields = [];
-        foreach (['cuenta_abierta', 'mesa_id', 'salida_qr_generado_at', 'salida_validado_at', 'consumo_id'] as $column) {
+        foreach (['cuenta_abierta', 'mesa_id', 'salida_qr_generado_at', 'salida_validado_at', 'consumo_id', 'pagado_at', 'cerrado_at', 'updated_at'] as $column) {
             if (self::columnExists('rest_pedidos', $column)) {
                 $extraFields[] = "p.{$column}";
             }
@@ -391,11 +585,25 @@ class Order
         $orders = Database::query($sql, $params);
         
         if ($hasConsumoId) {
-            return self::groupConsumptionOrders($orders);
+            return self::groupConsumptionOrders($orders, $userId);
         }
 
+        $latestEatInKeys = [];
         foreach ($orders as &$order) {
             $order['items'] = self::getOrderItems((int)$order['id']);
+            if (($order['tipo_pedido'] ?? null) !== 'eat_in') {
+                continue;
+            }
+
+            $orderKey = implode(':', [
+                (string)($order['restaurante_id'] ?? 0),
+                (string)($order['mesa_id'] ?? 0),
+            ]);
+
+            if (!isset($latestEatInKeys[$orderKey])) {
+                $latestEatInKeys[$orderKey] = true;
+                $order = self::appendGiftChargesToOrder($order, $userId);
+            }
         }
 
         return $orders;
@@ -460,32 +668,18 @@ class Order
         
         $order = Database::queryOne($sql, $params);
 
-        if (!$order && $userId !== null && self::columnExists('rest_pedidos', 'consumo_id')) {
-            $anchor = Database::queryOne(
-                "SELECT p.*, r.nombre AS restaurante_nombre
-                   FROM rest_pedidos p
-                   JOIN rest_restaurantes r ON r.id = p.restaurante_id
-                  WHERE p.id = :id",
-                [':id' => $id]
-            );
-
-            if ($anchor && self::isConsumableEatInOrder($anchor)) {
-                $consumptionOrders = self::getConsumptionOrdersForOrder($anchor, $userId, false);
-                if (!empty($consumptionOrders)) {
-                    return self::buildConsumptionOrder($consumptionOrders);
-                }
-            }
-        }
-
         if ($order && self::isConsumableEatInOrder($order)) {
             $consumptionOrders = self::getConsumptionOrdersForOrder($order, $userId);
             if (count($consumptionOrders) > 1 || !empty($order['consumo_id'])) {
-                return self::buildConsumptionOrder($consumptionOrders);
+                return self::buildConsumptionOrder($consumptionOrders, $userId);
             }
         }
 
         if ($order) {
             $order['items'] = self::getOrderItems((int)$order['id']);
+            if (($order['tipo_pedido'] ?? null) === 'eat_in') {
+                $order = self::appendGiftChargesToOrder($order, $userId);
+            }
         }
         
         return $order;
@@ -497,23 +691,6 @@ class Order
 
         try {
             $pdo->beginTransaction();
-
-            $isEatIn = in_array(($data['order_type'] ?? null), ['eat_in', 'dine_in'], true);
-            $tableId = !empty($data['mesa_id']) ? (int)$data['mesa_id'] : 0;
-            if ($isEatIn && $tableId > 0 && self::tableExists('rest_cuenta_divisiones')) {
-                $splitStmt = $pdo->prepare(
-                    "SELECT id FROM rest_cuenta_divisiones
-                      WHERE restaurante_id = :restaurant_id AND mesa_id = :table_id AND estado = 'activa'
-                      LIMIT 1 FOR UPDATE"
-                );
-                $splitStmt->execute([
-                    ':restaurant_id' => (int)$data['restaurante_id'],
-                    ':table_id' => $tableId,
-                ]);
-                if ($splitStmt->fetch()) {
-                    throw new \RuntimeException('No se pueden agregar productos mientras se cobran cuentas separadas.');
-                }
-            }
 
             $folio = 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
 
@@ -644,13 +821,37 @@ class Order
                 }
 
                 $itemInsert = self::buildInsert('rest_pedido_items', $itemData);
-                Database::execute($itemInsert['sql'], $itemInsert['params']);
+                $pedidoItemId = Database::execute($itemInsert['sql'], $itemInsert['params']);
+
+                if ($pedidoItemId && self::tableExists('rest_pedido_item_modificadores')) {
+                    foreach ($modificadores as $modifier) {
+                        if (!is_array($modifier) || !isset($modifier['tipo'], $modifier['nombre'])) continue;
+                        $snapshotInsert = self::buildInsert('rest_pedido_item_modificadores', [
+                            'pedido_item_id' => $pedidoItemId,
+                            'modificador_id' => $modifier['modificador_id'] ?? null,
+                            'tipo' => $modifier['tipo'],
+                            'nombre' => $modifier['nombre'],
+                            'ingrediente_id' => $modifier['ingrediente_id'] ?? null,
+                            'cantidad' => $modifier['cantidad'] ?? 1,
+                            'cantidad_unidad' => $modifier['cantidad_unidad'] ?? 0,
+                            'unidad' => $modifier['unidad'] ?? null,
+                            'precio_unitario' => $modifier['precio_unitario'] ?? 0,
+                            'subtotal' => $modifier['subtotal'] ?? 0,
+                            'created_at' => date('Y-m-d H:i:s'),
+                        ]);
+                        Database::execute($snapshotInsert['sql'], $snapshotInsert['params']);
+                    }
+                }
 
                 // Acumular para descuento de stock
                 if ($origen === 'store') {
                     $storeItems[] = ['id' => (int)$platilloId, 'cantidad' => (int)$cantidad];
                 } elseif ($origen === 'menu') {
-                    $menuItems[] = ['id' => (int)$platilloId, 'cantidad' => (int)$cantidad];
+                    $menuItems[] = [
+                        'id' => (int)$platilloId,
+                        'cantidad' => (int)$cantidad,
+                        'modificadores' => $modificadores,
+                    ];
                 }
             }
 
@@ -725,6 +926,14 @@ class Order
                     }
 
                     foreach ($ingredientes as $ing) {
+                        $excludedIngredientIds = [];
+                        foreach (($mi['modificadores'] ?? []) as $modifier) {
+                            if (($modifier['tipo'] ?? null) === 'exclusion' && !empty($modifier['ingrediente_id'])) {
+                                $excludedIngredientIds[] = (int)$modifier['ingrediente_id'];
+                            }
+                        }
+                        if (in_array((int)$ing['ingrediente_id'], $excludedIngredientIds, true)) continue;
+
                         $cantidadADescontar = (float)$ing['cantidad_receta'] * (int)$mi['cantidad'];
 
                         $decremented = Database::rowCount(
@@ -756,6 +965,53 @@ class Order
                 }
             } else {
                 error_log('Order::create: Saltando descuento manual de stock (triggers MySQL detectados)');
+                foreach ($menuItems as $mi) {
+                    foreach (($mi['modificadores'] ?? []) as $modifier) {
+                        if (($modifier['tipo'] ?? null) !== 'exclusion' || empty($modifier['ingrediente_id'])) continue;
+                        $recipeIngredient = Database::queryOne(
+                            'SELECT ri.cantidad
+                               FROM rest_receta_ingredientes ri
+                               JOIN rest_recetas r ON r.id = ri.receta_id
+                              WHERE r.platillo_id = :dish_id AND ri.ingrediente_id = :ingredient_id LIMIT 1',
+                            [
+                                ':dish_id' => (int)$mi['id'],
+                                ':ingredient_id' => (int)$modifier['ingrediente_id'],
+                            ]
+                        );
+                        $quantityToRestore = (float)($recipeIngredient['cantidad'] ?? 0) * (int)$mi['cantidad'];
+                        if ($quantityToRestore > 0) {
+                            Database::rowCount(
+                                'UPDATE rest_ingredientes SET stock = stock + :quantity WHERE id = :id',
+                                [':quantity' => $quantityToRestore, ':id' => (int)$modifier['ingrediente_id']]
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Los triggers existentes solo conocen la receta base; los extras se descuentan aqui siempre.
+            if (self::columnExists('rest_ingredientes', 'stock')) {
+                foreach ($menuItems as $mi) {
+                    foreach (($mi['modificadores'] ?? []) as $modifier) {
+                        if (($modifier['tipo'] ?? null) !== 'extra' || empty($modifier['ingrediente_id'])) continue;
+                        $extraQuantity = (float)($modifier['cantidad_unidad'] ?? 0)
+                            * (int)($modifier['cantidad'] ?? 1)
+                            * (int)$mi['cantidad'];
+                        if ($extraQuantity <= 0) continue;
+                        $decremented = Database::rowCount(
+                            'UPDATE rest_ingredientes SET stock = stock - :quantity_update
+                              WHERE id = :id AND stock >= :quantity_check',
+                            [
+                                ':id' => (int)$modifier['ingrediente_id'],
+                                ':quantity_update' => $extraQuantity,
+                                ':quantity_check' => $extraQuantity,
+                            ]
+                        );
+                        if ($decremented === 0) {
+                            throw new \RuntimeException('Stock insuficiente para el extra "' . $modifier['nombre'] . '".');
+                        }
+                    }
+                }
             }
             // ──── FIN DESCUENTO DE STOCK ────────────────────────────────────
 
