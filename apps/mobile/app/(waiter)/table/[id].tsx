@@ -29,6 +29,7 @@ import {
   type WaiterPaymentMethod,
 } from '../../../services/waiter.service';
 import { useWaiterCartStore } from '../../../store/waiter-cart.store';
+import { useBranchConfigStore } from '../../../store/branch.store';
 import { SplitAccountModal } from '../../../components/waiter/SplitAccountModal';
 
 const PLACEHOLDER_FOOD = require('../../../assets/placeholder-food.jpg');
@@ -124,6 +125,8 @@ export default function WaiterTableScreen() {
   const [sending, setSending] = useState(false);
   const [closing, setClosing] = useState(false);
   const resumedSplitId = useRef<number | null>(null);
+  const configVersion = useBranchConfigStore((state) => state.branchId === restaurantId ? state.version : 0);
+  const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
 
   const waiterCart = useWaiterCartStore();
   const cartItems = waiterCart.tableId === tableId && waiterCart.restaurantId === restaurantId ? waiterCart.items : [];
@@ -135,12 +138,12 @@ export default function WaiterTableScreen() {
     enabled: Number.isFinite(tableId) && Number.isFinite(restaurantId),
   });
   const categoriesQuery = useQuery({
-    queryKey: ['waiter', 'categories', restaurantId],
+    queryKey: ['waiter', 'categories', restaurantId, configVersion],
     queryFn: () => getCategories(restaurantId),
     enabled: Number.isFinite(restaurantId),
   });
   const dishesQuery = useQuery({
-    queryKey: ['waiter', 'dishes', restaurantId, selectedCategoryId, menuSearch.trim()],
+    queryKey: ['waiter', 'dishes', restaurantId, selectedCategoryId, menuSearch.trim(), configVersion],
     queryFn: () => {
       const q = menuSearch.trim();
       return getDishes(restaurantId, {
@@ -237,6 +240,15 @@ export default function WaiterTableScreen() {
 
       return current.map((item) => (item.modificador_id === mod.id ? { ...item, opciones: options } : item));
     });
+  }
+
+  async function openMenu() {
+    setMenuVisible(true);
+    await Promise.all([
+      refreshBranchConfig(restaurantId),
+      categoriesQuery.refetch(),
+      dishesQuery.refetch(),
+    ]).catch(() => undefined);
   }
 
   function changeOptionQuantity(modId: number, optionId: number, delta: number, max: number) {
@@ -434,7 +446,7 @@ export default function WaiterTableScreen() {
           <TouchableOpacity
             style={[styles.primaryActionButton, activeSplit && styles.actionButtonDisabled]}
             activeOpacity={0.88}
-            onPress={() => setMenuVisible(true)}
+            onPress={() => void openMenu()}
             disabled={Boolean(activeSplit)}
           >
             <Ionicons name="restaurant-outline" size={20} color="#FFFFFF" />

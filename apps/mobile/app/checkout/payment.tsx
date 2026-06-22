@@ -14,13 +14,12 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
-import { useBranchStore } from '../../store/branch.store';
+import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { confirmPayment, createOrder, createPaymentIntent } from '../../services/orders.service';
-import { getRestaurantConfig } from '../../services/config.service';
 import { getApiError } from '../../services/api';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
-import type { RestaurantConfig, MetodoPagoHabilitado } from '@amare/types';
+import type { MetodoPagoHabilitado } from '@amare/types';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash';
 
@@ -93,8 +92,8 @@ export default function PaymentScreen() {
   const paymentAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : total;
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
-  const [config, setConfig] = useState<RestaurantConfig | null>(null);
-  const [loadingConfig, setLoadingConfig] = useState(true);
+  const config = useBranchConfigStore((state) => state.branchId === resolvedRestaurantId ? state.config : null);
+  const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
 
   // Métodos habilitados según la BD, mapeados a los IDs de la UI (deduplicado por si apple_pay y google_pay comparten 'wallet')
   const enabledMethodIds: PaymentMethod[] = config
@@ -109,21 +108,17 @@ export default function PaymentScreen() {
   // Cargar configuración al montar
   useEffect(() => {
     if (resolvedRestaurantId) {
-      getRestaurantConfig(Number(resolvedRestaurantId))
-        .then((cfg) => {
-          setConfig(cfg);
-          // Seleccionar el primer método disponible si el actual no está habilitado
-          const ids = [...new Set(cfg.metodos_pago.map(dbMethodToUI))];
-          if (!ids.includes(selectedMethod)) {
-            setSelectedMethod(ids[0] ?? 'cash');
-          }
-        })
-        .catch((err) => console.error('Error al cargar configuración:', err))
-        .finally(() => setLoadingConfig(false));
-    } else {
-      setLoadingConfig(false);
+      void refreshBranchConfig(Number(resolvedRestaurantId)).catch((err) =>
+        console.error('Error al cargar configuracion:', err)
+      );
     }
-  }, [resolvedRestaurantId, selectedMethod]);
+  }, [refreshBranchConfig, resolvedRestaurantId]);
+
+  useEffect(() => {
+    if (!config) return;
+    const ids = [...new Set(config.metodos_pago.map(dbMethodToUI))];
+    if (!ids.includes(selectedMethod)) setSelectedMethod(ids[0] ?? 'cash');
+  }, [config, selectedMethod]);
 
   // Cálculo dinámico del ancho de cada card según cuántas hay
   function getCardWidth() {

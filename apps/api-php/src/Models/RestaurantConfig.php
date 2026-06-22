@@ -30,9 +30,16 @@ class RestaurantConfig
                 'tipos_entrega' => ['delivery', 'pickup'],
                 'costo_envio' => 0,
                 'pedido_minimo' => 0,
+                'version' => 0,
+                'updated_at' => null,
                 'modificadores' => [
                     'exclusiones_habilitadas' => true,
                     'extras_habilitados' => true,
+                ],
+                'platillos_modificadores' => [],
+                'selector' => [
+                    'exclusiones' => true,
+                    'extras' => true,
                 ],
                 'activo' => true,
             ];
@@ -43,11 +50,20 @@ class RestaurantConfig
         $config['tipos_entrega'] = json_decode($config['tipos_entrega'], true) ?: ['delivery', 'pickup'];
         $config['costo_envio'] = (float) $config['costo_envio'];
         $config['pedido_minimo'] = (float) $config['pedido_minimo'];
+        $config['version'] = (int)($config['config_version'] ?? 0);
+        $config['updated_at'] = !empty($config['updated_at'])
+            ? gmdate('Y-m-d\TH:i:s\Z', strtotime((string)$config['updated_at']))
+            : null;
         $config['modificadores'] = [
             'exclusiones_habilitadas' => (bool)($config['exclusiones_habilitadas'] ?? true),
             'extras_habilitados' => (bool)($config['extras_habilitados'] ?? true),
         ];
-        unset($config['exclusiones_habilitadas'], $config['extras_habilitados']);
+        $config['selector'] = [
+            'exclusiones' => $config['modificadores']['exclusiones_habilitadas'],
+            'extras' => $config['modificadores']['extras_habilitados'],
+        ];
+        $config['platillos_modificadores'] = self::getDishModifiers($restauranteId);
+        unset($config['config_version'], $config['exclusiones_habilitadas'], $config['extras_habilitados']);
         $config['activo'] = (bool) $config['activo'];
 
         return $config;
@@ -140,6 +156,57 @@ class RestaurantConfig
         }
 
         $stmt = $pdo->prepare($sql);
-        return $stmt->execute($params);
+        $success = $stmt->execute($params);
+        if ($success && $exists) {
+            $versionStmt = $pdo->prepare(
+                'UPDATE rest_configuracion
+                    SET config_version = config_version + 1, updated_at = NOW()
+                  WHERE restaurante_id = :restaurante_id'
+            );
+            $versionStmt->execute([':restaurante_id' => $restauranteId]);
+        }
+        return $success;
+    }
+
+    private static function getDishModifiers(int $restauranteId): array
+    {
+        try {
+            $rows = Database::query(
+                "SELECT platillo_id, id, tipo, nombre, ingrediente_id, cantidad_unidad,
+                        unidad, precio_unitario, max_cantidad
+                   FROM rest_platillo_modificadores
+                  WHERE restaurante_id = :restaurante_id AND activo = 1
+               ORDER BY platillo_id, tipo, nombre",
+                [':restaurante_id' => $restauranteId]
+            );
+        } catch (\Throwable $exception) {
+            return [];
+        }
+
+        $catalog = [];
+        foreach ($rows as $row) {
+            $dishId = (string)(int)$row['platillo_id'];
+            $catalog[$dishId][] = [
+                'id' => (int)$row['id'],
+                'tipo' => (string)$row['tipo'],
+                'nombre' => (string)$row['nombre'],
+                'ingrediente_id' => $row['ingrediente_id'] !== null ? (int)$row['ingrediente_id'] : null,
+                'cantidad_unidad' => (float)$row['cantidad_unidad'],
+                'unidad' => $row['unidad'],
+                'precio_unitario' => (float)$row['precio_unitario'],
+                'max_cantidad' => (int)$row['max_cantidad'],
+            ];
+        }
+        return $catalog;
+    }
+
+    public static function incrementVersion(int $restauranteId): void
+    {
+        Database::rowCount(
+            'UPDATE rest_configuracion
+                SET config_version = config_version + 1, updated_at = NOW()
+              WHERE restaurante_id = :restaurante_id',
+            [':restaurante_id' => $restauranteId]
+        );
     }
 }

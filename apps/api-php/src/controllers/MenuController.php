@@ -10,6 +10,8 @@ use Amare\Api\Models\Product;
 use Amare\Api\Config\Database;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Middleware\AuthMiddleware;
+use Amare\Api\Helpers\BranchConfigEvents;
+use Amare\Api\Models\RestaurantConfig;
 
 class MenuController
 {
@@ -220,7 +222,10 @@ class MenuController
             }
             $touch = $pdo->prepare('UPDATE rest_platillos SET modificadores_sincronizados_at = NOW() WHERE id = :id AND restaurante_id = :restaurant_id');
             $touch->execute([':id' => $dishId, ':restaurant_id' => $branchId]);
+            RestaurantConfig::incrementVersion($branchId);
             $pdo->commit();
+            $config = RestaurantConfig::getByRestaurant($branchId);
+            BranchConfigEvents::publish($branchId, (int)($config['version'] ?? 0));
             Response::success(['platillo_id' => $dishId, 'modificadores' => $normalized], 'Modificadores sincronizados');
         } catch (\Throwable $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();

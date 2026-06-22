@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,6 +16,7 @@ import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
 import { useCartStore } from '../../store/cart.store';
 import { useTableSessionStore } from '../../store/table-session.store';
+import { useBranchConfigStore } from '../../store/branch.store';
 import { useFavorites } from '../../hooks/useFavorites';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -33,7 +35,7 @@ export default function ProductScreen() {
     restauranteId: string;
   }>();
 
-  const { data: platillo, isLoading, isError } = useDish(
+  const { data: platillo, isLoading, isError, isRefetching, refetch } = useDish(
     Number(restauranteId),
     Number(id)
   );
@@ -41,6 +43,7 @@ export default function ProductScreen() {
   const addItem = useCartStore((s) => s.addItem);
   const tipoPedido = useCartStore((s) => s.tipoPedido);
   const tableSession = useTableSessionStore((s) => s.session);
+  const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
   const { data: favorites, toggle } = useFavorites();
 
   const isFav = favorites?.some((f: any) => f.id === platillo?.id);
@@ -49,6 +52,13 @@ export default function ProductScreen() {
 
   function goBack() {
     router.back();
+  }
+
+  async function refreshProduct() {
+    await Promise.all([
+      refreshBranchConfig(Number(restauranteId), { force: true }),
+      refetch(),
+    ]).catch(() => undefined);
   }
 
   function toggleOpcion(
@@ -201,7 +211,14 @@ export default function ProductScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          bounces={false}
+          bounces
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => void refreshProduct()}
+              tintColor={Colors.primary}
+            />
+          }
         >
             <View style={styles.imageContainer}>
               <Image

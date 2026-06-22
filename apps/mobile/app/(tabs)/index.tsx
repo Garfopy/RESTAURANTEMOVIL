@@ -11,6 +11,7 @@ import {
   Animated,
   Modal,
   ActivityIndicator,
+  RefreshControl,
   useWindowDimensions,
   Alert,
 } from 'react-native';
@@ -22,7 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
 import { useUserStore } from '../../store/user.store';
-import { useBranchStore } from '../../store/branch.store';
+import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useCartStore } from '../../store/cart.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranches } from '../../hooks/useBranches';
@@ -93,6 +94,7 @@ export default function HomeScreen() {
   const [selectingPickupBranch, setSelectingPickupBranch] = useState(false);
   const [pickupListExpanded, setPickupListExpanded] = useState(true);
   const [search, setSearch] = useState('');
+  const [refreshingHome, setRefreshingHome] = useState(false);
   const initialFlowStartedRef = useRef(false);
   const homeIntro = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0)).current;
@@ -121,8 +123,24 @@ export default function HomeScreen() {
   useBranches();
 
   const restauranteId = branch?.id;
-  const { data: categories, isLoading: loadingCats } = useCategories(restauranteId);
-  const { data: featured, isLoading: loadingFeatured } = useFeaturedDishes(restauranteId);
+  const { data: categories, isLoading: loadingCats, refetch: refetchCategories } = useCategories(restauranteId);
+  const { data: featured, isLoading: loadingFeatured, refetch: refetchFeatured } = useFeaturedDishes(restauranteId);
+  const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+
+  async function refreshHome() {
+    setRefreshingHome(true);
+    try {
+      await Promise.all([
+        restauranteId ? refreshBranchConfig(restauranteId, { force: true }) : Promise.resolve(),
+        refetchCategories(),
+        refetchFeatured(),
+      ]);
+    } catch {
+      toast.warning('No pudimos actualizar el menu. Conservamos la ultima version disponible.');
+    } finally {
+      setRefreshingHome(false);
+    }
+  }
 
   async function getDetectedCoords(options?: { silentOnDenied?: boolean }): Promise<{ lat: number; lng: number } | null> {
     if (detectedCoords) {
@@ -717,6 +735,7 @@ export default function HomeScreen() {
       <ScrollView 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshingHome} onRefresh={() => void refreshHome()} tintColor={Colors.primary} />}
       >
         {/* SALUDO Y BUSCADOR */}
         <Animated.View style={[styles.welcomeSection, {

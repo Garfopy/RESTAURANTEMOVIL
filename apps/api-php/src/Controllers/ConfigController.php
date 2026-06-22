@@ -8,6 +8,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\RestaurantConfig;
+use Amare\Api\Helpers\BranchConfigEvents;
 
 class ConfigController
 {
@@ -18,6 +19,13 @@ class ConfigController
     public function show(int $restauranteId): void
     {
         $config = RestaurantConfig::getByRestaurant($restauranteId);
+        $etag = '"branch-' . $restauranteId . '-v' . (int)($config['version'] ?? 0) . '"';
+        header('Cache-Control: private, no-cache, must-revalidate');
+        header('ETag: ' . $etag);
+        if (trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? '')) === $etag) {
+            http_response_code(304);
+            exit;
+        }
         Response::success(['config' => $config]);
     }
 
@@ -99,6 +107,8 @@ class ConfigController
         }
 
         $config = RestaurantConfig::getByRestaurant($restauranteId);
+        BranchConfigEvents::publish($restauranteId, (int)($config['version'] ?? 0));
+        header('Cache-Control: private, no-cache, must-revalidate');
         Response::success(['config' => $config], 'Configuración actualizada exitosamente');
     }
 }

@@ -26,7 +26,8 @@ date_default_timezone_set('America/Mexico_City');
 // Headers CORS
 header('Access-Control-Allow-Origin: ' . ($_ENV['CORS_ORIGIN'] ?? '*'));
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, If-None-Match, Cache-Control, Pragma');
+header('Access-Control-Expose-Headers: ETag, Cache-Control');
 header('Access-Control-Allow-Credentials: true');
 header('Content-Type: application/json; charset=utf-8');
 

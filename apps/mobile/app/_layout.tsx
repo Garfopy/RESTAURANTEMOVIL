@@ -1,5 +1,5 @@
 import '../global.css';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -16,7 +16,7 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StripeProvider } from '@stripe/stripe-react-native';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useUserStore } from '../store/user.store';
@@ -26,6 +26,7 @@ import { getMe } from '../services/auth.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { useThemeStore } from '../store/theme.store';
+import { notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -68,6 +69,92 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, isLoading, segments, user?.rol]);
 
   return <>{children}</>;
+}
+
+function BranchConfigRuntime() {
+  const isAuthenticated = useUserStore((state) => state.isAuthenticated);
+  const userBranchId = useUserStore((state) => state.user?.current_restaurante_id ?? null);
+  const selectedBranchId = useBranchStore((state) => state.seleccionada?.id ?? null);
+  const refresh = useBranchConfigStore((state) => state.refresh);
+  const startPolling = useBranchConfigStore((state) => state.startPolling);
+  const stopPolling = useBranchConfigStore((state) => state.stopPolling);
+  const clearConfig = useBranchConfigStore((state) => state.clear);
+  const appState = useRef(AppState.currentState);
+  const branchId = selectedBranchId ?? userBranchId;
+
+  useEffect(() => {
+    const socketUrl = process.env.EXPO_PUBLIC_BRANCH_CONFIG_WS_URL?.trim();
+    if (!isAuthenticated || !socketUrl) return;
+
+    let disposed = false;
+    type ConfigSocket = {
+      onmessage: ((message: { data: unknown }) => void) | null;
+      onclose: (() => void) | null;
+      close: () => void;
+    };
+    let socket: ConfigSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      if (disposed) return;
+      const nextSocket = new (globalThis.WebSocket as any)(socketUrl) as ConfigSocket;
+      socket = nextSocket;
+      nextSocket.onmessage = (message) => {
+        try {
+          const event = JSON.parse(String(message.data)) as { event?: string; branch_id?: number; version?: number };
+          if (event.event === 'branch.config.updated' && Number(event.branch_id) > 0 && Number(event.version) > 0) {
+            notifyBranchConfigUpdated({ branch_id: Number(event.branch_id), version: Number(event.version) });
+          }
+        } catch {
+          // Ignorar mensajes ajenos al contrato de configuracion.
+        }
+      };
+      nextSocket.onclose = () => {
+        if (!disposed) reconnectTimer = setTimeout(connect, 5_000);
+      };
+    };
+
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => subscribeBranchConfigUpdated((event) => {
+    const state = useBranchConfigStore.getState();
+    if (event.branch_id === state.branchId && event.version > state.version) {
+      void state.refresh(event.branch_id, { force: true }).catch(() => undefined);
+    }
+  }), []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !branchId) {
+      clearConfig();
+      return;
+    }
+
+    void refresh(branchId, { force: true }).catch(() => undefined);
+    if (appState.current === 'active') startPolling(branchId);
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      appState.current = nextState;
+      if (nextState === 'active') {
+        void refresh(branchId).catch(() => undefined);
+        startPolling(branchId);
+      } else {
+        stopPolling();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+      stopPolling();
+    };
+  }, [branchId, clearConfig, isAuthenticated, refresh, startPolling, stopPolling]);
+
+  return null;
 }
 
 export default function RootLayout() {
@@ -127,6 +214,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
             <ToastProvider>
+              <BranchConfigRuntime />
               <AuthGuard>
                 <StatusBar style="auto" />
                 <View style={{ flex: 1 }}>

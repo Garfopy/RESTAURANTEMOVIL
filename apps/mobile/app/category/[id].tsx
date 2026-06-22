@@ -15,6 +15,7 @@ import { SearchBar } from '../../components/ui/SearchBar';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Colors, Spacing, Typography } from '../../theme';
+import { useBranchConfigStore } from '../../store/branch.store';
 import type { Platillo } from '@amare/types';
 
 export default function CategoryScreen() {
@@ -34,10 +35,15 @@ export default function CategoryScreen() {
   const categoriaId = id === 'search' ? undefined : Number(id);
   const restId = Number(restauranteId);
 
-  const { data: dishes, isLoading } = useDishes(restId, {
+  const { data: dishes, isLoading, isRefetching, refetch } = useDishes(restId, {
     categoria_id: categoriaId,
     q: query || undefined,
   });
+  const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+
+  async function refreshMenu() {
+    await Promise.all([refreshBranchConfig(restId, { force: true }), refetch()]).catch(() => undefined);
+  }
 
   function handleDish(p: Platillo) {
     router.push({ pathname: '/product/[id]', params: { id: String(p.id), restauranteId } });
@@ -68,6 +74,8 @@ export default function CategoryScreen() {
           contentContainerStyle={styles.list}
           renderItem={() => <SkeletonCard />}
           columnWrapperStyle={styles.row}
+          refreshing={isRefetching}
+          onRefresh={() => void refreshMenu()}
         />
       ) : dishes && dishes.length > 0 ? (
         <FlatList
@@ -76,6 +84,8 @@ export default function CategoryScreen() {
           numColumns={2}
           contentContainerStyle={styles.list}
           columnWrapperStyle={styles.row}
+          refreshing={isRefetching}
+          onRefresh={() => void refreshMenu()}
           renderItem={({ item }) => (
             <ProductCard platillo={item} onPress={handleDish} width={160} />
           )}
