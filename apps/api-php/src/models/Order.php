@@ -111,8 +111,7 @@ class Order
         }
 
         $restaurantId = (int)($data['restaurante_id'] ?? 0);
-        $hasCatalog = self::tableExists('rest_platillo_modificadores')
-            && self::columnExists('rest_platillos', 'modificadores_sincronizados_at');
+        $hasCatalog = BranchMenuModifier::tableExists();
         $config = $hasCatalog ? Database::queryOne(
             'SELECT exclusiones_habilitadas, extras_habilitados FROM rest_configuracion
               WHERE restaurante_id = :restaurant_id LIMIT 1',
@@ -143,7 +142,7 @@ class Order
             }
 
             $dish = Database::queryOne(
-                'SELECT id, nombre, precio, disponible, modificadores_sincronizados_at
+                'SELECT id, nombre, precio, disponible
                    FROM rest_platillos
                   WHERE id = :id AND restaurante_id = :restaurant_id AND activo = 1 LIMIT 1',
                 [':id' => $dishId, ':restaurant_id' => $restaurantId]
@@ -156,15 +155,9 @@ class Order
             $snapshots = [];
             $extrasTotal = 0.0;
 
-            $catalogRows = $hasCatalog ? Database::query(
-                    'SELECT id, tipo, nombre, ingrediente_id, cantidad_unidad, unidad,
-                            precio_unitario, max_cantidad
-                       FROM rest_platillo_modificadores
-                      WHERE restaurante_id = :restaurant_id AND platillo_id = :dish_id AND activo = 1',
-                    [':restaurant_id' => $restaurantId, ':dish_id' => $dishId]
-                ) : [];
+            $catalogRows = $hasCatalog ? BranchMenuModifier::forDish($restaurantId, $dishId) : [];
 
-            if ($hasCatalog && (!empty($dish['modificadores_sincronizados_at']) || !empty($catalogRows))) {
+            if ($hasCatalog) {
                 $catalog = [];
                 foreach ($catalogRows as $row) $catalog[(int)$row['id']] = $row;
 

@@ -11,6 +11,43 @@ export interface BranchDishModifier {
   unidad: string | null;
   precio_unitario: number;
   max_cantidad: number;
+  incluida?: boolean;
+  visible?: boolean;
+  puede_omitirse?: boolean;
+  omitida_por_defecto?: boolean;
+  seleccionada_por_defecto?: boolean;
+  accion_al_desmarcar?: string;
+  cantidad_inicial?: number;
+}
+
+export interface DishModifierSelector {
+  tipo: 'personalizacion_platillo';
+  titulo: string;
+  visible: boolean;
+  incluidas: Array<{
+    id: number;
+    tipo: 'exclusion';
+    nombre: string;
+    incluida: boolean;
+    visible: boolean;
+    puede_omitirse: boolean;
+    omitida_por_defecto: boolean;
+    seleccionada_por_defecto: boolean;
+    accion_al_desmarcar: string;
+  }>;
+  extras: Array<{
+    id: number;
+    tipo: 'extra';
+    nombre: string;
+    precio_unitario: number;
+    cantidad_inicial: number;
+    max_cantidad: number;
+  }>;
+}
+
+export interface DishModifierConfig {
+  modificadores: BranchDishModifier[];
+  selector: DishModifierSelector;
 }
 
 export interface RestaurantConfig {
@@ -25,7 +62,7 @@ export interface RestaurantConfig {
     exclusiones_habilitadas: boolean;
     extras_habilitados: boolean;
   };
-  platillos_modificadores: Record<string, BranchDishModifier[]>;
+  platillos_modificadores: Record<string, DishModifierConfig>;
   selector: {
     exclusiones: boolean;
     extras: boolean;

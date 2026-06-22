@@ -30,6 +30,11 @@ export interface OpcionModificador {
   cantidad_unidad?: number;
   unidad?: string | null;
   max_cantidad?: number;
+  incluida?: boolean;
+  seleccionada_por_defecto?: boolean;
+  omitida_por_defecto?: boolean;
+  puede_omitirse?: boolean;
+  cantidad_inicial?: number;
 }
 
 export interface Platillo {
@@ -46,6 +51,7 @@ export interface Platillo {
   activo: boolean;
   tiene_receta: boolean;
   modificadores?: Modificador[];
+  selector?: import('./config.types').DishModifierSelector;
   /** Calculado del historial de pedidos */
   rating?: number;
   total_pedidos?: number;

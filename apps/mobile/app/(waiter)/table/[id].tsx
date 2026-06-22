@@ -65,6 +65,36 @@ function unitPrice(platillo: Platillo, modificadores: ModificadorSeleccionado[])
   return money(platillo.precio) + getSelectedExtras(modificadores).reduce((sum, extra) => sum + extra.precio, 0);
 }
 
+function defaultModifierSelection(platillo: Platillo): ModificadorSeleccionado[] {
+  if (!platillo.selector) return [];
+  const result: ModificadorSeleccionado[] = [];
+  const omitted = platillo.selector.incluidas.filter(
+    (item) => item.omitida_por_defecto || !item.seleccionada_por_defecto
+  );
+  if (omitted.length > 0) {
+    result.push({
+      modificador_id: -2,
+      modificador_nombre: 'Incluidos',
+      opciones: omitted.map((item) => ({
+        opcion_id: item.id, opcion_nombre: item.nombre, precio_extra: 0,
+        cantidad: 1, tipo_modificador: 'exclusion',
+      })),
+    });
+  }
+  const extras = platillo.selector.extras.filter((item) => item.cantidad_inicial > 0);
+  if (extras.length > 0) {
+    result.push({
+      modificador_id: -1,
+      modificador_nombre: 'Extras',
+      opciones: extras.map((item) => ({
+        opcion_id: item.id, opcion_nombre: item.nombre, precio_extra: item.precio_unitario,
+        cantidad: item.cantidad_inicial, tipo_modificador: 'extra',
+      })),
+    });
+  }
+  return result;
+}
+
 function getPersistedModifierLabels(modifiers: unknown[] | undefined): string[] {
   return (modifiers ?? []).flatMap((modifier: any) => {
     if (Array.isArray(modifier?.opciones)) {
@@ -189,6 +219,7 @@ export default function WaiterTableScreen() {
       setSelectedMods([]);
       const fullProduct = await getDishById(restaurantId, product.id);
       setSelectedProduct(fullProduct);
+      setSelectedMods(defaultModifierSelection(fullProduct));
     } catch (error) {
       Alert.alert('Producto', getApiError(error));
     } finally {
@@ -705,10 +736,15 @@ export default function WaiterTableScreen() {
                         <View key={mod.id} style={styles.modifierBlock}>
                           <View style={styles.modifierHeader}>
                             <Text style={styles.modifierTitle}>{mod.nombre}</Text>
-                            <Text style={styles.modifierHint}>{mod.tipo === 'radio' ? 'Elige una' : 'Opcional'}</Text>
+                            <Text style={styles.modifierHint}>
+                              {mod.categoria === 'exclusion' ? 'Desmarca para omitir' : mod.tipo === 'radio' ? 'Elige una' : 'Opcional'}
+                            </Text>
                           </View>
                           {mod.opciones.map((option) => {
-                            const selected = isOptionSelected(mod.id, option.id);
+                            const storedSelection = isOptionSelected(mod.id, option.id);
+                            const included = option.tipo_modificador === 'exclusion';
+                            const selected = included ? !storedSelection : storedSelection;
+                            const canToggle = !included || option.puede_omitirse !== false;
                             const selectedOption = selectedMods
                               .find((group) => group.modificador_id === mod.id)
                               ?.opciones.find((item) => item.opcion_id === option.id);
@@ -717,7 +753,8 @@ export default function WaiterTableScreen() {
                             return (
                               <TouchableOpacity
                                 key={option.id}
-                                style={[styles.optionRow, selected && styles.optionRowActive]}
+                                style={[styles.optionRow, selected && styles.optionRowActive, !canToggle && styles.optionDisabled]}
+                                disabled={!canToggle}
                                 activeOpacity={0.85}
                                 onPress={() => toggleOption(mod, option)}
                               >
@@ -725,6 +762,11 @@ export default function WaiterTableScreen() {
                                   {selected ? <Ionicons name="checkmark" size={15} color="#FFFFFF" /> : null}
                                 </View>
                                 <Text style={styles.optionName} numberOfLines={2}>{option.nombre}</Text>
+                                {included ? (
+                                  <Text style={[styles.includedBadge, !selected && styles.omittedBadge]}>
+                                    {selected ? 'Incluido' : 'Omitir'}
+                                  </Text>
+                                ) : null}
                                 {selected && maxQuantity > 1 ? (
                                   <View style={styles.optionQuantity}>
                                     <TouchableOpacity onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, -1, maxQuantity); }}>
@@ -1506,6 +1548,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: '#475569',
+  },
+  optionDisabled: { opacity: 0.62 },
+  includedBadge: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#2F6B4F',
+    backgroundColor: '#E9F6EF',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  omittedBadge: {
+    color: '#9A5B27',
+    backgroundColor: '#FFF1E4',
   },
   optionQuantity: {
     flexDirection: 'row',

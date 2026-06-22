@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -49,6 +49,42 @@ export default function ProductScreen() {
   const isFav = favorites?.some((f: any) => f.id === platillo?.id);
   const [cantidad, setCantidad] = useState(1);
   const [modsSel, setModsSel] = useState<ModificadorSeleccionado[]>([]);
+
+  useEffect(() => {
+    if (!platillo?.selector) return;
+    const defaults: ModificadorSeleccionado[] = [];
+    const omitted = platillo.selector.incluidas.filter(
+      (item) => item.omitida_por_defecto || !item.seleccionada_por_defecto
+    );
+    if (omitted.length > 0) {
+      defaults.push({
+        modificador_id: -2,
+        modificador_nombre: 'Incluidos',
+        opciones: omitted.map((item) => ({
+          opcion_id: item.id,
+          opcion_nombre: item.nombre,
+          precio_extra: 0,
+          cantidad: 1,
+          tipo_modificador: 'exclusion',
+        })),
+      });
+    }
+    const initialExtras = platillo.selector.extras.filter((item) => item.cantidad_inicial > 0);
+    if (initialExtras.length > 0) {
+      defaults.push({
+        modificador_id: -1,
+        modificador_nombre: 'Extras',
+        opciones: initialExtras.map((item) => ({
+          opcion_id: item.id,
+          opcion_nombre: item.nombre,
+          precio_extra: item.precio_unitario,
+          cantidad: item.cantidad_inicial,
+          tipo_modificador: 'extra',
+        })),
+      });
+    }
+    setModsSel(defaults);
+  }, [platillo?.id, platillo?.selector]);
 
   function goBack() {
     router.back();
@@ -267,7 +303,9 @@ export default function ProductScreen() {
                   </Text>
 
                   <Text style={styles.modSubtitle}>
-                    {mod.tipo === 'radio'
+                    {mod.categoria === 'exclusion'
+                      ? 'Desmarca lo que deseas omitir'
+                      : mod.tipo === 'radio'
                       ? 'Elige una opcion'
                       : 'Selecciona las que quieras'}
                   </Text>
@@ -277,10 +315,13 @@ export default function ProductScreen() {
                       (m) => m.modificador_id === mod.id
                     );
 
-                    const isSelected =
+                    const isOmittedOrSelected =
                       selMod?.opciones.some(
                         (o) => o.opcion_id === opcion.id
                       ) ?? false;
+                    const isIncluded = opcion.tipo_modificador === 'exclusion';
+                    const isSelected = isIncluded ? !isOmittedOrSelected : isOmittedOrSelected;
+                    const canToggle = !isIncluded || opcion.puede_omitirse !== false;
                     const selectedOption = selMod?.opciones.find((o) => o.opcion_id === opcion.id);
                     const optionQuantity = Number(selectedOption?.cantidad ?? 1);
                     const maxQuantity = Math.max(1, Number(opcion.max_cantidad ?? 1));
@@ -288,7 +329,8 @@ export default function ProductScreen() {
                     return (
                       <TouchableOpacity
                         key={opcion.id}
-                        style={styles.opcionRow}
+                        style={[styles.opcionRow, !canToggle && styles.optionDisabled]}
+                        disabled={!canToggle}
                         onPress={() =>
                           toggleOpcion(
                             mod.id,
@@ -315,6 +357,12 @@ export default function ProductScreen() {
                         </View>
 
                         <Text style={styles.opcionNombre}>{opcion.nombre}</Text>
+
+                        {isIncluded ? (
+                          <Text style={[styles.includedBadge, !isSelected && styles.omittedBadge]}>
+                            {isSelected ? 'Incluido' : 'Omitir'}
+                          </Text>
+                        ) : null}
 
                         {isSelected && maxQuantity > 1 ? (
                           <View style={styles.optionQty}>
@@ -519,6 +567,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     fontWeight: '600',
+  },
+  optionDisabled: { opacity: 0.62 },
+  includedBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2F6B4F',
+    backgroundColor: '#E9F6EF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  omittedBadge: {
+    color: '#9A5B27',
+    backgroundColor: '#FFF1E4',
   },
   optionQty: {
     flexDirection: 'row',

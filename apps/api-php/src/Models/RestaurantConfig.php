@@ -62,7 +62,11 @@ class RestaurantConfig
             'exclusiones' => $config['modificadores']['exclusiones_habilitadas'],
             'extras' => $config['modificadores']['extras_habilitados'],
         ];
-        $config['platillos_modificadores'] = self::getDishModifiers($restauranteId);
+        $config['platillos_modificadores'] = self::getDishModifiers(
+            $restauranteId,
+            $config['modificadores']['exclusiones_habilitadas'],
+            $config['modificadores']['extras_habilitados']
+        );
         unset($config['config_version'], $config['exclusiones_habilitadas'], $config['extras_habilitados']);
         $config['activo'] = (bool) $config['activo'];
 
@@ -168,33 +172,24 @@ class RestaurantConfig
         return $success;
     }
 
-    private static function getDishModifiers(int $restauranteId): array
+    private static function getDishModifiers(int $restauranteId, bool $exclusionsEnabled, bool $extrasEnabled): array
     {
         try {
-            $rows = Database::query(
-                "SELECT platillo_id, id, tipo, nombre, ingrediente_id, cantidad_unidad,
-                        unidad, precio_unitario, max_cantidad
-                   FROM rest_platillo_modificadores
-                  WHERE restaurante_id = :restaurante_id AND activo = 1
-               ORDER BY platillo_id, tipo, nombre",
-                [':restaurante_id' => $restauranteId]
-            );
+            $rows = BranchMenuModifier::forBranch($restauranteId);
         } catch (\Throwable $exception) {
             return [];
         }
 
-        $catalog = [];
+        $byDish = [];
         foreach ($rows as $row) {
             $dishId = (string)(int)$row['platillo_id'];
-            $catalog[$dishId][] = [
-                'id' => (int)$row['id'],
-                'tipo' => (string)$row['tipo'],
-                'nombre' => (string)$row['nombre'],
-                'ingrediente_id' => $row['ingrediente_id'] !== null ? (int)$row['ingrediente_id'] : null,
-                'cantidad_unidad' => (float)$row['cantidad_unidad'],
-                'unidad' => $row['unidad'],
-                'precio_unitario' => (float)$row['precio_unitario'],
-                'max_cantidad' => (int)$row['max_cantidad'],
+            $byDish[$dishId][] = $row;
+        }
+        $catalog = [];
+        foreach ($byDish as $dishId => $modifiers) {
+            $catalog[$dishId] = [
+                'modificadores' => $modifiers,
+                'selector' => BranchMenuModifier::selector($modifiers, $exclusionsEnabled, $extrasEnabled),
             ];
         }
         return $catalog;

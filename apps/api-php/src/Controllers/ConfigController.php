@@ -26,7 +26,7 @@ class ConfigController
             http_response_code(304);
             exit;
         }
-        Response::success(['config' => $config]);
+        Response::success(['config' => $config] + $config);
     }
 
     /**
@@ -109,6 +109,6 @@ class ConfigController
         $config = RestaurantConfig::getByRestaurant($restauranteId);
         BranchConfigEvents::publish($restauranteId, (int)($config['version'] ?? 0));
         header('Cache-Control: private, no-cache, must-revalidate');
-        Response::success(['config' => $config], 'Configuración actualizada exitosamente');
+        Response::success(['config' => $config] + $config, 'Configuración actualizada exitosamente');
     }
 }

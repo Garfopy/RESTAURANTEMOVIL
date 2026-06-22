@@ -30,6 +30,7 @@ $routes = [
     ['GET', '/menu/products', ['Amare\Api\Controllers\MenuController', 'products']],
     ['GET', '/menu/products/:id', ['Amare\Api\Controllers\MenuController', 'showProduct']],
     ['PUT', '/branches/:id/menu-items/:platilloId/modifiers', ['Amare\Api\Controllers\MenuController', 'syncModifiers']],
+    ['GET', '/branches/:id/menu-items/:platilloId/modifiers', ['Amare\Api\Controllers\MenuController', 'showModifiers']],
     
     // Orders routes
     ['GET', '/orders', ['Amare\Api\Controllers\OrderController', 'index']],
