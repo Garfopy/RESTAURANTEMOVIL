@@ -36,7 +36,7 @@ class RestaurantConfig
                     'exclusiones_habilitadas' => true,
                     'extras_habilitados' => true,
                 ],
-                'platillos_modificadores' => [],
+                'platillos_modificadores' => self::getDishModifiers($restauranteId, true, true),
                 'selector' => [
                     'exclusiones' => true,
                     'extras' => true,
@@ -175,21 +175,16 @@ class RestaurantConfig
     private static function getDishModifiers(int $restauranteId, bool $exclusionsEnabled, bool $extrasEnabled): array
     {
         try {
-            $rows = BranchMenuModifier::forBranch($restauranteId);
+            $rows = DishModifier::getByRestaurant($restauranteId);
         } catch (\Throwable $exception) {
             return [];
         }
 
-        $byDish = [];
-        foreach ($rows as $row) {
-            $dishId = (string)(int)$row['platillo_id'];
-            $byDish[$dishId][] = $row;
-        }
         $catalog = [];
-        foreach ($byDish as $dishId => $modifiers) {
+        foreach ($rows as $dishId => $modifiers) {
             $catalog[$dishId] = [
                 'modificadores' => $modifiers,
-                'selector' => BranchMenuModifier::selector($modifiers, $exclusionsEnabled, $extrasEnabled),
+                'selector' => DishModifier::buildSelector($modifiers, $exclusionsEnabled, $extrasEnabled),
             ];
         }
         return $catalog;

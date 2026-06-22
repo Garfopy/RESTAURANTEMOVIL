@@ -1,6 +1,6 @@
 -- Version reactiva de configuracion por sucursal.
--- MySQL 5.7 compatible. Los triggers cubren cambios directos de recetas;
--- el endpoint de catalogo incrementa la version dentro de su transaccion.
+-- MySQL 5.7 compatible. Ejecutar despues de las migraciones oficiales
+-- de modificadores; los triggers cubren recetas, catalogo y relaciones.
 
 SET @db_name = DATABASE();
 
@@ -20,6 +20,9 @@ DROP TRIGGER IF EXISTS `trg_config_version_recipe_item_delete`;
 DROP TRIGGER IF EXISTS `trg_config_version_modifier_insert`;
 DROP TRIGGER IF EXISTS `trg_config_version_modifier_update`;
 DROP TRIGGER IF EXISTS `trg_config_version_modifier_delete`;
+DROP TRIGGER IF EXISTS `trg_config_version_dish_modifier_insert`;
+DROP TRIGGER IF EXISTS `trg_config_version_dish_modifier_update`;
+DROP TRIGGER IF EXISTS `trg_config_version_dish_modifier_delete`;
 
 DELIMITER $$
 
@@ -63,6 +66,39 @@ FOR EACH ROW BEGIN
   JOIN rest_platillos p ON p.restaurante_id=c.restaurante_id
   JOIN rest_recetas r ON r.platillo_id=p.id
   SET c.config_version=c.config_version+1, c.updated_at=NOW() WHERE r.id=OLD.receta_id;
+END$$
+
+CREATE TRIGGER `trg_config_version_modifier_insert` AFTER INSERT ON `rest_modificadores`
+FOR EACH ROW BEGIN
+  UPDATE rest_configuracion SET config_version=config_version+1, updated_at=NOW() WHERE restaurante_id=NEW.restaurante_id;
+END$$
+
+CREATE TRIGGER `trg_config_version_modifier_update` AFTER UPDATE ON `rest_modificadores`
+FOR EACH ROW BEGIN
+  UPDATE rest_configuracion SET config_version=config_version+1, updated_at=NOW() WHERE restaurante_id=NEW.restaurante_id;
+END$$
+
+CREATE TRIGGER `trg_config_version_modifier_delete` AFTER DELETE ON `rest_modificadores`
+FOR EACH ROW BEGIN
+  UPDATE rest_configuracion SET config_version=config_version+1, updated_at=NOW() WHERE restaurante_id=OLD.restaurante_id;
+END$$
+
+CREATE TRIGGER `trg_config_version_dish_modifier_insert` AFTER INSERT ON `rest_platillo_modificador`
+FOR EACH ROW BEGIN
+  UPDATE rest_configuracion c JOIN rest_platillos p ON p.restaurante_id=c.restaurante_id
+  SET c.config_version=c.config_version+1, c.updated_at=NOW() WHERE p.id=NEW.platillo_id;
+END$$
+
+CREATE TRIGGER `trg_config_version_dish_modifier_update` AFTER UPDATE ON `rest_platillo_modificador`
+FOR EACH ROW BEGIN
+  UPDATE rest_configuracion c JOIN rest_platillos p ON p.restaurante_id=c.restaurante_id
+  SET c.config_version=c.config_version+1, c.updated_at=NOW() WHERE p.id=NEW.platillo_id;
+END$$
+
+CREATE TRIGGER `trg_config_version_dish_modifier_delete` AFTER DELETE ON `rest_platillo_modificador`
+FOR EACH ROW BEGIN
+  UPDATE rest_configuracion c JOIN rest_platillos p ON p.restaurante_id=c.restaurante_id
+  SET c.config_version=c.config_version+1, c.updated_at=NOW() WHERE p.id=OLD.platillo_id;
 END$$
 
 DELIMITER ;

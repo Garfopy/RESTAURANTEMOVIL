@@ -148,7 +148,6 @@ export default function EmailLoginScreen() {
             opacity: intro,
             transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
           }]}>
-            <Text style={styles.eyebrow}>TU MESA TE ESPERA</Text>
             <Text style={styles.title}>Que gusto verte.</Text>
             <Text style={styles.subtitle}>Ingresa para continuar tu experiencia Amare.</Text>
           </Animated.View>

@@ -239,15 +239,8 @@ export default function RegisterScreen() {
             opacity: intro,
             transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
           }]}>
-            <Text style={styles.eyebrow}>NUEVA EXPERIENCIA</Text>
             <Text style={styles.title}>Crear cuenta</Text>
             <Text style={styles.subtitle}>Todo Amare, en un solo lugar.</Text>
-            <View style={styles.progressRow}>
-              <View style={styles.progressActive} />
-              <View style={styles.progressDot} />
-              <View style={styles.progressDot} />
-              <Text style={styles.progressText}>Tus datos</Text>
-            </View>
           </Animated.View>
 
           <Animated.View style={[styles.form, {

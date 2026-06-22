@@ -111,12 +111,11 @@ class Order
         }
 
         $restaurantId = (int)($data['restaurante_id'] ?? 0);
-        $hasCatalog = BranchMenuModifier::tableExists();
-        $config = $hasCatalog ? Database::queryOne(
+        $config = Database::queryOne(
             'SELECT exclusiones_habilitadas, extras_habilitados FROM rest_configuracion
               WHERE restaurante_id = :restaurant_id LIMIT 1',
             [':restaurant_id' => $restaurantId]
-        ) : null;
+        );
         $subtotal = 0.0;
         $normalizedItems = [];
 
@@ -155,73 +154,43 @@ class Order
             $snapshots = [];
             $extrasTotal = 0.0;
 
-            $catalogRows = $hasCatalog ? BranchMenuModifier::forDish($restaurantId, $dishId) : [];
+            $catalogRows = DishModifier::getByDish($restaurantId, $dishId);
 
-            if ($hasCatalog) {
-                $catalog = [];
-                foreach ($catalogRows as $row) $catalog[(int)$row['id']] = $row;
+            $catalog = [];
+            foreach ($catalogRows as $row) $catalog[(int)$row['id']] = $row;
 
-                foreach ($selection as $modifierId => $modifierQuantity) {
-                    if (!isset($catalog[$modifierId])) {
-                        throw new \InvalidArgumentException('Un modificador no pertenece al platillo.');
-                    }
-                    $modifier = $catalog[$modifierId];
-                    $type = (string)$modifier['tipo'];
-                    if ($type === 'exclusion' && !($config['exclusiones_habilitadas'] ?? true)) {
-                        throw new \InvalidArgumentException('Las exclusiones estan deshabilitadas en esta sucursal.');
-                    }
-                    if ($type === 'extra' && !($config['extras_habilitados'] ?? true)) {
-                        throw new \InvalidArgumentException('Los extras estan deshabilitados en esta sucursal.');
-                    }
-                    $max = $type === 'exclusion' ? 1 : max(1, (int)$modifier['max_cantidad']);
-                    if ($modifierQuantity > $max) {
-                        throw new \InvalidArgumentException('La cantidad de un modificador excede el maximo permitido.');
-                    }
-                    $price = $type === 'exclusion' ? 0.0 : round((float)$modifier['precio_unitario'], 2);
-                    $modifierSubtotal = round($price * $modifierQuantity, 2);
-                    $extrasTotal += $modifierSubtotal;
-                    $snapshots[] = [
-                        'modificador_id' => $modifierId,
-                        'tipo' => $type,
-                        'nombre' => (string)$modifier['nombre'],
-                        'ingrediente_id' => $modifier['ingrediente_id'] !== null ? (int)$modifier['ingrediente_id'] : null,
-                        'cantidad' => $modifierQuantity,
-                        'cantidad_unidad' => (float)$modifier['cantidad_unidad'],
-                        'unidad' => $modifier['unidad'],
-                        'precio_unitario' => $price,
-                        'subtotal' => $modifierSubtotal,
-                    ];
+            foreach ($selection as $modifierId => $modifierQuantity) {
+                if (!isset($catalog[$modifierId])) {
+                    throw new \InvalidArgumentException('Un modificador no pertenece al platillo.');
                 }
-                $item['modificadores'] = $snapshots;
-            } else {
-                // Catalogo anterior: valida las opciones contra la receta y conserva el formato historico.
-                foreach ($selection as $recipeIngredientId => $modifierQuantity) {
-                    $legacy = Database::queryOne(
-                        'SELECT ri.id, ri.ingrediente_id, ri.precio_extra, i.nombre
-                           FROM rest_receta_ingredientes ri
-                           JOIN rest_recetas r ON r.id = ri.receta_id
-                           JOIN rest_ingredientes i ON i.id = ri.ingrediente_id
-                          WHERE ri.id = :id AND r.platillo_id = :dish_id LIMIT 1',
-                        [':id' => $recipeIngredientId, ':dish_id' => $dishId]
-                    );
-                    if (!$legacy) throw new \InvalidArgumentException('Un extra no pertenece al platillo.');
-                    $legacyPrice = round((float)$legacy['precio_extra'], 2);
-                    $legacySubtotal = round($legacyPrice * $modifierQuantity, 2);
-                    $extrasTotal += $legacySubtotal;
-                    $snapshots[] = [
-                        'modificador_id' => $recipeIngredientId,
-                        'tipo' => 'extra',
-                        'nombre' => (string)$legacy['nombre'],
-                        'ingrediente_id' => (int)$legacy['ingrediente_id'],
-                        'cantidad' => $modifierQuantity,
-                        'cantidad_unidad' => 0,
-                        'unidad' => null,
-                        'precio_unitario' => $legacyPrice,
-                        'subtotal' => $legacySubtotal,
-                    ];
+                $modifier = $catalog[$modifierId];
+                $type = (string)$modifier['tipo'];
+                if ($type === 'exclusion' && !($config['exclusiones_habilitadas'] ?? true)) {
+                    throw new \InvalidArgumentException('Las exclusiones estan deshabilitadas en esta sucursal.');
                 }
-                $item['modificadores'] = $snapshots;
+                if ($type === 'extra' && !($config['extras_habilitados'] ?? true)) {
+                    throw new \InvalidArgumentException('Los extras estan deshabilitados en esta sucursal.');
+                }
+                $max = $type === 'exclusion' ? 1 : max(1, (int)$modifier['max_cantidad']);
+                if ($modifierQuantity > $max) {
+                    throw new \InvalidArgumentException('La cantidad de un modificador excede el maximo permitido.');
+                }
+                $price = $type === 'exclusion' ? 0.0 : round((float)$modifier['precio_unitario'], 2);
+                $modifierSubtotal = round($price * $modifierQuantity, 2);
+                $extrasTotal += $modifierSubtotal;
+                $snapshots[] = [
+                    'modificador_id' => $modifierId,
+                    'tipo' => $type,
+                    'nombre' => (string)$modifier['nombre'],
+                    'ingrediente_id' => $modifier['ingrediente_id'] !== null ? (int)$modifier['ingrediente_id'] : null,
+                    'cantidad' => $modifierQuantity,
+                    'cantidad_unidad' => (float)$modifier['cantidad_unidad'],
+                    'unidad' => $modifier['unidad'],
+                    'precio_unitario' => $price,
+                    'subtotal' => $modifierSubtotal,
+                ];
             }
+            $item['modificadores'] = $snapshots;
 
             $item['platillo_id'] = $dishId;
             $item['cantidad'] = $quantity;
@@ -829,6 +798,7 @@ class Order
                             'cantidad_unidad' => $modifier['cantidad_unidad'] ?? 0,
                             'unidad' => $modifier['unidad'] ?? null,
                             'precio_unitario' => $modifier['precio_unitario'] ?? 0,
+                            'precio_extra' => $modifier['precio_unitario'] ?? 0,
                             'subtotal' => $modifier['subtotal'] ?? 0,
                             'created_at' => date('Y-m-d H:i:s'),
                         ]);

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Sucursal } from '@amare/types';
-import type { BranchDishModifier, RestaurantConfig } from '@amare/types';
+import type { DishModifierConfig, RestaurantConfig } from '@amare/types';
 import { apiClient } from '../services/api';
 import { fetchRestaurantConfig } from '../services/config.service';
 import { normalizeBranch } from '../services/branches.service';
@@ -75,7 +75,7 @@ interface BranchConfigState {
   branchId: number | null;
   config: RestaurantConfig | null;
   modificadores: RestaurantConfig['modificadores'] | null;
-  platillosModificadores: Record<string, BranchDishModifier[]>;
+  platillosModificadores: Record<string, DishModifierConfig>;
   selector: RestaurantConfig['selector'] | null;
   version: number;
   updatedAt: string | null;

@@ -9,6 +9,7 @@ use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\RestaurantConfig;
 use Amare\Api\Helpers\BranchConfigEvents;
+use Amare\Api\Models\DishModifier;
 
 class ConfigController
 {
@@ -18,9 +19,12 @@ class ConfigController
      */
     public function show(int $restauranteId): void
     {
+        $branchId = $restauranteId;
+        $restauranteId = DishModifier::resolveRestaurantId($branchId) ?? 0;
+        if ($restauranteId <= 0) Response::notFound('Sucursal no encontrada.');
         $config = RestaurantConfig::getByRestaurant($restauranteId);
-        $etag = '"branch-' . $restauranteId . '-v' . (int)($config['version'] ?? 0) . '"';
-        header('Cache-Control: private, no-cache, must-revalidate');
+        $etag = '"branch-' . $branchId . '-v' . (int)($config['version'] ?? 0) . '"';
+        self::noCache();
         header('ETag: ' . $etag);
         if (trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? '')) === $etag) {
             http_response_code(304);
@@ -37,6 +41,9 @@ class ConfigController
     public function update(int $restauranteId): void
     {
         $user = AuthMiddleware::authenticate();
+        $branchId = $restauranteId;
+        $restauranteId = DishModifier::resolveRestaurantId($branchId) ?? 0;
+        if ($restauranteId <= 0) Response::notFound('Sucursal no encontrada.');
         $input = ValidationMiddleware::getAllInput();
 
         // Validar que los arrays sean válidos si vienen
@@ -107,8 +114,14 @@ class ConfigController
         }
 
         $config = RestaurantConfig::getByRestaurant($restauranteId);
-        BranchConfigEvents::publish($restauranteId, (int)($config['version'] ?? 0));
-        header('Cache-Control: private, no-cache, must-revalidate');
+        BranchConfigEvents::publish($branchId, (int)($config['version'] ?? 0));
+        self::noCache();
         Response::success(['config' => $config] + $config, 'Configuración actualizada exitosamente');
+    }
+
+    private static function noCache(): void
+    {
+        header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
     }
 }
