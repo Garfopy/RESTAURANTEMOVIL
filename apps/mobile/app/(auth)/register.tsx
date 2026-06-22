@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ActivityIndicator,
   Modal,
   View,
@@ -13,6 +14,7 @@ import {
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -91,6 +93,15 @@ export default function RegisterScreen() {
   const [telefonoError, setTelefonoError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const intro = useRef(new Animated.Value(0)).current;
+  const formReveal = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.stagger(120, [
+      Animated.spring(intro, { toValue: 1, damping: 18, stiffness: 100, useNativeDriver: true }),
+      Animated.spring(formReveal, { toValue: 1, damping: 20, stiffness: 105, useNativeDriver: true }),
+    ]).start();
+  }, [formReveal, intro]);
 
   const fieldTheme = {
     labelStyle: styles.fieldLabel,
@@ -201,8 +212,13 @@ export default function RegisterScreen() {
   }
 
   return (
+    <LinearGradient colors={['#181A1F', '#252830', '#1C1E24']} style={styles.gradient}>
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
+      <View pointerEvents="none" style={styles.decorations}>
+        <View style={styles.glowTop} />
+        <View style={styles.glowBottom} />
+      </View>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.container}
@@ -219,12 +235,35 @@ export default function RegisterScreen() {
             <Ionicons name="chevron-back" size={24} color={AuthColors.text} />
           </TouchableOpacity>
 
-          <View style={styles.header}>
+          <Animated.View style={[styles.header, {
+            opacity: intro,
+            transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
+          }]}>
+            <Text style={styles.eyebrow}>NUEVA EXPERIENCIA</Text>
             <Text style={styles.title}>Crear cuenta</Text>
-            <Text style={styles.subtitle}>Registrate para empezar a ordenar</Text>
-          </View>
+            <Text style={styles.subtitle}>Todo Amare, en un solo lugar.</Text>
+            <View style={styles.progressRow}>
+              <View style={styles.progressActive} />
+              <View style={styles.progressDot} />
+              <View style={styles.progressDot} />
+              <Text style={styles.progressText}>Tus datos</Text>
+            </View>
+          </Animated.View>
 
-          <View style={styles.form}>
+          <Animated.View style={[styles.form, {
+            opacity: formReveal,
+            transform: [{ translateY: formReveal.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) }],
+          }]}>
+            <View style={styles.formIntro}>
+              <View style={styles.formIntroIcon}>
+                <Ionicons name="person-add-outline" size={18} color={AuthColors.accent} />
+              </View>
+              <View style={styles.formIntroCopy}>
+                <Text style={styles.formIntroTitle}>Cuentanos sobre ti</Text>
+                <Text style={styles.formIntroText}>Te tomara menos de un minuto.</Text>
+              </View>
+              <Ionicons name="shield-checkmark-outline" size={18} color={AuthColors.muted} />
+            </View>
             <FormField
               {...fieldTheme}
               label="Nombre completo"
@@ -310,6 +349,11 @@ export default function RegisterScreen() {
               accessibilityHint="Ingresa una contrasena de al menos 8 caracteres"
             />
 
+            <View style={styles.passwordHint}>
+              <Ionicons name="information-circle-outline" size={14} color={AuthColors.muted} />
+              <Text style={styles.passwordHintText}>Usa al menos 8 caracteres para proteger tu cuenta.</Text>
+            </View>
+
             <Button
               label="Crear cuenta"
               onPress={handleRegister}
@@ -333,7 +377,7 @@ export default function RegisterScreen() {
                 Ya tienes cuenta? <Text style={styles.loginBold}>Iniciar sesion</Text>
               </Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -384,30 +428,35 @@ export default function RegisterScreen() {
         </Pressable>
       </Modal>
     </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  gradient: { flex: 1 },
   flex: {
     flex: 1,
   },
   safe: {
     flex: 1,
-    backgroundColor: AuthColors.bg,
+    backgroundColor: 'transparent',
   },
+  decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
+  glowTop: { position: 'absolute', width: 320, height: 320, borderRadius: 160, top: -210, right: -130, backgroundColor: 'rgba(198,169,123,0.13)' },
+  glowBottom: { position: 'absolute', width: 250, height: 250, borderRadius: 125, bottom: -170, left: -140, backgroundColor: 'rgba(198,169,123,0.07)' },
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingBottom: 40,
     paddingTop: Platform.OS === 'android' ? 10 : 0,
-    backgroundColor: AuthColors.bg,
+    backgroundColor: 'transparent',
   },
   back: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 14,
     marginLeft: -8,
     borderRadius: 20,
     backgroundColor: 'rgba(233,221,200,0.09)',
@@ -415,12 +464,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(233,221,200,0.14)',
   },
   header: {
-    marginBottom: 40,
+    marginBottom: 24,
   },
+  eyebrow: { color: '#BFAE91', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 7 },
   title: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 34,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 37,
     color: AuthColors.text,
     letterSpacing: 0,
     marginBottom: 8,
@@ -431,9 +480,23 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     letterSpacing: 0.1,
   },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 },
+  progressActive: { width: 34, height: 5, borderRadius: 3, backgroundColor: AuthColors.accent },
+  progressDot: { width: 7, height: 5, borderRadius: 3, backgroundColor: 'rgba(233,221,200,0.18)' },
+  progressText: { marginLeft: 5, color: AuthColors.muted, fontSize: 11, fontWeight: '700' },
   form: {
-    gap: 24,
+    gap: 19,
+    borderRadius: 28,
+    padding: 18,
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
   },
+  formIntro: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 3 },
+  formIntroIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(233,221,200,0.08)', alignItems: 'center', justifyContent: 'center' },
+  formIntroCopy: { flex: 1 },
+  formIntroTitle: { color: AuthColors.text, fontSize: 15, fontWeight: '900' },
+  formIntroText: { color: AuthColors.muted, fontSize: 11, marginTop: 2 },
   phoneField: {
     gap: 8,
   },
@@ -446,8 +509,8 @@ const styles = StyleSheet.create({
   fieldInput: {
     backgroundColor: AuthColors.inputBg,
     borderColor: AuthColors.border,
-    borderRadius: 14,
-    minHeight: 56,
+    borderRadius: 16,
+    minHeight: 58,
   },
   fieldInputError: {
     backgroundColor: AuthColors.errorBg,
@@ -457,8 +520,8 @@ const styles = StyleSheet.create({
     color: AuthColors.text,
   },
   phoneInputRow: {
-    minHeight: 56,
-    borderRadius: 14,
+    minHeight: 58,
+    borderRadius: 16,
     borderWidth: 1.5,
     borderColor: AuthColors.border,
     backgroundColor: AuthColors.inputBg,
@@ -507,11 +570,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+  passwordHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -11 },
+  passwordHintText: { flex: 1, color: AuthColors.muted, fontSize: 10, lineHeight: 14 },
   submitButton: {
-    marginTop: 16,
+    marginTop: 4,
     backgroundColor: AuthColors.accent,
     height: 56,
-    borderRadius: 16,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -528,7 +593,7 @@ const styles = StyleSheet.create({
   },
   loginLink: {
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: 2,
   },
   loginText: {
     color: AuthColors.textSecondary,
@@ -547,7 +612,7 @@ const styles = StyleSheet.create({
     maxHeight: '78%',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
-    backgroundColor: AuthColors.bg,
+    backgroundColor: '#202329',
     borderWidth: 1,
     borderColor: 'rgba(233,221,200,0.12)',
     paddingHorizontal: 18,

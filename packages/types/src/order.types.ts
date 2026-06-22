@@ -90,6 +90,8 @@ export interface CreateOrderPayload {
         opcion_id: number;
         opcion_nombre: string;
         precio_extra: number;
+        cantidad?: number;
+        tipo_modificador?: 'exclusion' | 'extra';
       }[];
     }[];
     notas?: string;

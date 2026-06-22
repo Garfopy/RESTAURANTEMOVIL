@@ -165,6 +165,8 @@ class OrderController
                 'payment_intent_id' => $input['payment_intent_id'] ?? null,
                 'items' => $items
             ]);
+        } catch (\InvalidArgumentException $e) {
+            Response::validationError(['items' => [$e->getMessage()]]);
         } catch (\RuntimeException $e) {
             // Error de stock insuficiente (u otro error de negocio)
             $message = $e->getMessage();

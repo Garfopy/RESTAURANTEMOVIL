@@ -477,21 +477,27 @@ class WaiterController
             ];
         }
 
-        $orderId = Order::create([
-            'restaurante_id' => $restaurantId,
-            'user_id' => (int)$user['id'],
-            'order_type' => 'eat_in',
-            'subtotal' => $subtotal,
-            'total' => $subtotal,
-            'notes' => 'Pedido de mesero - ' . $this->formatMesaLabel((string)($table['mesa_label'] ?? $tableId)),
-            'mesa_id' => $tableId,
-            'pedido_origen' => 'mesero',
-            'mesero_usuario_id' => (int)$user['id'],
-            'mesero_nombre' => (string)$user['nombre'],
-            'cliente_nombre' => substr($customerName, 0, 120),
-            'consumo_por_mesa' => true,
-            'items' => $items,
-        ]);
+        try {
+            $orderId = Order::create([
+                'restaurante_id' => $restaurantId,
+                'user_id' => (int)$user['id'],
+                'order_type' => 'eat_in',
+                'subtotal' => $subtotal,
+                'total' => $subtotal,
+                'notes' => 'Pedido de mesero - ' . $this->formatMesaLabel((string)($table['mesa_label'] ?? $tableId)),
+                'mesa_id' => $tableId,
+                'pedido_origen' => 'mesero',
+                'mesero_usuario_id' => (int)$user['id'],
+                'mesero_nombre' => (string)$user['nombre'],
+                'cliente_nombre' => substr($customerName, 0, 120),
+                'consumo_por_mesa' => true,
+                'items' => $items,
+            ]);
+        } catch (\InvalidArgumentException $exception) {
+            Response::validationError(['items' => [$exception->getMessage()]]);
+        } catch (\RuntimeException $exception) {
+            Response::error($exception->getMessage(), 409);
+        }
 
         if ($orderId <= 0) {
             Response::serverError('No se pudo crear la comanda');

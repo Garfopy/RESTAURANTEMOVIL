@@ -80,6 +80,18 @@ class ConfigController
             $data['activo'] = (bool) $input['activo'];
         }
 
+        if (isset($input['modificadores'])) {
+            if (!is_array($input['modificadores'])) {
+                Response::validationError(['modificadores' => ['La configuracion de modificadores no es valida']]);
+            }
+            if (array_key_exists('exclusiones_habilitadas', $input['modificadores'])) {
+                $data['exclusiones_habilitadas'] = (bool)$input['modificadores']['exclusiones_habilitadas'];
+            }
+            if (array_key_exists('extras_habilitados', $input['modificadores'])) {
+                $data['extras_habilitados'] = (bool)$input['modificadores']['extras_habilitados'];
+            }
+        }
+
         $success = RestaurantConfig::upsert($restauranteId, $data);
 
         if (!$success && empty($data)) {

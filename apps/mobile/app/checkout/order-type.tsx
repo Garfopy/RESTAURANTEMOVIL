@@ -405,6 +405,8 @@ export default function OrderTypeScreen() {
                 opcion_id: o.opcion_id,
                 opcion_nombre: o.opcion_nombre,
                 precio_extra: o.precio_extra,
+                cantidad: o.cantidad,
+                tipo_modificador: o.tipo_modificador,
               })),
             })),
           })),
@@ -425,6 +427,13 @@ export default function OrderTypeScreen() {
       const { client_secret, id: intentId } = await createPaymentIntent({
         amount: orderTotal,
         currency: 'mxn',
+        restaurante_id: Number(resolvedRestaurantId),
+        items: items.map((item) => ({
+          product_id: item.platillo.id,
+          quantity: item.cantidad,
+          origen: 'menu',
+          modificadores: item.modificadores_seleccionados,
+        })),
       });
 
       router.push({

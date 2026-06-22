@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   View,
   Text,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   TouchableOpacity,
   StatusBar,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -45,6 +47,15 @@ export default function EmailLoginScreen() {
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const intro = useRef(new Animated.Value(0)).current;
+  const formReveal = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.stagger(130, [
+      Animated.spring(intro, { toValue: 1, damping: 18, stiffness: 100, useNativeDriver: true }),
+      Animated.spring(formReveal, { toValue: 1, damping: 20, stiffness: 110, useNativeDriver: true }),
+    ]).start();
+  }, [formReveal, intro]);
 
   const fieldTheme = {
     labelStyle: styles.fieldLabel,
@@ -104,15 +115,21 @@ export default function EmailLoginScreen() {
   }
 
   return (
+    <LinearGradient colors={['#181A1F', '#252830', '#1C1E24']} style={styles.gradient}>
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
+      <View pointerEvents="none" style={styles.decorations}>
+        <View style={styles.glow} />
+        <View style={styles.gridLineOne} />
+        <View style={styles.gridLineTwo} />
+      </View>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.header}>
+          <Animated.View style={[styles.header, { opacity: intro }]}>
             <TouchableOpacity
               style={styles.backBtn}
               onPress={() => router.back()}
@@ -122,14 +139,34 @@ export default function EmailLoginScreen() {
             >
               <Ionicons name="chevron-back" size={24} color={AuthColors.text} />
             </TouchableOpacity>
-          </View>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandLetter}>A</Text>
+            </View>
+          </Animated.View>
 
-          <View style={styles.titleContainer}>
-            <Text style={styles.title}>Bienvenido</Text>
-            <Text style={styles.subtitle}>Ingresa tus credenciales para continuar</Text>
-          </View>
+          <Animated.View style={[styles.titleContainer, {
+            opacity: intro,
+            transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
+          }]}>
+            <Text style={styles.eyebrow}>TU MESA TE ESPERA</Text>
+            <Text style={styles.title}>Que gusto verte.</Text>
+            <Text style={styles.subtitle}>Ingresa para continuar tu experiencia Amare.</Text>
+          </Animated.View>
 
-          <View style={styles.form}>
+          <Animated.View style={[styles.formCard, {
+            opacity: formReveal,
+            transform: [{ translateY: formReveal.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) }],
+          }]}>
+            <View style={styles.formHeader}>
+              <View>
+                <Text style={styles.formTitle}>Iniciar sesion</Text>
+                <Text style={styles.formHint}>Usa tu correo o numero de telefono</Text>
+              </View>
+              <View style={styles.secureBadge}>
+                <Ionicons name="shield-checkmark-outline" size={16} color={AuthColors.accent} />
+              </View>
+            </View>
+            <View style={styles.form}>
             <FormField
               {...fieldTheme}
               label="Correo o telefono"
@@ -150,14 +187,10 @@ export default function EmailLoginScreen() {
             <View style={styles.passwordBlock}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>Contrasena</Text>
-                <TouchableOpacity
-                  onPress={() => {}}
-                  accessibilityLabel="Olvidaste tu contrasena"
-                  accessibilityRole="link"
-                  testID="forgot-password-link"
-                >
-                  <Text style={styles.forgotPassword}>Olvidaste tu contrasena?</Text>
-                </TouchableOpacity>
+                <View style={styles.secureLabel}>
+                  <Ionicons name="lock-closed-outline" size={12} color={AuthColors.muted} />
+                  <Text style={styles.forgotPassword}>Acceso seguro</Text>
+                </View>
               </View>
               <FormField
                 {...fieldTheme}
@@ -189,6 +222,12 @@ export default function EmailLoginScreen() {
               testID="login-btn"
             />
 
+            <View style={styles.dividerRow}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>NUEVO EN AMARE</Text>
+              <View style={styles.divider} />
+            </View>
+
             <View style={styles.footer}>
               <Text style={styles.footerText}>No tienes una cuenta?</Text>
               <TouchableOpacity
@@ -200,32 +239,48 @@ export default function EmailLoginScreen() {
                 <Text style={styles.signUpLink}> Registrate</Text>
               </TouchableOpacity>
             </View>
-          </View>
+            </View>
+          </Animated.View>
+
+          <Animated.View style={[styles.securityNote, { opacity: formReveal }]}>
+            <Ionicons name="lock-closed-outline" size={13} color="#8E887D" />
+            <Text style={styles.securityText}>Tu informacion esta protegida.</Text>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  gradient: { flex: 1 },
   flex: {
     flex: 1,
   },
   safe: {
     flex: 1,
-    backgroundColor: AuthColors.bg,
+    backgroundColor: 'transparent',
   },
+  decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
+  glow: { position: 'absolute', width: 330, height: 330, borderRadius: 165, backgroundColor: 'rgba(198,169,123,0.13)', top: -190, right: -120 },
+  gridLineOne: { position: 'absolute', width: 1, top: 0, bottom: 0, left: 28, backgroundColor: 'rgba(255,255,255,0.025)' },
+  gridLineTwo: { position: 'absolute', height: 1, left: 0, right: 0, top: 190, backgroundColor: 'rgba(255,255,255,0.025)' },
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingBottom: 40,
-    backgroundColor: AuthColors.bg,
+    paddingBottom: 28,
+    backgroundColor: 'transparent',
   },
   header: {
-    height: 60,
-    justifyContent: 'center',
+    height: 66,
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: Platform.OS === 'android' ? 10 : 0,
   },
+  brandMark: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(233,221,200,0.22)', backgroundColor: 'rgba(233,221,200,0.07)' },
+  brandLetter: { fontFamily: 'PlayfairDisplay_700Bold', color: AuthColors.accent, fontSize: 21 },
   backBtn: {
     width: 40,
     height: 40,
@@ -238,26 +293,29 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(233,221,200,0.14)',
   },
   titleContainer: {
-    marginTop: 20,
-    marginBottom: 40,
+    marginTop: 24,
+    marginBottom: 28,
   },
+  eyebrow: { color: '#BFAE91', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 8 },
   title: {
-    fontFamily: 'Inter_700Bold',
-    fontWeight: '700',
-    fontSize: 34,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 38,
     color: AuthColors.text,
-    letterSpacing: 0,
+    letterSpacing: -0.7,
   },
   subtitle: {
     fontSize: 16,
     color: AuthColors.textSecondary,
-    marginTop: 8,
+    marginTop: 7,
     fontWeight: '400',
     letterSpacing: 0.1,
   },
-  form: {
-    gap: 24,
-  },
+  formCard: { borderRadius: 28, padding: 18, backgroundColor: 'rgba(255,255,255,0.055)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' },
+  formHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 },
+  formTitle: { color: AuthColors.text, fontSize: 18, fontWeight: '900' },
+  formHint: { marginTop: 3, color: '#999286', fontSize: 12 },
+  secureBadge: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(233,221,200,0.08)' },
+  form: { gap: 20 },
   passwordBlock: {
     gap: 8,
   },
@@ -275,17 +333,18 @@ const styles = StyleSheet.create({
   },
   forgotPassword: {
     fontSize: 13,
-    color: AuthColors.accent,
+    color: AuthColors.muted,
     fontWeight: '600',
   },
+  secureLabel: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   fieldLabel: {
     color: AuthColors.text,
   },
   fieldInput: {
     backgroundColor: AuthColors.inputBg,
     borderColor: AuthColors.border,
-    borderRadius: 14,
-    minHeight: 56,
+    borderRadius: 16,
+    minHeight: 58,
   },
   fieldInputError: {
     backgroundColor: AuthColors.errorBg,
@@ -298,10 +357,10 @@ const styles = StyleSheet.create({
     color: AuthColors.error,
   },
   signInButton: {
-    marginTop: 16,
+    marginTop: 8,
     backgroundColor: AuthColors.accent,
     height: 56,
-    borderRadius: 16,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -316,11 +375,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.2,
   },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
+  divider: { flex: 1, height: 1, backgroundColor: 'rgba(233,221,200,0.12)' },
+  dividerText: { color: '#777168', fontSize: 9, fontWeight: '900', letterSpacing: 1.3 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 0,
   },
   footerText: {
     fontSize: 15,
@@ -331,4 +393,6 @@ const styles = StyleSheet.create({
     color: AuthColors.accent,
     fontWeight: '800',
   },
+  securityNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18 },
+  securityText: { color: '#8E887D', fontSize: 11, fontWeight: '600' },
 });

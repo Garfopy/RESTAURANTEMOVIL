@@ -1,6 +1,13 @@
 import { apiClient, formatImageUrl } from './api';
 import type { ModificadorSeleccionado, Sucursal } from '@amare/types';
 
+function flattenModifierSelection(modifiers: ModificadorSeleccionado[]): Array<{ modificador_id: number; cantidad: number }> {
+  return modifiers.flatMap((group) => group.opciones.map((option) => ({
+    modificador_id: Number(option.opcion_id),
+    cantidad: Math.max(1, Number(option.cantidad ?? 1)),
+  })));
+}
+
 type Envelope<T> =
   | { success?: boolean; data?: T; message?: string }
   | T;
@@ -212,7 +219,10 @@ export async function createWaiterOrder(params: {
     {
       restaurant_id: params.restaurantId,
       cliente_nombre: params.clienteNombre,
-      items: params.items,
+      items: params.items.map((item) => ({
+        ...item,
+        modificadores: flattenModifierSelection(item.modificadores),
+      })),
     }
   );
   return unwrap(data).account;

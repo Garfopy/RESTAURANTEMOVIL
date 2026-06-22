@@ -243,6 +243,13 @@ export default function PaymentScreen() {
       order_id: existingOrderId ?? undefined,
       amount: paymentAmount,
       currency: 'mxn',
+      restaurante_id: existingOrderId ? undefined : Number(resolvedRestaurantId),
+      items: existingOrderId ? undefined : items.map((item) => ({
+        product_id: item.platillo.id,
+        quantity: item.cantidad,
+        origen: 'menu',
+        modificadores: item.modificadores_seleccionados,
+      })),
     });
 
     return {
@@ -270,6 +277,8 @@ export default function PaymentScreen() {
             opcion_id: o.opcion_id,
             opcion_nombre: o.opcion_nombre,
             precio_extra: o.precio_extra,
+            cantidad: o.cantidad,
+            tipo_modificador: o.tipo_modificador,
           })),
         })),
       })),

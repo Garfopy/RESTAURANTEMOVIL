@@ -30,6 +30,10 @@ class RestaurantConfig
                 'tipos_entrega' => ['delivery', 'pickup'],
                 'costo_envio' => 0,
                 'pedido_minimo' => 0,
+                'modificadores' => [
+                    'exclusiones_habilitadas' => true,
+                    'extras_habilitados' => true,
+                ],
                 'activo' => true,
             ];
         }
@@ -39,6 +43,11 @@ class RestaurantConfig
         $config['tipos_entrega'] = json_decode($config['tipos_entrega'], true) ?: ['delivery', 'pickup'];
         $config['costo_envio'] = (float) $config['costo_envio'];
         $config['pedido_minimo'] = (float) $config['pedido_minimo'];
+        $config['modificadores'] = [
+            'exclusiones_habilitadas' => (bool)($config['exclusiones_habilitadas'] ?? true),
+            'extras_habilitados' => (bool)($config['extras_habilitados'] ?? true),
+        ];
+        unset($config['exclusiones_habilitadas'], $config['extras_habilitados']);
         $config['activo'] = (bool) $config['activo'];
 
         return $config;
@@ -83,6 +92,16 @@ class RestaurantConfig
             $params[':pedido_minimo'] = $data['pedido_minimo'];
         }
 
+        if (array_key_exists('exclusiones_habilitadas', $data)) {
+            $fields[] = "exclusiones_habilitadas = :exclusiones_habilitadas";
+            $params[':exclusiones_habilitadas'] = (int)$data['exclusiones_habilitadas'];
+        }
+
+        if (array_key_exists('extras_habilitados', $data)) {
+            $fields[] = "extras_habilitados = :extras_habilitados";
+            $params[':extras_habilitados'] = (int)$data['extras_habilitados'];
+        }
+
         if (isset($data['activo'])) {
             $fields[] = "activo = :activo";
             $params[':activo'] = (int) $data['activo'];
@@ -97,24 +116,27 @@ class RestaurantConfig
             $sql = "UPDATE rest_configuracion SET " . implode(', ', $fields)
                  . " WHERE restaurante_id = :restaurante_id";
         } else {
-            // INSERT con defaults
-            $defaultMetodos = '["card","cash"]';
-            $defaultTipos = '["delivery","pickup"]';
-
-            $sql = "INSERT INTO rest_configuracion (restaurante_id, metodos_pago, tipos_entrega"
-                 . (!empty($fields) ? ', ' . implode(', ', array_map(fn($f) => explode(' = ', $f)[0], $fields)) : '')
-                 . ") VALUES (:restaurante_id, '{$defaultMetodos}', '{$defaultTipos}'";
-
-            // Agregar valores para campos extra
+            // INSERT dinamico sin repetir metodos_pago/tipos_entrega cuando vienen en el PUT.
+            $insertColumns = ['restaurante_id'];
+            $insertPlaceholders = [':restaurante_id'];
             foreach ($fields as $field) {
                 $colName = explode(' = ', $field)[0];
                 $placeholder = ':' . $colName;
-                if (!isset($params[$placeholder])) {
-                    $params[$placeholder] = null;
-                }
-                $sql .= ", {$placeholder}";
+                $insertColumns[] = $colName;
+                $insertPlaceholders[] = $placeholder;
             }
-            $sql .= ")";
+            if (!in_array('metodos_pago', $insertColumns, true)) {
+                $insertColumns[] = 'metodos_pago';
+                $insertPlaceholders[] = ':default_metodos_pago';
+                $params[':default_metodos_pago'] = '["card","cash"]';
+            }
+            if (!in_array('tipos_entrega', $insertColumns, true)) {
+                $insertColumns[] = 'tipos_entrega';
+                $insertPlaceholders[] = ':default_tipos_entrega';
+                $params[':default_tipos_entrega'] = '["delivery","pickup"]';
+            }
+            $sql = 'INSERT INTO rest_configuracion (' . implode(', ', $insertColumns)
+                 . ') VALUES (' . implode(', ', $insertPlaceholders) . ')';
         }
 
         $stmt = $pdo->prepare($sql);

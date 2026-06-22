@@ -246,16 +246,21 @@ export default function OrderDetailScreen() {
             let notasCliente = '';
             let extras: any[] = [];
             let extrasTotal = 0;
+            const calculateExtrasTotal = (values: any[]) => values.reduce((sum: number, ext: any) => {
+              if (Array.isArray(ext.opciones)) {
+                return sum + ext.opciones.reduce(
+                  (inner: number, option: any) => inner + Number(option.precio_extra || 0) * Number(option.cantidad || 1),
+                  0
+                );
+              }
+              return sum + Number(ext.subtotal ?? (Number(ext.precio_unitario || 0) * Number(ext.cantidad || 1)));
+            }, 0);
             
             // Fuente primaria: extras_json (nuevo campo estructurado)
             if (item.extras_json) {
               try {
                 extras = JSON.parse(item.extras_json);
-                extrasTotal = extras.reduce(
-                  (sum: number, ext: any) =>
-                    sum + (ext.opciones || []).reduce((s: number, o: any) => s + (o.precio_extra || 0), 0),
-                  0
-                );
+                extrasTotal = calculateExtrasTotal(extras);
               } catch { /* ignorar error de parseo */ }
             }
             
@@ -267,11 +272,7 @@ export default function OrderDetailScreen() {
                 // Solo usar extras del legacy si no hay extras_json
                 if (!item.extras_json) {
                   extras = parsed.extras || [];
-                  extrasTotal = extras.reduce(
-                    (sum: number, ext: any) =>
-                      sum + (ext.opciones || []).reduce((s: number, o: any) => s + (o.precio_extra || 0), 0),
-                    0
-                  );
+                  extrasTotal = calculateExtrasTotal(extras);
                 }
               } else {
                 notasCliente = item.notas || '';
@@ -303,13 +304,21 @@ export default function OrderDetailScreen() {
                   {/* Desglose de precio */}
                   <View style={styles.priceBreakdown}>
                     <Text style={styles.productPrice}>Precio base: ${precioBase.toFixed(2)}</Text>
-                    {extras.map((ext: any) =>
-                      ext.opciones.map((opc: any) => (
+                    {extras.flatMap((ext: any) => Array.isArray(ext.opciones)
+                      ? ext.opciones.map((opc: any) => (
                         <Text key={`${ext.modificador_id}-${opc.opcion_id}`} style={styles.extraItem}>
-                          + {opc.opcion_nombre} (${opc.precio_extra.toFixed(2)})
+                          {ext.tipo === 'exclusion' ? '- ' : '+ '}{opc.opcion_nombre}
+                          {Number(opc.cantidad || 1) > 1 ? ` x${opc.cantidad}` : ''}
+                          {Number(opc.precio_extra || 0) > 0 ? ` ($${Number(opc.precio_extra).toFixed(2)})` : ''}
                         </Text>
                       ))
-                    )}
+                      : [(
+                        <Text key={`modifier-${ext.modificador_id}`} style={styles.extraItem}>
+                          {ext.tipo === 'exclusion' ? '- ' : '+ '}{ext.nombre}
+                          {Number(ext.cantidad || 1) > 1 ? ` x${ext.cantidad}` : ''}
+                          {Number(ext.subtotal || 0) > 0 ? ` ($${Number(ext.subtotal).toFixed(2)})` : ''}
+                        </Text>
+                      )])}
                     {extrasTotal > 0 && (
                       <Text style={styles.unitPrice}>${precioConExtras.toFixed(2)} c/u</Text>
                     )}

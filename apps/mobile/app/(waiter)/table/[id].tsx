@@ -54,13 +54,27 @@ function getSelectedExtras(modificadores: ModificadorSeleccionado[]) {
     mod.opciones.map((opcion) => ({
       key: `${mod.modificador_id}-${opcion.opcion_id}`,
       nombre: opcion.opcion_nombre,
-      precio: money(opcion.precio_extra),
+      cantidad: Math.max(1, Number(opcion.cantidad ?? 1)),
+      precio: money(opcion.precio_extra) * Math.max(1, Number(opcion.cantidad ?? 1)),
     }))
   );
 }
 
 function unitPrice(platillo: Platillo, modificadores: ModificadorSeleccionado[]): number {
   return money(platillo.precio) + getSelectedExtras(modificadores).reduce((sum, extra) => sum + extra.precio, 0);
+}
+
+function getPersistedModifierLabels(modifiers: unknown[] | undefined): string[] {
+  return (modifiers ?? []).flatMap((modifier: any) => {
+    if (Array.isArray(modifier?.opciones)) {
+      return modifier.opciones.map((option: any) =>
+        `${option.opcion_nombre}${Number(option.cantidad || 1) > 1 ? ` x${option.cantidad}` : ''}`
+      );
+    }
+    if (!modifier?.nombre) return [];
+    const prefix = modifier.tipo === 'exclusion' ? 'Sin ' : '+ ';
+    return [`${prefix}${modifier.nombre}${Number(modifier.cantidad || 1) > 1 ? ` x${modifier.cantidad}` : ''}`];
+  });
 }
 
 function categoryIcon(name: string): IconName {
@@ -184,6 +198,8 @@ export default function WaiterTableScreen() {
       opcion_id: option.id,
       opcion_nombre: option.nombre,
       precio_extra: money(option.precio_extra),
+      cantidad: 1,
+      tipo_modificador: option.tipo_modificador,
     };
 
     setSelectedMods((current) => {
@@ -221,6 +237,18 @@ export default function WaiterTableScreen() {
 
       return current.map((item) => (item.modificador_id === mod.id ? { ...item, opciones: options } : item));
     });
+  }
+
+  function changeOptionQuantity(modId: number, optionId: number, delta: number, max: number) {
+    setSelectedMods((current) => current.flatMap((group) => {
+      if (group.modificador_id !== modId) return [group];
+      const options = group.opciones.flatMap((option) => {
+        if (option.opcion_id !== optionId) return [option];
+        const next = Math.min(max, Math.max(0, Number(option.cantidad ?? 1) + delta));
+        return next === 0 ? [] : [{ ...option, cantidad: next }];
+      });
+      return options.length === 0 ? [] : [{ ...group, opciones: options }];
+    }));
   }
 
   function isOptionSelected(modId: number, optionId: number): boolean {
@@ -471,6 +499,9 @@ export default function WaiterTableScreen() {
                 <View style={styles.lineCopy}>
                   <Text style={styles.lineName} numberOfLines={2}>{item.cantidad}x {item.nombre}</Text>
                   <Text style={styles.sentMeta} numberOfLines={1}>{item.pedido_folio ?? 'Comanda'} - {item.estado ?? 'pendiente'}</Text>
+                  {getPersistedModifierLabels(item.modificadores as unknown[]).map((label, index) => (
+                    <Text key={`${item.id}-modifier-${index}`} style={styles.extraText} numberOfLines={1}>{label}</Text>
+                  ))}
                 </View>
                 <Text style={styles.linePrice}>{formatMoney(item.subtotal)}</Text>
               </View>
@@ -666,6 +697,11 @@ export default function WaiterTableScreen() {
                           </View>
                           {mod.opciones.map((option) => {
                             const selected = isOptionSelected(mod.id, option.id);
+                            const selectedOption = selectedMods
+                              .find((group) => group.modificador_id === mod.id)
+                              ?.opciones.find((item) => item.opcion_id === option.id);
+                            const optionQuantity = Number(selectedOption?.cantidad ?? 1);
+                            const maxQuantity = Math.max(1, Number(option.max_cantidad ?? 1));
                             return (
                               <TouchableOpacity
                                 key={option.id}
@@ -677,6 +713,20 @@ export default function WaiterTableScreen() {
                                   {selected ? <Ionicons name="checkmark" size={15} color="#FFFFFF" /> : null}
                                 </View>
                                 <Text style={styles.optionName} numberOfLines={2}>{option.nombre}</Text>
+                                {selected && maxQuantity > 1 ? (
+                                  <View style={styles.optionQuantity}>
+                                    <TouchableOpacity onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, -1, maxQuantity); }}>
+                                      <Ionicons name="remove-circle-outline" size={22} color="#334155" />
+                                    </TouchableOpacity>
+                                    <Text style={styles.optionQuantityText}>{optionQuantity}</Text>
+                                    <TouchableOpacity
+                                      disabled={optionQuantity >= maxQuantity}
+                                      onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, 1, maxQuantity); }}
+                                    >
+                                      <Ionicons name="add-circle-outline" size={22} color={optionQuantity >= maxQuantity ? '#CBD5E1' : '#334155'} />
+                                    </TouchableOpacity>
+                                  </View>
+                                ) : null}
                                 <Text style={styles.optionPrice}>+{formatMoney(option.precio_extra)}</Text>
                               </TouchableOpacity>
                             );
@@ -1444,6 +1494,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: '#475569',
+  },
+  optionQuantity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  optionQuantityText: {
+    minWidth: 18,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#111827',
   },
   notesInput: {
     minHeight: 82,

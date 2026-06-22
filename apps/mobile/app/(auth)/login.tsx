@@ -1,151 +1,177 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity, Platform, Image, StatusBar } from 'react-native';
+import {
+  Animated,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  StatusBar,
+  useWindowDimensions,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { DEFAULT_RESTAURANT_LOGO_PATH } from '../../constants/branding';
 import { formatImageUrl } from '../../services/api';
 
+const BENEFITS = [
+  { icon: 'sparkles-outline' as const, label: 'Experiencias' },
+  { icon: 'restaurant-outline' as const, label: 'Mesa y delivery' },
+  { icon: 'gift-outline' as const, label: 'Momentos' },
+];
+
 export default function LoginScreen() {
   const router = useRouter();
+  const { height } = useWindowDimensions();
   const logoUri = formatImageUrl(DEFAULT_RESTAURANT_LOGO_PATH);
-
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.7)).current;
-  const btnsOpacity = useRef(new Animated.Value(0)).current;
-  const btnsTranslate = useRef(new Animated.Value(40)).current;
+  const hero = useRef(new Animated.Value(0)).current;
+  const actions = useRef(new Animated.Value(0)).current;
+  const glow = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(logoOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.spring(logoScale, { toValue: 1, damping: 14, useNativeDriver: true } as any),
-      Animated.sequence([
-        Animated.delay(400),
-        Animated.parallel([
-          Animated.timing(btnsOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-          Animated.spring(btnsTranslate, { toValue: 0, damping: 16, useNativeDriver: true } as any),
-        ]),
-      ]),
+    Animated.stagger(170, [
+      Animated.spring(hero, { toValue: 1, damping: 18, stiffness: 90, useNativeDriver: true }),
+      Animated.spring(actions, { toValue: 1, damping: 18, stiffness: 100, useNativeDriver: true }),
     ]).start();
-  }, []);
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 2600, useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 2600, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [actions, glow, hero]);
 
-  const logoStyle = { opacity: logoOpacity, transform: [{ scale: logoScale }] };
-  const btnsStyle = { opacity: btnsOpacity, transform: [{ translateY: btnsTranslate }] };
+  function navigate(path: '/(auth)/email-login' | '/(auth)/register') {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(path);
+  }
+
+  const compact = height < 740;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#24272D" />
-      <View style={styles.container}>
-        <Animated.View style={[styles.logoArea, logoStyle]}>
-          <View style={styles.logoWrap}>
-            {logoUri ? (
-              <Image source={{ uri: logoUri }} style={styles.logoImage} resizeMode="contain" />
-            ) : (
-              <Ionicons name="restaurant" size={64} color="#E9DDC8" />
-            )}
-          </View>
-          <Text style={styles.appName}>AMARE</Text>
-          <Text style={styles.tagline}>Restaurant Club</Text>
-        </Animated.View>
+    <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="light-content" backgroundColor="#17191E" />
+        <View pointerEvents="none" style={styles.decorations}>
+          <Animated.View
+            style={[
+              styles.glow,
+              styles.glowTop,
+              { opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.5] }) },
+            ]}
+          />
+          <View style={[styles.glow, styles.glowBottom]} />
+          <View style={styles.fineLine} />
+        </View>
 
-        <Animated.View style={[styles.buttons, btnsStyle]}>
-          <TouchableOpacity
-            style={styles.emailBtn}
-            onPress={() => router.push('/(auth)/email-login')}
-            activeOpacity={0.88}
+        <View style={[styles.container, compact && styles.containerCompact]}>
+          <Animated.View
+            style={[
+              styles.hero,
+              {
+                opacity: hero,
+                transform: [
+                  { translateY: hero.interpolate({ inputRange: [0, 1], outputRange: [26, 0] }) },
+                  { scale: hero.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) },
+                ],
+              },
+            ]}
           >
-            <Ionicons name="mail-outline" size={20} color="#24272D" />
-            <Text style={styles.emailLabel}>Entrar con correo</Text>
-          </TouchableOpacity>
+            <View style={styles.eyebrowRow}>
+              <View style={styles.eyebrowLine} />
+              <Text style={styles.eyebrow}>RESTAURANT CONNECTING CLUB</Text>
+              <View style={styles.eyebrowLine} />
+            </View>
 
-          <TouchableOpacity style={styles.registerLink} onPress={() => router.push('/(auth)/register')}>
-            <Text style={styles.registerText}>
-              No tienes cuenta? <Text style={styles.registerBold}>Registrate</Text>
+            <View style={[styles.logoHalo, compact && styles.logoHaloCompact]}>
+              <LinearGradient colors={['rgba(242,235,221,0.16)', 'rgba(242,235,221,0.03)']} style={styles.logoHaloInner}>
+                {logoUri ? (
+                  <Image source={{ uri: logoUri }} style={styles.logoImage} resizeMode="contain" />
+                ) : (
+                  <Ionicons name="restaurant" size={72} color="#F2EBDD" />
+                )}
+              </LinearGradient>
+            </View>
+
+            <Text style={styles.tagline}>La mesa es solo el comienzo.</Text>
+            <Text style={styles.description}>
+              Descubre sabores, comparte momentos y disfruta una experiencia hecha alrededor de ti.
             </Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </SafeAreaView>
+
+            <View style={styles.benefits}>
+              {BENEFITS.map((benefit) => (
+                <View key={benefit.label} style={styles.benefit}>
+                  <View style={styles.benefitIcon}>
+                    <Ionicons name={benefit.icon} size={15} color="#E9DDC8" />
+                  </View>
+                  <Text style={styles.benefitText}>{benefit.label}</Text>
+                </View>
+              ))}
+            </View>
+          </Animated.View>
+
+          <Animated.View
+            style={[
+              styles.actionsCard,
+              {
+                opacity: actions,
+                transform: [{ translateY: actions.interpolate({ inputRange: [0, 1], outputRange: [34, 0] }) }],
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
+              <View style={styles.primaryIcon}>
+                <Ionicons name="mail-outline" size={19} color="#24272D" />
+              </View>
+              <Text style={styles.primaryLabel}>Continuar con correo</Text>
+              <Ionicons name="arrow-forward" size={19} color="#24272D" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigate('/(auth)/register')} activeOpacity={0.86}>
+              <Text style={styles.secondaryLabel}>Crear una cuenta</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.legal}>Al continuar aceptas nuestros terminos y aviso de privacidad.</Text>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#24272D',
-  },
-  container: {
-    flex: 1,
-    paddingHorizontal: 28,
-    justifyContent: 'center',
-    paddingBottom: Platform.OS === 'ios' ? 30 : 40,
-    backgroundColor: '#24272D',
-  },
-  logoArea: {
-    alignItems: 'center',
-    marginBottom: 52,
-  },
-  logoWrap: {
-    width: 320,
-    height: 270,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-  },
-  logoImage: {
-    width: 310,
-    height: 260,
-  },
-  appName: {
-    fontFamily: 'PlayfairDisplay_700Bold',
-    fontSize: 46,
-    color: '#F2EBDD',
-    letterSpacing: 0,
-    marginBottom: 8,
-  },
-  tagline: {
-    fontSize: 16,
-    color: '#D8CDBB',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 20,
-    fontWeight: '600',
-  },
-  buttons: {
-    gap: 13,
-  },
-  emailBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    backgroundColor: '#E9DDC8',
-    borderRadius: 16,
-    paddingVertical: 18,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    elevation: 6,
-  },
-  emailLabel: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#24272D',
-  },
-  registerLink: {
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  registerText: {
-    color: '#D8CDBB',
-    fontSize: 14,
-  },
-  registerBold: {
-    color: '#F4E8D2',
-    fontWeight: '800',
-  },
+  gradient: { flex: 1 },
+  safe: { flex: 1 },
+  decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
+  glow: { position: 'absolute', borderRadius: 999, backgroundColor: '#C6A97B' },
+  glowTop: { width: 340, height: 340, top: -210, right: -100 },
+  glowBottom: { width: 260, height: 260, bottom: -170, left: -120, opacity: 0.1 },
+  fineLine: { position: 'absolute', top: 86, left: 28, right: 28, height: 1, backgroundColor: 'rgba(242,235,221,0.08)' },
+  container: { flex: 1, justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 30, paddingBottom: 18 },
+  containerCompact: { paddingTop: 12 },
+  hero: { alignItems: 'center', flex: 1, justifyContent: 'center' },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  eyebrowLine: { width: 24, height: 1, backgroundColor: 'rgba(233,221,200,0.45)' },
+  eyebrow: { color: '#CDBFA8', fontSize: 10, fontWeight: '800', letterSpacing: 2.4 },
+  logoHalo: { width: 210, height: 210, borderRadius: 105, padding: 1, borderWidth: 1, borderColor: 'rgba(233,221,200,0.16)' },
+  logoHaloCompact: { width: 174, height: 174, borderRadius: 87 },
+  logoHaloInner: { flex: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  logoImage: { width: '92%', height: '92%' },
+  appName: { marginTop: 16, fontFamily: 'PlayfairDisplay_700Bold', fontSize: 42, color: '#F6F0E6', letterSpacing: 7 },
+  tagline: { marginTop: 5, fontFamily: 'PlayfairDisplay_700Bold', fontSize: 21, color: '#E9DDC8', textAlign: 'center' },
+  description: { maxWidth: 330, marginTop: 10, color: '#AAA396', fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  benefits: { flexDirection: 'row', marginTop: 20, gap: 9 },
+  benefit: { alignItems: 'center', gap: 6, minWidth: 84 },
+  benefitIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(233,221,200,0.08)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.12)' },
+  benefitText: { color: '#BDB4A5', fontSize: 10, fontWeight: '700' },
+  actionsCard: { borderRadius: 26, padding: 10, backgroundColor: 'rgba(255,255,255,0.055)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' },
+  primaryButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#E9DDC8', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12 },
+  primaryIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(36,39,45,0.08)' },
+  primaryLabel: { flex: 1, color: '#24272D', fontSize: 15, fontWeight: '900' },
+  secondaryButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center' },
+  secondaryLabel: { color: '#F2EBDD', fontSize: 14, fontWeight: '800' },
+  legal: { color: '#77746E', fontSize: 10, textAlign: 'center', marginBottom: 4 },
 });

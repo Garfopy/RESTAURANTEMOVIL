@@ -47,7 +47,9 @@ class PaymentController
         $rules = [
             'amount' => 'required|numeric',
             'currency' => 'required|string',
-            'order_id' => 'integer'
+            'order_id' => 'integer',
+            'restaurante_id' => 'integer',
+            'items' => 'array'
         ];
 
         $errors = ValidationMiddleware::validate($rules, $input);
@@ -57,6 +59,15 @@ class PaymentController
         }
 
         try {
+            $amount = (float)$input['amount'];
+            if (!empty($input['items']) && !empty($input['restaurante_id'])) {
+                $quote = Order::quote([
+                    'restaurante_id' => (int)$input['restaurante_id'],
+                    'items' => $input['items'],
+                ]);
+                $amount = (float)$quote['total'];
+            }
+
             // 🛠️ Cambiado a método seguro protegido contra fallas de lectura de .env
             Stripe::setApiKey($this->getStripeSecret());
 
@@ -69,7 +80,7 @@ class PaymentController
             }
 
             $paymentIntent = PaymentIntent::create([
-                'amount' => (int)($input['amount'] * 100),
+                'amount' => (int)round($amount * 100),
                 'currency' => $input['currency'],
                 'metadata' => $metadata,
                 'automatic_payment_methods' => [
@@ -81,6 +92,8 @@ class PaymentController
                 'client_secret' => $paymentIntent->client_secret,
                 'payment_intent_id' => $paymentIntent->id
             ], 'Payment intent creado exitosamente');
+        } catch (\InvalidArgumentException $e) {
+            Response::validationError(['items' => [$e->getMessage()]]);
         } catch (\Exception $e) {
             error_log('PaymentController::createPaymentIntent ERROR: ' . $e->getMessage());
             Response::serverError('No se pudo iniciar el pago.');

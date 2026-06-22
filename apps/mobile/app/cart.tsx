@@ -31,7 +31,8 @@ function getSelectedExtras(item: CarritoItem) {
     mod.opciones.map((opcion) => ({
       key: `${mod.modificador_id}-${opcion.opcion_id}`,
       nombre: opcion.opcion_nombre,
-      precio: Number(opcion.precio_extra || 0),
+      cantidad: Math.max(1, Number(opcion.cantidad ?? 1)),
+      precio: Number(opcion.precio_extra || 0) * Math.max(1, Number(opcion.cantidad ?? 1)),
     }))
   );
 }

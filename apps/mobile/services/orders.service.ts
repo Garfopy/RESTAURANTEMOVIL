@@ -1,6 +1,18 @@
 import { apiClient } from './api';
 import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago, ExitPass } from '@amare/types';
 
+function flattenModifierSelection(modifiers: any[]): Array<{ modificador_id: number; cantidad: number }> {
+  const quantities = new Map<number, number>();
+  for (const group of modifiers ?? []) {
+    for (const option of group.opciones ?? []) {
+      const id = Number(option.opcion_id);
+      const quantity = Math.max(1, Number(option.cantidad ?? 1));
+      if (id > 0) quantities.set(id, (quantities.get(id) ?? 0) + quantity);
+    }
+  }
+  return [...quantities].map(([modificador_id, cantidad]) => ({ modificador_id, cantidad }));
+}
+
 export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> {
 
   const safeItems = payload.items.map((item: any) => ({
@@ -8,7 +20,7 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     quantity: item.cantidad ?? item.quantity ?? item.qty ?? 1,
     unit_price: item.precio_unit ?? item.unit_price ?? item.price ?? 0,
     options: item.notas ?? item.options ?? null,
-    modificadores: item.modificadores ?? [],
+    modificadores: flattenModifierSelection(item.modificadores ?? []),
     origen: item.origen ?? 'menu',
   }));
 
@@ -99,6 +111,8 @@ export async function createPaymentIntent(params: {
   order_id?: number;
   amount: number;
   currency?: string;
+  restaurante_id?: number;
+  items?: unknown[];
 }): Promise<PaymentIntent> {
   const payload: Record<string, unknown> = {
     amount: params.amount,
@@ -107,6 +121,10 @@ export async function createPaymentIntent(params: {
 
   if (typeof params.order_id === 'number' && Number.isInteger(params.order_id) && params.order_id > 0) {
     payload.order_id = params.order_id;
+  }
+  if (typeof params.restaurante_id === 'number' && Array.isArray(params.items)) {
+    payload.restaurante_id = params.restaurante_id;
+    payload.items = params.items;
   }
 
   const { data } = await apiClient.post<{

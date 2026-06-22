@@ -8,5 +8,9 @@ export interface RestaurantConfig {
   tipos_entrega: TipoEntregaHabilitado[];
   costo_envio: number;
   pedido_minimo: number;
+  modificadores: {
+    exclusiones_habilitadas: boolean;
+    extras_habilitados: boolean;
+  };
   activo: boolean;
 }

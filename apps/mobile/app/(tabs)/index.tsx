@@ -17,6 +17,7 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
@@ -93,6 +94,18 @@ export default function HomeScreen() {
   const [pickupListExpanded, setPickupListExpanded] = useState(true);
   const [search, setSearch] = useState('');
   const initialFlowStartedRef = useRef(false);
+  const homeIntro = useRef(new Animated.Value(0)).current;
+  const heroGlow = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(homeIntro, { toValue: 1, damping: 19, stiffness: 95, useNativeDriver: true }).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlow, { toValue: 1, duration: 2400, useNativeDriver: true }),
+        Animated.timing(heroGlow, { toValue: 0, duration: 2400, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [heroGlow, homeIntro]);
 
   // 🎞️ Animación para los indicadores (dots)
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -652,12 +665,19 @@ export default function HomeScreen() {
     });
   }
 
+  const firstName = user?.nombre?.split(' ')[0] ?? '';
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 12 ? 'Buenos dias' : currentHour < 19 ? 'Buenas tardes' : 'Buenas noches';
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FAF8F4" />
       
       {/* HEADER ULTRA-SLIM CORREGIDO */}
-      <View style={styles.topNav}>
+      <Animated.View style={[styles.topNav, {
+        opacity: homeIntro,
+        transform: [{ translateY: homeIntro.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) }],
+      }]}>
         <TouchableOpacity 
           style={styles.locationSelector}
           onPress={() => {
@@ -665,14 +685,16 @@ export default function HomeScreen() {
           }}
           activeOpacity={0.7}
         >
-          <Ionicons name={getOrderModeIcon()} size={18} color={Colors.primary} />
+          <View style={styles.locationIcon}>
+            <Ionicons name={getOrderModeIcon()} size={17} color="#F5EFE4" />
+          </View>
           <View style={styles.locationCopy}>
             <Text style={styles.locationLabel}>{getOrderModeLabel()}</Text>
             <View style={styles.row}>
               <Text style={styles.locationName} numberOfLines={1}>
                 {branch?.nombre ?? 'Seleccionar sucursal'}
               </Text>
-              <Ionicons name="swap-horizontal" size={14} color="#6B7280" />
+              <Ionicons name="chevron-down" size={14} color="#8A8276" />
             </View>
           </View>
         </TouchableOpacity>
@@ -690,37 +712,69 @@ export default function HomeScreen() {
             )}
           </View>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       <ScrollView 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         {/* SALUDO Y BUSCADOR */}
-        <View style={styles.welcomeSection}>
-          <Text style={styles.greetingText}>
-            {user?.nombre ? `Hola, ${user.nombre.split(' ')[0]}` : 'Bienvenido'} 
-          </Text>
-          <Text style={styles.subtitleText}>¿Qué se te antoja hoy?</Text>
-          
-          <View style={styles.searchContainer}>
-            <SearchBar
-              value={search}
-              onChangeText={setSearch}
-              onSubmit={handleSearch}
-              placeholder="Busca tu platillo favorito..."
-            />
-          </View>
-        </View>
+        <Animated.View style={[styles.welcomeSection, {
+          opacity: homeIntro,
+          transform: [{ translateY: homeIntro.interpolate({ inputRange: [0, 1], outputRange: [22, 0] }) }],
+        }]}>
+          <LinearGradient colors={['#202228', '#30333B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
+            <Animated.View pointerEvents="none" style={[styles.heroGlow, {
+              opacity: heroGlow.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
+              transform: [{ scale: heroGlow.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.12] }) }],
+            }]} />
+            <View style={styles.heroTopRow}>
+              <View>
+                <Text style={styles.heroEyebrow}>{greeting.toUpperCase()}</Text>
+                <Text style={styles.greetingText}>{firstName ? `${firstName},` : 'Bienvenido,'}</Text>
+              </View>
+              <TouchableOpacity style={styles.modeBadge} onPress={() => void openDeliveryFlow()} activeOpacity={0.86}>
+                <Ionicons name={getOrderModeIcon()} size={14} color="#E9DDC8" />
+                <Text style={styles.modeBadgeText}>{getOrderModeLabel()}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.subtitleText}>Hoy puede empezar con algo delicioso.</Text>
+
+            <View style={styles.searchContainer}>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                onSubmit={handleSearch}
+                placeholder="Buscar platillos, bebidas y mas"
+              />
+            </View>
+
+            <View style={styles.heroFooter}>
+              <View style={styles.heroFeature}>
+                <Ionicons name="sparkles-outline" size={14} color="#D7C6A8" />
+                <Text style={styles.heroFeatureText}>Seleccion especial</Text>
+              </View>
+              <View style={styles.heroDivider} />
+              <View style={styles.heroFeature}>
+                <Ionicons name="time-outline" size={14} color="#D7C6A8" />
+                <Text style={styles.heroFeatureText}>Pedido sencillo</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
 
         {/* BANNERS */}
-        <View style={styles.bannerSection}>
+        <Animated.View style={[styles.bannerSection, { opacity: homeIntro }]}>
           <BannerCarousel items={HOME_BANNERS} />
-        </View>
+        </Animated.View>
 
         {/* CATEGORÍAS */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Explorar menú</Text>
+          <View>
+            <Text style={styles.sectionKicker}>DESCUBRE</Text>
+            <Text style={styles.sectionTitle}>Explorar menu</Text>
+          </View>
+          <View style={styles.sectionIcon}><Ionicons name="grid-outline" size={17} color={Colors.primary} /></View>
         </View>
         {loadingCats ? (
           <View style={[styles.horizontalList, { paddingHorizontal: featuredInset }]}>
@@ -741,7 +795,10 @@ export default function HomeScreen() {
 
         {/* DESTACADOS */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Los más pedidos </Text>
+          <View>
+            <Text style={styles.sectionKicker}>FAVORITOS</Text>
+            <Text style={styles.sectionTitle}>Los mas pedidos</Text>
+          </View>
           <TouchableOpacity 
             onPress={() => {
               if (!restauranteId) return;
@@ -965,123 +1022,82 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
-  
+  safe: { flex: 1, backgroundColor: '#FAF8F4' },
   topNav: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 12,
-    backgroundColor: '#FFF',
-    
-    zIndex: 50, 
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
+    paddingBottom: 13,
+    backgroundColor: '#FAF8F4',
+    zIndex: 50,
   },
-  locationSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    minWidth: 0,
-    paddingVertical: 4, // Área de toque expandida
-  },
-  locationCopy: {
-    flex: 1,
-    minWidth: 0,
-    marginLeft: 8,
-  },
-  locationLabel: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  locationName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-    marginRight: 4,
-    flexShrink: 1,
-  },
+  locationSelector: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, paddingVertical: 4 },
+  locationIcon: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282E' },
+  locationCopy: { flex: 1, minWidth: 0, marginLeft: 10 },
+  locationLabel: { fontSize: 9, color: '#978F83', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.1 },
+  locationName: { fontSize: 15, fontWeight: '900', color: '#24262B', marginRight: 4, flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center' },
-  profileTrigger: {
-    marginLeft: 15,
-    padding: 2,
-  },
-  miniAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  miniAvatarImg: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarText: { fontWeight: '800', color: Colors.primary },
+  profileTrigger: { marginLeft: 15, padding: 2 },
+  miniAvatar: { width: 40, height: 40, borderRadius: 15, backgroundColor: '#EEE9E0', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#DED7CC', overflow: 'hidden' },
+  miniAvatarImg: { width: '100%', height: '100%' },
+  avatarText: { fontWeight: '900', color: Colors.primary },
 
-  scrollContent: { 
-    paddingTop: 10,
-    paddingBottom: 176, 
-  },
-
-  welcomeSection: {
+  scrollContent: { paddingTop: 4, paddingBottom: 176 },
+  welcomeSection: { paddingHorizontal: 16, marginTop: 6, marginBottom: 8 },
+  heroCard: {
+    borderRadius: 30,
     paddingHorizontal: 20,
-    marginTop: 10,
-    marginBottom: 20,
+    paddingTop: 22,
+    paddingBottom: 16,
+    overflow: 'hidden',
+    shadowColor: '#121317',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 22,
+    elevation: 8,
   },
-  greetingText: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#111827',
-    letterSpacing: -0.5,
-  },
-  subtitleText: {
-    fontSize: 15,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  searchContainer: {
-    marginTop: 20,
-  },
+  heroGlow: { position: 'absolute', width: 210, height: 210, borderRadius: 105, backgroundColor: '#D0B17D', top: -130, right: -70 },
+  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  heroEyebrow: { color: '#BBAE98', fontSize: 9, fontWeight: '900', letterSpacing: 1.8, marginBottom: 3 },
+  greetingText: { fontFamily: 'PlayfairDisplay_700Bold', fontSize: 31, color: '#F7F1E7', letterSpacing: -0.6 },
+  subtitleText: { fontSize: 13, color: '#BEB6A9', marginTop: 4 },
+  modeBadge: { maxWidth: 142, minHeight: 34, borderRadius: 17, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(233,221,200,0.1)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.13)' },
+  modeBadgeText: { flexShrink: 1, color: '#E9DDC8', fontSize: 10, fontWeight: '800' },
+  searchContainer: { marginTop: 18 },
+  heroFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingHorizontal: 3 },
+  heroFeature: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  heroFeatureText: { color: '#AAA294', fontSize: 10, fontWeight: '700' },
+  heroDivider: { width: 1, height: 15, backgroundColor: 'rgba(233,221,200,0.14)' },
 
   orderTypeWrapper: {
     marginVertical: 10,
   },
 
-  bannerSection: {
-    marginTop: 10,
-  },
+  bannerSection: { marginTop: 20 },
 
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginTop: 32,
-    marginBottom: 15,
+    marginTop: 30,
+    marginBottom: 12,
   },
+  sectionKicker: { color: '#A18D6E', fontSize: 9, fontWeight: '900', letterSpacing: 1.8, marginBottom: 3 },
   sectionTitle: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: '#111827',
-    letterSpacing: -0.3,
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 22,
+    color: '#25272C',
+    letterSpacing: -0.4,
   },
+  sectionIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: '#EEE8DE', alignItems: 'center', justifyContent: 'center' },
   seeAll: {
-    color: Colors.primary,
-    fontWeight: '700',
-    fontSize: 13,
+    color: '#7C6748',
+    fontWeight: '900',
+    fontSize: 12,
+    paddingVertical: 8,
   },
   horizontalList: {
     paddingVertical: 10, // Importante: Da aire para que las sombras no se corten

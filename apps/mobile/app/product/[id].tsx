@@ -65,6 +65,8 @@ export default function ProductScreen() {
           opcion_id: opcion.id,
           opcion_nombre: opcion.nombre,
           precio_extra: opcion.precio_extra,
+          cantidad: 1,
+          tipo_modificador: opcion.tipo_modificador,
         },
       ],
     };
@@ -92,6 +94,8 @@ export default function ProductScreen() {
                 opcion_id: opcion.id,
                 opcion_nombre: opcion.nombre,
                 precio_extra: opcion.precio_extra,
+                cantidad: 1,
+                tipo_modificador: opcion.tipo_modificador,
               },
             ];
 
@@ -107,6 +111,18 @@ export default function ProductScreen() {
 
       return [...prev, nuevoItem];
     });
+  }
+
+  function changeOptionQuantity(modId: number, optionId: number, delta: number, max: number) {
+    setModsSel((current) => current.flatMap((group) => {
+      if (group.modificador_id !== modId) return [group];
+      const options = group.opciones.flatMap((option) => {
+        if (option.opcion_id !== optionId) return [option];
+        const next = Math.min(max, Math.max(0, Number(option.cantidad ?? 1) + delta));
+        return next === 0 ? [] : [{ ...option, cantidad: next }];
+      });
+      return options.length === 0 ? [] : [{ ...group, opciones: options }];
+    }));
   }
 
   function handleAddToCart() {
@@ -168,7 +184,14 @@ export default function ProductScreen() {
     );
   }
 
-  const total = platillo.precio * cantidad;
+  const extrasUnit = modsSel.reduce(
+    (sum, group) => sum + group.opciones.reduce(
+      (inner, option) => inner + Number(option.precio_extra || 0) * Number(option.cantidad ?? 1),
+      0
+    ),
+    0
+  );
+  const total = (platillo.precio + extrasUnit) * cantidad;
   const footerPadding = Math.max(insets.bottom, 18);
 
   return (
@@ -241,6 +264,9 @@ export default function ProductScreen() {
                       selMod?.opciones.some(
                         (o) => o.opcion_id === opcion.id
                       ) ?? false;
+                    const selectedOption = selMod?.opciones.find((o) => o.opcion_id === opcion.id);
+                    const optionQuantity = Number(selectedOption?.cantidad ?? 1);
+                    const maxQuantity = Math.max(1, Number(opcion.max_cantidad ?? 1));
 
                     return (
                       <TouchableOpacity
@@ -272,6 +298,21 @@ export default function ProductScreen() {
                         </View>
 
                         <Text style={styles.opcionNombre}>{opcion.nombre}</Text>
+
+                        {isSelected && maxQuantity > 1 ? (
+                          <View style={styles.optionQty}>
+                            <TouchableOpacity onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, opcion.id, -1, maxQuantity); }}>
+                              <Ionicons name="remove-circle-outline" size={22} color={Colors.text} />
+                            </TouchableOpacity>
+                            <Text style={styles.optionQtyText}>{optionQuantity}</Text>
+                            <TouchableOpacity
+                              disabled={optionQuantity >= maxQuantity}
+                              onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, opcion.id, 1, maxQuantity); }}
+                            >
+                              <Ionicons name="add-circle-outline" size={22} color={optionQuantity >= maxQuantity ? Colors.textMuted : Colors.text} />
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
 
                         {(opcion.precio_extra ?? 0) > 0 ? (
                           <Text style={styles.opcionPrecio}>
@@ -461,6 +502,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     fontWeight: '600',
+  },
+  optionQty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  optionQtyText: {
+    minWidth: 18,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.text,
   },
   footer: {
     flexDirection: 'row',

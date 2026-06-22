@@ -15,6 +15,7 @@ export interface Modificador {
   requerido: boolean;
   min_selecciones: number;
   max_selecciones: number;
+  categoria?: 'exclusion' | 'extra';
   opciones: OpcionModificador[];
 }
 
@@ -24,6 +25,11 @@ export interface OpcionModificador {
   nombre: string;
   precio_extra: number;
   activo: boolean;
+  tipo_modificador?: 'exclusion' | 'extra';
+  ingrediente_id?: number | null;
+  cantidad_unidad?: number;
+  unidad?: string | null;
+  max_cantidad?: number;
 }
 
 export interface Platillo {
@@ -62,5 +68,7 @@ export interface ModificadorSeleccionado {
     opcion_id: number;
     opcion_nombre: string;
     precio_extra: number;
+    cantidad?: number;
+    tipo_modificador?: 'exclusion' | 'extra';
   }[];
 }

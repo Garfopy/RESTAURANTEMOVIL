@@ -38,7 +38,10 @@ function money(value: unknown): number {
 
 function modifiersTotal(modificadores: ModificadorSeleccionado[]): number {
   return modificadores.reduce(
-    (sum, mod) => sum + mod.opciones.reduce((inner, option) => inner + money(option.precio_extra), 0),
+    (sum, mod) => sum + mod.opciones.reduce(
+      (inner, option) => inner + money(option.precio_extra) * Math.max(1, Number(option.cantidad ?? 1)),
+      0
+    ),
     0
   );
 }

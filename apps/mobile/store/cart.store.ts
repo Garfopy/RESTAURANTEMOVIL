@@ -20,7 +20,10 @@ function money(value: unknown): number {
 
 function getModExtraTotal(mods: ModificadorSeleccionado[]): number {
   return mods.reduce(
-    (sum, mod) => sum + mod.opciones.reduce((s, o) => s + money(o.precio_extra), 0),
+    (sum, mod) => sum + mod.opciones.reduce(
+      (inner, option) => inner + money(option.precio_extra) * Math.max(1, Number(option.cantidad ?? 1)),
+      0
+    ),
     0
   );
 }
