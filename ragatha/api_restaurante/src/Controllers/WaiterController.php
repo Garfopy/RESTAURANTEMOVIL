@@ -175,6 +175,9 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
+            Response::error('Esta mesa ya tiene cuentas separadas en proceso de cobro.', 409);
+        }
 
         $claimedBy = isset($table['mesero_usuario_id']) && $table['mesero_usuario_id'] !== null
             ? (int)$table['mesero_usuario_id']
@@ -200,6 +203,9 @@ class WaiterController
         $table = $this->findTable($restaurantId, $tableId);
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
+        }
+        if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
+            Response::error('No puedes soltar una mesa mientras se cobran cuentas separadas.', 409);
         }
 
         $claimedBy = isset($table['mesero_usuario_id']) && $table['mesero_usuario_id'] !== null
@@ -234,6 +240,183 @@ class WaiterController
         Response::success(['account' => $this->buildAccount($restaurantId, $tableId, (int)$user['id'])]);
     }
 
+    public function gifts(): void
+    {
+        $user = $this->requireWaiter();
+        $restaurantId = (int)($_GET['restaurant_id'] ?? 0);
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+        if (!$this->tableExists('social_gift_orders')) {
+            Response::success(['active' => [], 'history' => [], 'pending_count' => 0]);
+        }
+
+        $rows = Database::query(
+            "SELECT g.id, g.folio, g.restaurante_id, g.mesa_id, g.gift_nombre, g.gift_descripcion,
+                    g.gift_precio, g.gift_imagen, g.sender_nombre, g.recipient_nombre,
+                    g.sender_mesa, g.recipient_mesa, g.status, g.reclamado_por, g.reclamado_at,
+                    g.entregado_por, g.entregado_at, g.created_at, g.pagado_at,
+                    claimant.nombre AS reclamado_por_nombre, deliverer.nombre AS entregado_por_nombre
+               FROM social_gift_orders g
+          LEFT JOIN mobile_usuarios claimant ON claimant.id = g.reclamado_por
+          LEFT JOIN mobile_usuarios deliverer ON deliverer.id = g.entregado_por
+              WHERE g.restaurante_id = :restaurant_id
+                AND (g.status IN ('listo','reclamado')
+                     OR (g.status = 'entregado' AND DATE(g.entregado_at) = CURDATE()))
+           ORDER BY CASE g.status WHEN 'listo' THEN 0 WHEN 'reclamado' THEN 1 ELSE 2 END,
+                    g.created_at ASC",
+            [':restaurant_id' => $restaurantId]
+        );
+        $active = [];
+        $history = [];
+        foreach ($rows as $row) {
+            $gift = $this->normalizeWaiterGift($row, (int)$user['id']);
+            if ($row['status'] === 'entregado') {
+                $history[] = $gift;
+            } else {
+                $active[] = $gift;
+            }
+        }
+        Response::success([
+            'active' => $active,
+            'history' => $history,
+            'pending_count' => count(array_filter($active, static fn(array $gift): bool => $gift['status'] === 'listo')),
+        ]);
+    }
+
+    public function claimGift(int $giftId): void
+    {
+        $this->changeGiftStatus($giftId, 'claim');
+    }
+
+    public function releaseGift(int $giftId): void
+    {
+        $this->changeGiftStatus($giftId, 'release');
+    }
+
+    public function deliverGift(int $giftId): void
+    {
+        $this->changeGiftStatus($giftId, 'deliver');
+    }
+
+    private function changeGiftStatus(int $giftId, string $action): void
+    {
+        $user = $this->requireWaiter();
+        $input = ValidationMiddleware::getAllInput();
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+        if (!$this->tableExists('social_gift_orders')) {
+            Response::notFound('Regalo no encontrado');
+        }
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                'SELECT * FROM social_gift_orders
+                  WHERE id = :id AND restaurante_id = :restaurant_id LIMIT 1 FOR UPDATE'
+            );
+            $stmt->execute([':id' => $giftId, ':restaurant_id' => $restaurantId]);
+            $gift = $stmt->fetch();
+            if (!$gift) throw new \DomainException('Regalo no encontrado.');
+
+            $userId = (int)$user['id'];
+            $status = (string)$gift['status'];
+            if ($action === 'claim') {
+                if ($status === 'reclamado' && (int)$gift['reclamado_por'] === $userId) {
+                    // Reintento idempotente.
+                } elseif ($status === 'listo') {
+                    $update = $pdo->prepare(
+                        "UPDATE social_gift_orders
+                            SET status = 'reclamado', reclamado_por = :user_id,
+                                reclamado_at = NOW(), updated_at = NOW() WHERE id = :id"
+                    );
+                    $update->execute([':user_id' => $userId, ':id' => $giftId]);
+                } elseif ($status === 'reclamado') {
+                    throw new \DomainException('Otro mesero ya reclamo este regalo.');
+                } else {
+                    throw new \DomainException('Este regalo ya no se puede reclamar.');
+                }
+            } elseif ($action === 'release') {
+                if ($status === 'listo') {
+                    // Reintento idempotente.
+                } elseif ($status === 'reclamado' && (int)$gift['reclamado_por'] === $userId) {
+                    $update = $pdo->prepare(
+                        "UPDATE social_gift_orders
+                            SET status = 'listo', reclamado_por = NULL, reclamado_at = NULL,
+                                updated_at = NOW() WHERE id = :id"
+                    );
+                    $update->execute([':id' => $giftId]);
+                } elseif ($status === 'reclamado') {
+                    throw new \DomainException('Solo el mesero responsable puede liberar este regalo.');
+                } else {
+                    throw new \DomainException('Este regalo ya no se puede liberar.');
+                }
+            } elseif ($action === 'deliver') {
+                if ($status === 'entregado' && (int)$gift['entregado_por'] === $userId) {
+                    // Reintento idempotente.
+                } elseif ($status === 'reclamado' && (int)$gift['reclamado_por'] === $userId) {
+                    $update = $pdo->prepare(
+                        "UPDATE social_gift_orders
+                            SET status = 'entregado', entregado_por = :user_id,
+                                entregado_at = NOW(), updated_at = NOW() WHERE id = :id"
+                    );
+                    $update->execute([':user_id' => $userId, ':id' => $giftId]);
+                } elseif ($status === 'reclamado') {
+                    throw new \DomainException('Solo el mesero responsable puede entregar este regalo.');
+                } else {
+                    throw new \DomainException('Reclama el regalo antes de marcarlo como entregado.');
+                }
+            }
+
+            $read = $pdo->prepare('SELECT * FROM social_gift_orders WHERE id = :id');
+            $read->execute([':id' => $giftId]);
+            $updated = $read->fetch();
+            $pdo->commit();
+            Response::success(['gift' => $this->normalizeWaiterGift($updated, $userId)], 'Regalo actualizado');
+        } catch (\DomainException $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            Response::error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('WaiterController::changeGiftStatus ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo actualizar el regalo.');
+        }
+    }
+
+    private function normalizeWaiterGift(array $gift, int $currentUserId): array
+    {
+        $claimedBy = isset($gift['reclamado_por']) && $gift['reclamado_por'] !== null ? (int)$gift['reclamado_por'] : null;
+        return [
+            'id' => (int)$gift['id'],
+            'folio' => $gift['folio'] ?? null,
+            'restaurant_id' => (int)$gift['restaurante_id'],
+            'table_id' => (int)$gift['mesa_id'],
+            'gift_name' => $gift['gift_nombre'] ?? 'Regalo',
+            'gift_description' => $gift['gift_descripcion'] ?? null,
+            'gift_price' => (float)($gift['gift_precio'] ?? 0),
+            'gift_image' => $gift['gift_imagen'] ?? null,
+            'sender_name' => $gift['sender_nombre'] ?? 'Comensal',
+            'recipient_name' => $gift['recipient_nombre'] ?? 'Comensal',
+            'sender_table' => $gift['sender_mesa'] ?? null,
+            'recipient_table' => $gift['recipient_mesa'] ?? null,
+            'status' => $gift['status'],
+            'claimed_by' => $claimedBy,
+            'claimed_by_name' => $gift['reclamado_por_nombre'] ?? null,
+            'claimed_by_me' => $claimedBy === $currentUserId,
+            'claimed_at' => $gift['reclamado_at'] ?? null,
+            'delivered_by' => isset($gift['entregado_por']) && $gift['entregado_por'] !== null ? (int)$gift['entregado_por'] : null,
+            'delivered_by_name' => $gift['entregado_por_nombre'] ?? null,
+            'delivered_at' => $gift['entregado_at'] ?? null,
+            'created_at' => $gift['created_at'] ?? null,
+            'paid_at' => $gift['pagado_at'] ?? null,
+        ];
+    }
+
     public function createOrder(int $tableId): void
     {
         $user = $this->requireWaiter();
@@ -253,6 +436,9 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
+            Response::error('No puedes agregar productos mientras se cobran cuentas separadas.', 409);
+        }
 
         $claimedBy = isset($table['mesero_usuario_id']) && $table['mesero_usuario_id'] !== null
             ? (int)$table['mesero_usuario_id']
@@ -265,6 +451,13 @@ class WaiterController
         if ($customerName === '') {
             $customerName = (string)($table['cliente_nombre'] ?? 'Comensal');
         }
+
+        $customerUserId = $this->resolveCustomerUserIdForTable(
+            $restaurantId,
+            $table,
+            $customerName,
+            (int)$user['id']
+        );
 
         $items = [];
         $subtotal = 0.0;
@@ -293,7 +486,7 @@ class WaiterController
 
         $orderId = Order::create([
             'restaurante_id' => $restaurantId,
-            'user_id' => (int)$user['id'],
+            'user_id' => $customerUserId ?? (int)$user['id'],
             'order_type' => 'eat_in',
             'subtotal' => $subtotal,
             'total' => $subtotal,
@@ -337,9 +530,13 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
+            Response::error('Esta mesa tiene cuentas separadas pendientes.', 409);
+        }
 
         $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
-        if (empty($orders)) {
+        $giftCharges = $this->getOpenGiftChargesForTable($restaurantId, $tableId);
+        if (empty($orders) && empty($giftCharges)) {
             Response::error('Esta mesa no tiene cuenta abierta.', 409);
         }
 
@@ -348,14 +545,17 @@ class WaiterController
             static fn(float $sum, array $order): float => $sum + (float)($order['total'] ?? 0),
             0.0
         );
+        $giftChargesTotal = array_reduce(
+            $giftCharges,
+            static fn(float $sum, array $gift): float => $sum + (float)($gift['gift_precio'] ?? 0),
+            0.0
+        );
+        $total += $giftChargesTotal;
         $columns = $this->getTableColumns('rest_pedidos');
         $set = ["estado = 'entregado'"];
         $params = [
             ':restaurant_id' => $restaurantId,
             ':table_id' => $tableId,
-            ':payment_method' => $paymentMethod,
-            ':waiter_id' => (int)$user['id'],
-            ':waiter_name' => (string)$user['nombre'],
         ];
 
         if (in_array('cuenta_abierta', $columns, true)) {
@@ -363,15 +563,18 @@ class WaiterController
         }
         if (in_array('metodo_pago', $columns, true)) {
             $set[] = 'metodo_pago = :payment_method';
+            $params[':payment_method'] = $paymentMethod;
         }
         if (in_array('pagado_at', $columns, true)) {
             $set[] = 'pagado_at = NOW()';
         }
         if (in_array('cerrado_por_mesero_usuario_id', $columns, true)) {
             $set[] = 'cerrado_por_mesero_usuario_id = :waiter_id';
+            $params[':waiter_id'] = (int)$user['id'];
         }
         if (in_array('cerrado_por_mesero_nombre', $columns, true)) {
             $set[] = 'cerrado_por_mesero_nombre = :waiter_name';
+            $params[':waiter_name'] = (string)$user['nombre'];
         }
         if (in_array('cerrado_at', $columns, true)) {
             $set[] = 'cerrado_at = NOW()';
@@ -394,7 +597,65 @@ class WaiterController
             $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
         }
 
-        Database::rowCount($sql, $params);
+        if (!empty($orders)) {
+            Database::rowCount($sql, $params);
+        }
+
+        if (!empty($giftCharges)) {
+            $giftColumns = $this->getTableColumns('social_gift_orders');
+            $giftSet = [];
+            $giftWhere = [];
+            $giftParams = [];
+
+            if (in_array('pagado_at', $giftColumns, true)) {
+                $giftSet[] = 'pagado_at = COALESCE(pagado_at, NOW())';
+            }
+            if (in_array('updated_at', $giftColumns, true)) {
+                $giftSet[] = 'updated_at = NOW()';
+            }
+
+            if (!empty($giftSet)) {
+                $orderIds = array_values(array_unique(array_map(
+                    static fn(array $order): int => (int)($order['id'] ?? 0),
+                    $orders
+                )));
+                $consumoIds = array_values(array_unique(array_filter(array_map(
+                    static fn(array $order): ?string => !empty($order['consumo_id']) ? (string)$order['consumo_id'] : null,
+                    $orders
+                ))));
+
+                if (in_array('consumo_id', $giftColumns, true) && !empty($consumoIds)) {
+                    $consumoPlaceholders = [];
+                    foreach ($consumoIds as $index => $consumoId) {
+                        $key = ':gift_consumo_' . $index;
+                        $consumoPlaceholders[] = $key;
+                        $giftParams[$key] = $consumoId;
+                    }
+                    $giftWhere[] = 'consumo_id IN (' . implode(', ', $consumoPlaceholders) . ')';
+                } elseif (in_array('pedido_id', $giftColumns, true) && !empty($orderIds)) {
+                    $orderPlaceholders = [];
+                    foreach ($orderIds as $index => $orderId) {
+                        $key = ':gift_order_' . $index;
+                        $orderPlaceholders[] = $key;
+                        $giftParams[$key] = $orderId;
+                    }
+                    $giftWhere[] = 'pedido_id IN (' . implode(', ', $orderPlaceholders) . ')';
+                } else {
+                    $giftWhere[] = 'restaurante_id = :restaurant_id';
+                    $giftWhere[] = 'mesa_id = :table_id';
+                    $giftParams[':restaurant_id'] = $restaurantId;
+                    $giftParams[':table_id'] = $tableId;
+                }
+
+                Database::rowCount(
+                    'UPDATE social_gift_orders
+                        SET ' . implode(', ', $giftSet) . '
+                      WHERE ' . implode(' AND ', $giftWhere) . '
+                        AND pagado_at IS NULL',
+                    $giftParams
+                );
+            }
+        }
         $this->updateTableClaim($tableId, null, null, null, false);
 
         Response::success([
@@ -403,8 +664,498 @@ class WaiterController
             'metodo_pago' => $paymentMethod,
             'total' => $total,
             'orders_count' => count($orders),
+            'gift_charges_count' => count($giftCharges),
             'closed' => true,
         ], 'Cuenta cerrada');
+    }
+
+    public function createSplit(int $tableId): void
+    {
+        $user = $this->requireWaiter();
+        $input = ValidationMiddleware::getAllInput();
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+        $accountsInput = $input['accounts'] ?? null;
+
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        if (!is_array($accountsInput) || count($accountsInput) < 2) {
+            Response::validationError(['accounts' => ['Agrega al menos dos cuentas']]);
+        }
+        if (!$this->splitTablesExist()) {
+            Response::error('Ejecuta la migracion 029 para usar cuentas separadas.', 500);
+        }
+
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+        if ($this->findTable($restaurantId, $tableId) === null) {
+            Response::notFound('Mesa no encontrada');
+        }
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+
+            $activeStmt = $pdo->prepare(
+                "SELECT id FROM rest_cuenta_divisiones
+                  WHERE restaurante_id = :restaurant_id AND mesa_id = :table_id AND estado = 'activa'
+                  LIMIT 1 FOR UPDATE"
+            );
+            $activeStmt->execute([':restaurant_id' => $restaurantId, ':table_id' => $tableId]);
+            if ($activeStmt->fetch()) {
+                throw new \DomainException('Esta mesa ya tiene una division activa.');
+            }
+
+            $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
+            if (empty($orders)) {
+                throw new \DomainException('Esta mesa no tiene cuenta abierta.');
+            }
+            if (!empty($this->getOpenGiftChargesForTable($restaurantId, $tableId))) {
+                throw new \DomainException('Esta mesa tiene regalos pendientes cargados a la cuenta. Cobrala en una sola cuenta.');
+            }
+            $orderIds = array_map(static fn(array $order): int => (int)$order['id'], $orders);
+            $orderPlaceholders = implode(',', array_fill(0, count($orderIds), '?'));
+            $lockStmt = $pdo->prepare("SELECT id FROM rest_pedidos WHERE id IN ({$orderPlaceholders}) FOR UPDATE");
+            $lockStmt->execute($orderIds);
+
+            $itemsStmt = $pdo->prepare(
+                "SELECT id, cantidad, precio_unit FROM rest_pedido_items
+                  WHERE pedido_id IN ({$orderPlaceholders}) ORDER BY id ASC"
+            );
+            $itemsStmt->execute($orderIds);
+            $sourceItems = [];
+            foreach ($itemsStmt->fetchAll() as $item) {
+                $sourceItems[(int)$item['id']] = [
+                    'cantidad' => (int)$item['cantidad'],
+                    'precio_unit' => round((float)$item['precio_unit'], 2),
+                ];
+            }
+            if (empty($sourceItems)) {
+                throw new \DomainException('La cuenta no tiene productos para dividir.');
+            }
+
+            $normalizedAccounts = [];
+            $assigned = [];
+            foreach (array_values($accountsInput) as $index => $accountInput) {
+                if (!is_array($accountInput) || empty($accountInput['items']) || !is_array($accountInput['items'])) {
+                    throw new \InvalidArgumentException('Cada cuenta debe contener al menos un producto.');
+                }
+                $name = trim((string)($accountInput['name'] ?? $accountInput['nombre'] ?? ''));
+                $name = $name !== '' ? substr($name, 0, 60) : 'Cuenta ' . ($index + 1);
+                $accountItems = [];
+                $accountTotalCents = 0;
+
+                foreach ($accountInput['items'] as $itemInput) {
+                    $itemId = (int)($itemInput['pedido_item_id'] ?? 0);
+                    $quantity = (int)($itemInput['cantidad'] ?? 0);
+                    if ($itemId <= 0 || $quantity <= 0 || !isset($sourceItems[$itemId])) {
+                        throw new \InvalidArgumentException('El reparto contiene un producto o cantidad invalida.');
+                    }
+                    if (isset($accountItems[$itemId])) {
+                        throw new \InvalidArgumentException('Un producto esta repetido dentro de la misma cuenta.');
+                    }
+                    $assigned[$itemId] = ($assigned[$itemId] ?? 0) + $quantity;
+                    $unitCents = (int)round($sourceItems[$itemId]['precio_unit'] * 100);
+                    $subtotalCents = $unitCents * $quantity;
+                    $accountTotalCents += $subtotalCents;
+                    $accountItems[$itemId] = [
+                        'pedido_item_id' => $itemId,
+                        'cantidad' => $quantity,
+                        'precio_unit' => $unitCents / 100,
+                        'subtotal' => $subtotalCents / 100,
+                    ];
+                }
+                $normalizedAccounts[] = [
+                    'numero' => $index + 1,
+                    'nombre' => $name,
+                    'total' => $accountTotalCents / 100,
+                    'items' => array_values($accountItems),
+                ];
+            }
+
+            foreach ($sourceItems as $itemId => $sourceItem) {
+                if (($assigned[$itemId] ?? 0) !== $sourceItem['cantidad']) {
+                    throw new \InvalidArgumentException('Todos los productos deben asignarse exactamente una vez.');
+                }
+            }
+            if (count($assigned) !== count($sourceItems)) {
+                throw new \InvalidArgumentException('El reparto contiene productos que no pertenecen a la cuenta.');
+            }
+
+            $splitStmt = $pdo->prepare(
+                'INSERT INTO rest_cuenta_divisiones
+                    (restaurante_id, mesa_id, estado, creado_por_usuario_id, creado_por_nombre)
+                 VALUES (:restaurant_id, :table_id, \'activa\', :user_id, :user_name)'
+            );
+            $splitStmt->execute([
+                ':restaurant_id' => $restaurantId,
+                ':table_id' => $tableId,
+                ':user_id' => (int)$user['id'],
+                ':user_name' => (string)$user['nombre'],
+            ]);
+            $splitId = (int)$pdo->lastInsertId();
+
+            $accountStmt = $pdo->prepare(
+                'INSERT INTO rest_cuenta_division_cuentas (division_id, numero, nombre, total)
+                 VALUES (:division_id, :numero, :nombre, :total)'
+            );
+            $itemStmt = $pdo->prepare(
+                'INSERT INTO rest_cuenta_division_items
+                    (cuenta_id, pedido_item_id, cantidad, precio_unit, subtotal)
+                 VALUES (:cuenta_id, :item_id, :cantidad, :precio_unit, :subtotal)'
+            );
+            foreach ($normalizedAccounts as $account) {
+                $accountStmt->execute([
+                    ':division_id' => $splitId,
+                    ':numero' => $account['numero'],
+                    ':nombre' => $account['nombre'],
+                    ':total' => $account['total'],
+                ]);
+                $accountId = (int)$pdo->lastInsertId();
+                foreach ($account['items'] as $item) {
+                    $itemStmt->execute([
+                        ':cuenta_id' => $accountId,
+                        ':item_id' => $item['pedido_item_id'],
+                        ':cantidad' => $item['cantidad'],
+                        ':precio_unit' => $item['precio_unit'],
+                        ':subtotal' => $item['subtotal'],
+                    ]);
+                }
+            }
+
+            $pdo->commit();
+            Response::success(['split' => $this->getSplitById($splitId)], 'Cuentas separadas creadas', 201);
+        } catch (\InvalidArgumentException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            Response::validationError(['accounts' => [$e->getMessage()]]);
+        } catch (\DomainException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            Response::error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('WaiterController::createSplit ERROR: ' . $e->getMessage());
+            Response::serverError('No se pudieron crear las cuentas separadas.');
+        }
+    }
+
+    public function paySplitAccount(int $tableId, int $splitId, int $accountId): void
+    {
+        $user = $this->requireWaiter();
+        $input = ValidationMiddleware::getAllInput();
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+        $paymentMethod = $this->normalizeWaiterPaymentMethod((string)($input['metodo_pago'] ?? ''));
+
+        if ($restaurantId <= 0 || $paymentMethod === null) {
+            Response::validationError(['metodo_pago' => ['Selecciona efectivo, tarjeta o transferencia']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                "SELECT c.id, c.estado AS cuenta_estado, d.estado AS division_estado
+                   FROM rest_cuenta_division_cuentas c
+                   JOIN rest_cuenta_divisiones d ON d.id = c.division_id
+                  WHERE c.id = :account_id AND d.id = :split_id
+                    AND d.restaurante_id = :restaurant_id AND d.mesa_id = :table_id
+                  FOR UPDATE"
+            );
+            $stmt->execute([
+                ':account_id' => $accountId,
+                ':split_id' => $splitId,
+                ':restaurant_id' => $restaurantId,
+                ':table_id' => $tableId,
+            ]);
+            $row = $stmt->fetch();
+            if (!$row) {
+                throw new \DomainException('La cuenta separada no existe.');
+            }
+            if ($row['cuenta_estado'] === 'pagada') {
+                $pdo->commit();
+                $existingSplit = $this->getSplitById($splitId);
+                Response::success([
+                    'split' => $existingSplit,
+                    'closed' => ($existingSplit['estado'] ?? null) === 'pagada',
+                ], 'La cuenta ya estaba pagada');
+            }
+            if ($row['division_estado'] !== 'activa') {
+                throw new \DomainException('La division ya no esta activa.');
+            }
+
+            $payStmt = $pdo->prepare(
+                "UPDATE rest_cuenta_division_cuentas
+                    SET estado = 'pagada', metodo_pago = :payment_method,
+                        pagado_por_usuario_id = :user_id, pagado_por_nombre = :user_name,
+                        pagado_at = NOW(), updated_at = NOW()
+                  WHERE id = :account_id AND estado = 'pendiente'"
+            );
+            $payStmt->execute([
+                ':payment_method' => $paymentMethod,
+                ':user_id' => (int)$user['id'],
+                ':user_name' => (string)$user['nombre'],
+                ':account_id' => $accountId,
+            ]);
+
+            $pendingStmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM rest_cuenta_division_cuentas
+                  WHERE division_id = :split_id AND estado = 'pendiente'"
+            );
+            $pendingStmt->execute([':split_id' => $splitId]);
+            $pending = (int)$pendingStmt->fetchColumn();
+
+            if ($pending === 0) {
+                $methodsStmt = $pdo->prepare(
+                    'SELECT COUNT(DISTINCT metodo_pago) AS method_count, MIN(metodo_pago) AS method
+                       FROM rest_cuenta_division_cuentas WHERE division_id = :split_id'
+                );
+                $methodsStmt->execute([':split_id' => $splitId]);
+                $methods = $methodsStmt->fetch();
+                $finalMethod = (int)$methods['method_count'] === 1 ? (string)$methods['method'] : 'mixto';
+                $this->finalizeSplitOrders($splitId, $finalMethod, $user);
+                $completeStmt = $pdo->prepare(
+                    "UPDATE rest_cuenta_divisiones
+                        SET estado = 'pagada', completed_at = NOW(), updated_at = NOW()
+                      WHERE id = :split_id AND estado = 'activa'"
+                );
+                $completeStmt->execute([':split_id' => $splitId]);
+                $this->updateTableClaim($tableId, null, null, null, false);
+            }
+
+            $pdo->commit();
+            Response::success([
+                'split' => $this->getSplitById($splitId),
+                'closed' => $pending === 0,
+            ], $pending === 0 ? 'Mesa liquidada' : 'Cuenta pagada');
+        } catch (\DomainException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            Response::error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('WaiterController::paySplitAccount ERROR: ' . $e->getMessage());
+            Response::serverError('No se pudo registrar el pago.');
+        }
+    }
+
+    public function cancelSplit(int $tableId, int $splitId): void
+    {
+        $user = $this->requireWaiter();
+        $input = ValidationMiddleware::getAllInput();
+        $restaurantId = (int)($input['restaurant_id'] ?? $_GET['restaurant_id'] ?? 0);
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                "SELECT d.id,
+                        (SELECT COUNT(*) FROM rest_cuenta_division_cuentas c
+                          WHERE c.division_id = d.id AND c.estado = 'pagada') AS paid_count
+                   FROM rest_cuenta_divisiones d
+                  WHERE d.id = :split_id AND d.restaurante_id = :restaurant_id
+                    AND d.mesa_id = :table_id AND d.estado = 'activa'
+                  FOR UPDATE"
+            );
+            $stmt->execute([
+                ':split_id' => $splitId,
+                ':restaurant_id' => $restaurantId,
+                ':table_id' => $tableId,
+            ]);
+            $split = $stmt->fetch();
+            if (!$split) {
+                throw new \DomainException('La division activa no existe.');
+            }
+            if ((int)$split['paid_count'] > 0) {
+                throw new \DomainException('No puedes cancelar una division con cuentas pagadas.');
+            }
+            $cancelStmt = $pdo->prepare(
+                "UPDATE rest_cuenta_divisiones
+                    SET estado = 'cancelada', cancelled_at = NOW(), updated_at = NOW()
+                  WHERE id = :split_id"
+            );
+            $cancelStmt->execute([':split_id' => $splitId]);
+            $pdo->commit();
+            Response::success(['cancelled' => true], 'Division cancelada');
+        } catch (\DomainException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            Response::error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('WaiterController::cancelSplit ERROR: ' . $e->getMessage());
+            Response::serverError('No se pudo cancelar la division.');
+        }
+    }
+
+    private function splitTablesExist(): bool
+    {
+        return $this->tableExists('rest_cuenta_divisiones')
+            && $this->tableExists('rest_cuenta_division_cuentas')
+            && $this->tableExists('rest_cuenta_division_items');
+    }
+
+    private function getActiveSplit(int $restaurantId, int $tableId): ?array
+    {
+        if (!$this->splitTablesExist()) {
+            return null;
+        }
+        $split = Database::queryOne(
+            "SELECT id FROM rest_cuenta_divisiones
+              WHERE restaurante_id = :restaurant_id AND mesa_id = :table_id AND estado = 'activa'
+              ORDER BY id DESC LIMIT 1",
+            [':restaurant_id' => $restaurantId, ':table_id' => $tableId]
+        );
+
+        return $split ? $this->getSplitById((int)$split['id']) : null;
+    }
+
+    private function getSplitById(int $splitId): ?array
+    {
+        if (!$this->splitTablesExist()) {
+            return null;
+        }
+        $split = Database::queryOne(
+            'SELECT id, restaurante_id, mesa_id, estado, creado_por_usuario_id,
+                    creado_por_nombre, created_at, completed_at
+               FROM rest_cuenta_divisiones WHERE id = :id',
+            [':id' => $splitId]
+        );
+        if (!$split) {
+            return null;
+        }
+
+        $accounts = Database::query(
+            'SELECT id, numero, nombre, total, estado, metodo_pago,
+                    pagado_por_usuario_id, pagado_por_nombre, pagado_at
+               FROM rest_cuenta_division_cuentas
+              WHERE division_id = :split_id ORDER BY numero ASC, id ASC',
+            [':split_id' => $splitId]
+        );
+        $items = Database::query(
+            'SELECT di.cuenta_id, di.pedido_item_id, di.cantidad, di.precio_unit, di.subtotal
+               FROM rest_cuenta_division_items di
+               JOIN rest_cuenta_division_cuentas c ON c.id = di.cuenta_id
+              WHERE c.division_id = :split_id ORDER BY di.id ASC',
+            [':split_id' => $splitId]
+        );
+        $itemsByAccount = [];
+        foreach ($items as $item) {
+            $itemsByAccount[(int)$item['cuenta_id']][] = [
+                'pedido_item_id' => (int)$item['pedido_item_id'],
+                'cantidad' => (int)$item['cantidad'],
+                'precio_unit' => (float)$item['precio_unit'],
+                'subtotal' => (float)$item['subtotal'],
+            ];
+        }
+
+        $total = 0.0;
+        $paidCount = 0;
+        $normalizedAccounts = [];
+        foreach ($accounts as $account) {
+            $accountTotal = (float)$account['total'];
+            $total += $accountTotal;
+            if ($account['estado'] === 'pagada') {
+                $paidCount++;
+            }
+            $normalizedAccounts[] = [
+                'id' => (int)$account['id'],
+                'numero' => (int)$account['numero'],
+                'nombre' => $account['nombre'],
+                'total' => $accountTotal,
+                'estado' => $account['estado'],
+                'metodo_pago' => $account['metodo_pago'],
+                'pagado_por_usuario_id' => $account['pagado_por_usuario_id'] !== null ? (int)$account['pagado_por_usuario_id'] : null,
+                'pagado_por_nombre' => $account['pagado_por_nombre'],
+                'pagado_at' => $account['pagado_at'],
+                'items' => $itemsByAccount[(int)$account['id']] ?? [],
+            ];
+        }
+
+        return [
+            'id' => (int)$split['id'],
+            'restaurant_id' => (int)$split['restaurante_id'],
+            'table_id' => (int)$split['mesa_id'],
+            'estado' => $split['estado'],
+            'total' => $total,
+            'paid_count' => $paidCount,
+            'accounts_count' => count($normalizedAccounts),
+            'created_at' => $split['created_at'],
+            'completed_at' => $split['completed_at'],
+            'accounts' => $normalizedAccounts,
+        ];
+    }
+
+    private function finalizeSplitOrders(int $splitId, string $paymentMethod, array $user): void
+    {
+        $orderRows = Database::query(
+            'SELECT DISTINCT pi.pedido_id
+               FROM rest_cuenta_division_items di
+               JOIN rest_cuenta_division_cuentas c ON c.id = di.cuenta_id
+               JOIN rest_pedido_items pi ON pi.id = di.pedido_item_id
+              WHERE c.division_id = :split_id',
+            [':split_id' => $splitId]
+        );
+        $orderIds = array_map(static fn(array $row): int => (int)$row['pedido_id'], $orderRows);
+        if (empty($orderIds)) {
+            throw new \DomainException('La division no contiene pedidos para cerrar.');
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        $set = ["estado = 'entregado'"];
+        $params = [];
+        if (in_array('cuenta_abierta', $columns, true)) {
+            $set[] = 'cuenta_abierta = 0';
+        }
+        if (in_array('metodo_pago', $columns, true)) {
+            $set[] = 'metodo_pago = :payment_method';
+            $params[':payment_method'] = $paymentMethod;
+        }
+        if (in_array('pagado_at', $columns, true)) {
+            $set[] = 'pagado_at = NOW()';
+        }
+        if (in_array('cerrado_por_mesero_usuario_id', $columns, true)) {
+            $set[] = 'cerrado_por_mesero_usuario_id = :waiter_id';
+            $params[':waiter_id'] = (int)$user['id'];
+        }
+        if (in_array('cerrado_por_mesero_nombre', $columns, true)) {
+            $set[] = 'cerrado_por_mesero_nombre = :waiter_name';
+            $params[':waiter_name'] = (string)$user['nombre'];
+        }
+        if (in_array('cerrado_at', $columns, true)) {
+            $set[] = 'cerrado_at = NOW()';
+        }
+        if (in_array('actualizado_at', $columns, true)) {
+            $set[] = 'actualizado_at = NOW()';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+        $idParams = [];
+        foreach ($orderIds as $index => $orderId) {
+            $key = ':order_' . $index;
+            $idParams[] = $key;
+            $params[$key] = $orderId;
+        }
+        Database::rowCount(
+            'UPDATE rest_pedidos SET ' . implode(', ', $set) .
+            ' WHERE id IN (' . implode(',', $idParams) . ')',
+            $params
+        );
     }
 
     private function requireWaiter(): array
@@ -548,8 +1299,10 @@ class WaiterController
     {
         $table = $this->buildTableResponse($restaurantId, $tableId, $userId);
         $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
+        $giftCharges = $this->getOpenGiftChargesForTable($restaurantId, $tableId);
         $items = [];
         $total = 0.0;
+        $giftChargesTotal = 0.0;
 
         foreach ($orders as &$order) {
             $orderItems = $this->getOrderItems((int)$order['id']);
@@ -563,6 +1316,30 @@ class WaiterController
                 ];
             }
         }
+        unset($order);
+
+        foreach ($giftCharges as $gift) {
+            $giftPrice = (float)($gift['gift_precio'] ?? 0);
+            $giftChargesTotal += $giftPrice;
+            $items[] = [
+                'id' => (int)$gift['id'],
+                'pedido_id' => 0,
+                'pedido_folio' => $gift['folio'] ?? null,
+                'pedido_created_at' => $gift['created_at'] ?? null,
+                'platillo_id' => 0,
+                'nombre' => (string)($gift['gift_nombre'] ?? 'Regalo'),
+                'imagen' => $gift['gift_imagen'] ?? null,
+                'cantidad' => 1,
+                'precio_unit' => $giftPrice,
+                'subtotal' => $giftPrice,
+                'notas' => $gift['gift_descripcion'] ?? null,
+                'estado' => $gift['status'] ?? 'listo',
+                'modificadores' => [],
+                'source' => 'gift',
+                'split_eligible' => false,
+            ];
+        }
+        $total += $giftChargesTotal;
 
         return [
             'table' => $table,
@@ -570,22 +1347,31 @@ class WaiterController
             'items' => $items,
             'total' => $total,
             'orders_count' => count($orders),
+            'gift_charges' => $giftCharges,
+            'gift_charges_total' => $giftChargesTotal,
+            'gift_charges_count' => count($giftCharges),
+            'has_unpaid_gifts' => !empty($giftCharges),
             'cliente_nombre' => $table['cliente_nombre'] ?? null,
             'mesero_nombre' => $table['mesero_nombre'] ?? null,
+            'active_split' => $this->getActiveSplit($restaurantId, $tableId),
         ];
     }
 
     private function findOpenAccountForTable(int $restaurantId, int $tableId): ?array
     {
         $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
-        if (empty($orders)) {
+        $giftCharges = $this->getOpenGiftChargesForTable($restaurantId, $tableId);
+        if (empty($orders) && empty($giftCharges)) {
             return null;
         }
 
         $total = 0.0;
-        $latest = $orders[count($orders) - 1];
+        $latest = !empty($orders) ? $orders[count($orders) - 1] : null;
         foreach ($orders as $order) {
             $total += (float)($order['total'] ?? 0);
+        }
+        foreach ($giftCharges as $gift) {
+            $total += (float)($gift['gift_precio'] ?? 0);
         }
 
         return [
@@ -669,8 +1455,168 @@ class WaiterController
                 'notas' => $item['notas'] ?? null,
                 'estado' => $item['estado'] ?? null,
                 'modificadores' => $extras,
+                'source' => 'order',
+                'split_eligible' => true,
             ];
         }, $rows);
+    }
+
+    private function getOpenGiftChargesForTable(int $restaurantId, int $tableId): array
+    {
+        if (!$this->tableExists('social_gift_orders')) {
+            return [];
+        }
+
+        $columns = $this->getTableColumns('social_gift_orders');
+        if (!in_array('pagado_at', $columns, true)) {
+            return [];
+        }
+
+        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
+        $orderIds = array_values(array_unique(array_map(
+            static fn(array $order): int => (int)($order['id'] ?? 0),
+            $orders
+        )));
+        $consumoIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $order): ?string => !empty($order['consumo_id']) ? (string)$order['consumo_id'] : null,
+            $orders
+        ))));
+
+        $fields = ['id', 'folio', 'gift_nombre', 'gift_descripcion', 'gift_precio', 'gift_imagen', 'status', 'created_at', 'pagado_at'];
+        foreach (['sender_nombre', 'recipient_nombre', 'sender_mesa', 'recipient_mesa'] as $column) {
+            if (in_array($column, $columns, true)) {
+                $fields[] = $column;
+            }
+        }
+
+        $sql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", $fields)) . '
+                  FROM social_gift_orders
+                 WHERE pagado_at IS NULL';
+        $params = [];
+
+        if (in_array('consumo_id', $columns, true) && !empty($consumoIds)) {
+            $placeholders = [];
+            foreach ($consumoIds as $index => $consumoId) {
+                $key = ':consumo_' . $index;
+                $placeholders[] = $key;
+                $params[$key] = $consumoId;
+            }
+            $sql .= ' AND consumo_id IN (' . implode(', ', $placeholders) . ')';
+        } elseif (in_array('pedido_id', $columns, true) && !empty($orderIds)) {
+            $placeholders = [];
+            foreach ($orderIds as $index => $orderId) {
+                $key = ':pedido_' . $index;
+                $placeholders[] = $key;
+                $params[$key] = $orderId;
+            }
+            $sql .= ' AND pedido_id IN (' . implode(', ', $placeholders) . ')';
+        } else {
+            $sql .= ' AND restaurante_id = :restaurant_id
+                      AND mesa_id = :table_id';
+            $params[':restaurant_id'] = $restaurantId;
+            $params[':table_id'] = $tableId;
+        }
+
+        $sql .= ' ORDER BY created_at ASC, id ASC';
+
+        return Database::query($sql, $params);
+    }
+
+    private function resolveCustomerUserIdForTable(int $restaurantId, array $table, string $customerName, int $waiterUserId): ?int
+    {
+        if (!$this->tableExists('mobile_usuarios')) {
+            return null;
+        }
+
+        $columns = $this->getTableColumns('mobile_usuarios');
+        if (!in_array('current_restaurante_id', $columns, true) || !in_array('mesa', $columns, true)) {
+            return null;
+        }
+
+        $tableValue = trim((string)($table['mesa_label'] ?? ''));
+        $mesaCandidates = $this->mesaMatchCandidates($tableValue);
+        if (empty($mesaCandidates)) {
+            return null;
+        }
+
+        $fields = ['id', 'nombre'];
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at';
+        }
+
+        $params = [
+            ':restaurant_id' => $restaurantId,
+            ':waiter_id' => $waiterUserId,
+        ];
+        $placeholders = [];
+
+        foreach ($mesaCandidates as $index => $mesaCandidate) {
+            $key = ':mesa_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $mesaCandidate;
+        }
+
+        $sql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", $fields)) . '
+                  FROM mobile_usuarios
+                 WHERE current_restaurante_id = :restaurant_id
+                   AND mesa IN (' . implode(', ', $placeholders) . ')
+                   AND id != :waiter_id';
+        $sql .= in_array('updated_at', $columns, true) ? ' ORDER BY updated_at DESC, id DESC' : ' ORDER BY id DESC';
+
+        $matches = Database::query($sql, $params);
+        if (empty($matches)) {
+            return null;
+        }
+
+        $normalizedCustomerName = $this->normalizeUserMatchValue($customerName);
+        if ($normalizedCustomerName !== '') {
+            $nameMatches = array_values(array_filter(
+                $matches,
+                fn(array $candidate): bool => $this->normalizeUserMatchValue((string)($candidate['nombre'] ?? '')) === $normalizedCustomerName
+            ));
+
+            if (count($nameMatches) === 1) {
+                return (int)$nameMatches[0]['id'];
+            }
+        }
+
+        return count($matches) === 1 ? (int)$matches[0]['id'] : null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function mesaMatchCandidates(string $tableValue): array
+    {
+        $trimmed = trim($tableValue);
+        if ($trimmed === '') {
+            return [];
+        }
+
+        $candidates = [$trimmed];
+        if (stripos($trimmed, 'mesa') === 0) {
+            $withoutPrefix = trim(substr($trimmed, 4));
+            if ($withoutPrefix !== '') {
+                $candidates[] = $withoutPrefix;
+            }
+        } else {
+            $candidates[] = $this->formatMesaLabel($trimmed);
+        }
+
+        return array_values(array_unique(array_filter($candidates, static fn(string $value): bool => $value !== '')));
+    }
+
+    private function normalizeUserMatchValue(string $value): string
+    {
+        $normalized = trim($value);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        return function_exists('mb_strtolower')
+            ? mb_strtolower($normalized, 'UTF-8')
+            : strtolower($normalized);
     }
 
     private function updateTableClaim(int $tableId, ?int $waiterId, ?string $waiterName, ?string $customerName, bool $claim): void

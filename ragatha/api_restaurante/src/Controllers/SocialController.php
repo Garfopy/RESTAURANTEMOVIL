@@ -7,7 +7,6 @@ namespace Amare\Api\Controllers;
 use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
-use Amare\Api\Models\User;
 
 class SocialController
 {
@@ -160,7 +159,268 @@ class SocialController
         $sql .= " ORDER BY social_updated_at DESC";
         $diners = Database::query($sql, $params);
 
-        Response::success(array_map(fn(array $row): array => $this->normalizeProfileRow($row, false), $diners));
+        Response::success(array_map(function (array $row) use ($user): array {
+            $profile = $this->normalizeProfileRow($row, false);
+            $profile['relationship_status'] = $this->getRelationshipStatus((int)$user->id, (int)$profile['user_id']);
+            return $profile;
+        }, $diners));
+    }
+
+    public function likeDiner(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $likedUserId = isset($input['liked_user_id']) ? (int)$input['liked_user_id'] : 0;
+        $restaurantId = isset($input['restaurant_id']) ? (int)$input['restaurant_id'] : 0;
+
+        if ($likedUserId <= 0) {
+            Response::validationError(['liked_user_id' => ['Selecciona un comensal valido']]);
+        }
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        if ($likedUserId === (int)$user->id) {
+            Response::validationError(['liked_user_id' => ['No puedes darte like a ti mismo']]);
+        }
+        if (!$this->tableExists('social_likes')) {
+            Response::serverError('La tabla social_likes aun no existe. Ejecuta la migracion 027.');
+        }
+
+        $sender = $this->fetchSocialProfile((int)$user->id);
+        if (
+            !$sender ||
+            !$this->hasSocialProfile($sender) ||
+            !(bool)($sender['is_social_active'] ?? false) ||
+            (int)($sender['current_restaurante_id'] ?? 0) !== $restaurantId
+        ) {
+            Response::error('Activa tu modo social en la sucursal actual antes de dar like.', 400);
+        }
+
+        $target = $this->fetchSocialProfile($likedUserId);
+        if (!$target || !$this->hasSocialProfile($target)) {
+            Response::notFound('Comensal no encontrado o sin perfil social completo');
+        }
+
+        $pdo = Database::getInstance();
+
+        try {
+            $pdo->beginTransaction();
+
+            Database::rowCount(
+                "INSERT INTO social_likes (liker_user_id, liked_user_id, restaurante_id, created_at, updated_at)
+                 VALUES (:liker_user_id, :liked_user_id, :restaurante_id, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE restaurante_id = VALUES(restaurante_id), updated_at = NOW()",
+                [
+                    ':liker_user_id' => (int)$user->id,
+                    ':liked_user_id' => $likedUserId,
+                    ':restaurante_id' => $restaurantId,
+                ]
+            );
+
+            $reverseLike = Database::queryOne(
+                "SELECT id
+                   FROM social_likes
+                  WHERE liker_user_id = :liked_user_id
+                    AND liked_user_id = :liker_user_id
+                  LIMIT 1",
+                [
+                    ':liked_user_id' => $likedUserId,
+                    ':liker_user_id' => (int)$user->id,
+                ]
+            );
+
+            $matched = $reverseLike !== null;
+            if ($matched) {
+                Database::rowCount(
+                    "UPDATE social_likes
+                        SET matched_at = COALESCE(matched_at, NOW()), updated_at = NOW()
+                      WHERE (liker_user_id = :user_id_a AND liked_user_id = :liked_user_id_a)
+                         OR (liker_user_id = :liked_user_id_b AND liked_user_id = :user_id_b)",
+                    [
+                        ':user_id_a' => (int)$user->id,
+                        ':liked_user_id_a' => $likedUserId,
+                        ':liked_user_id_b' => $likedUserId,
+                        ':user_id_b' => (int)$user->id,
+                    ]
+                );
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log('SocialController::likeDiner ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo guardar el like en este momento.');
+        }
+
+        $matchProfile = null;
+        if ($matched) {
+            $target = $this->fetchSocialProfile($likedUserId);
+            if ($target) {
+                $matchProfile = $this->normalizeProfileRow($target, false);
+                $matchProfile['relationship_status'] = 'matched';
+                $matchProfile['matched_at'] = $this->getMatchDate((int)$user->id, $likedUserId);
+            }
+        }
+
+        Response::success([
+            'liked' => true,
+            'matched' => $matched,
+            'relationship_status' => $matched ? 'matched' : 'liked',
+            'match' => $matchProfile,
+        ], $matched ? 'Hicieron match' : 'Like enviado');
+    }
+
+    public function unlikeDiner(int $likedUserId): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if ($likedUserId <= 0) {
+            Response::validationError(['liked_user_id' => ['Selecciona un comensal valido']]);
+        }
+        if ($likedUserId === (int)$user->id) {
+            Response::validationError(['liked_user_id' => ['No puedes quitarte un like a ti mismo']]);
+        }
+        if (!$this->tableExists('social_likes')) {
+            Response::success(['liked' => false, 'matched' => false, 'relationship_status' => 'none'], 'Like eliminado');
+        }
+
+        $like = Database::queryOne(
+            "SELECT matched_at FROM social_likes
+              WHERE liker_user_id = :liker_user_id AND liked_user_id = :liked_user_id LIMIT 1",
+            [':liker_user_id' => (int)$user->id, ':liked_user_id' => $likedUserId]
+        );
+        if (!$like) {
+            Response::success(['liked' => false, 'matched' => false, 'relationship_status' => 'none'], 'Like eliminado');
+        }
+        if (!empty($like['matched_at'])) {
+            Response::error('No puedes quitar el like de un match desde aqui.', 409);
+        }
+
+        Database::rowCount(
+            "DELETE FROM social_likes
+              WHERE liker_user_id = :liker_user_id AND liked_user_id = :liked_user_id AND matched_at IS NULL",
+            [':liker_user_id' => (int)$user->id, ':liked_user_id' => $likedUserId]
+        );
+        Response::success(['liked' => false, 'matched' => false, 'relationship_status' => 'none'], 'Like eliminado');
+    }
+
+    public function matches(): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if (!$this->tableExists('social_likes')) {
+            Response::success(['matches' => []]);
+        }
+
+        $rows = Database::query(
+            "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
+                    mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
+                    mu.is_social_active, mu.current_restaurante_id, mu.social_updated_at,
+                    sl.matched_at, sl.restaurante_id AS match_restaurante_id" .
+                    ($this->hasSocialPhotosColumn() ? ", mu.social_photos_json" : "") .
+                    ($this->hasMesaColumn() ? ", mu.mesa" : "") . "
+               FROM social_likes sl
+               JOIN mobile_usuarios mu ON mu.id = sl.liked_user_id
+              WHERE sl.liker_user_id = :user_id
+                AND sl.matched_at IS NOT NULL
+           ORDER BY sl.matched_at DESC",
+            [':user_id' => (int)$user->id]
+        );
+
+        $matches = array_map(function (array $row): array {
+            $profile = $this->normalizeProfileRow($row, false);
+            $profile['relationship_status'] = 'matched';
+            $profile['matched_at'] = $row['matched_at'] ?? null;
+            $profile['match_restaurante_id'] = isset($row['match_restaurante_id']) && $row['match_restaurante_id'] !== null
+                ? (int)$row['match_restaurante_id']
+                : null;
+            return $profile;
+        }, $rows);
+
+        Response::success(['matches' => $matches]);
+    }
+
+    public function receivedLikes(): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if (!$this->tableExists('social_likes')) {
+            Response::success(['likes' => []]);
+        }
+
+        $rows = Database::query(
+            "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
+                    mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
+                    mu.is_social_active, mu.current_restaurante_id, mu.social_updated_at,
+                    sl.created_at AS liked_at, sl.restaurante_id AS like_restaurante_id" .
+                    ($this->hasSocialPhotosColumn() ? ", mu.social_photos_json" : "") .
+                    ($this->hasMesaColumn() ? ", mu.mesa" : "") . "
+               FROM social_likes sl
+               JOIN mobile_usuarios mu ON mu.id = sl.liker_user_id
+              WHERE sl.liked_user_id = :user_id
+                AND sl.matched_at IS NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM social_likes mine
+                     WHERE mine.liker_user_id = :user_id_for_mine
+                       AND mine.liked_user_id = sl.liker_user_id
+                     LIMIT 1
+                )
+           ORDER BY sl.created_at DESC",
+            [
+                ':user_id' => (int)$user->id,
+                ':user_id_for_mine' => (int)$user->id,
+            ]
+        );
+
+        $likes = array_map(function (array $row): array {
+            $profile = $this->normalizeProfileRow($row, false);
+            $profile['relationship_status'] = 'none';
+            $profile['liked_at'] = $row['liked_at'] ?? null;
+            $profile['like_restaurante_id'] = isset($row['like_restaurante_id']) && $row['like_restaurante_id'] !== null
+                ? (int)$row['like_restaurante_id']
+                : null;
+            return $profile;
+        }, $rows);
+
+        Response::success(['likes' => $likes]);
+    }
+
+    public function sentLikes(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        if (!$this->tableExists('social_likes')) {
+            Response::success(['likes' => []]);
+        }
+
+        $rows = Database::query(
+            "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
+                    mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
+                    mu.is_social_active, mu.current_restaurante_id, mu.social_updated_at,
+                    sl.created_at AS liked_at, sl.restaurante_id AS like_restaurante_id" .
+                    ($this->hasSocialPhotosColumn() ? ", mu.social_photos_json" : "") .
+                    ($this->hasMesaColumn() ? ", mu.mesa" : "") . "
+               FROM social_likes sl
+               JOIN mobile_usuarios mu ON mu.id = sl.liked_user_id
+              WHERE sl.liker_user_id = :user_id AND sl.matched_at IS NULL
+           ORDER BY sl.created_at DESC",
+            [':user_id' => (int)$user->id]
+        );
+
+        $likes = array_map(function (array $row): array {
+            $profile = $this->normalizeProfileRow($row, false);
+            $profile['relationship_status'] = 'liked';
+            $profile['liked_at'] = $row['liked_at'] ?? null;
+            $profile['like_restaurante_id'] = isset($row['like_restaurante_id']) && $row['like_restaurante_id'] !== null
+                ? (int)$row['like_restaurante_id']
+                : null;
+            return $profile;
+        }, $rows);
+
+        Response::success(['likes' => $likes]);
     }
 
     public function getProfile(): void
@@ -392,7 +652,7 @@ class SocialController
 
     public function publicProfile(int $userId): void
     {
-        AuthMiddleware::authenticate();
+        $user = AuthMiddleware::authenticate();
 
         $profile = Database::queryOne(
             "SELECT id AS user_id, nombre, foto_url, edad, sexualidad, genero, descripcion, intereses, que_busca, redes_sociales" . ($this->hasSocialPhotosColumn() ? ", social_photos_json" : "") . ($this->hasMesaColumn() ? ", mesa" : "") . "
@@ -406,7 +666,10 @@ class SocialController
             Response::notFound('Usuario no encontrado o sin perfil social publico');
         }
 
-        Response::success($this->normalizeProfileRow($profile, false));
+        $result = $this->normalizeProfileRow($profile, false);
+        $result['relationship_status'] = $this->getRelationshipStatus((int)$user->id, (int)$result['user_id']);
+
+        Response::success($result);
     }
 
     public function giftProducts(): void
@@ -512,6 +775,16 @@ class SocialController
             Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
         }
 
+        $senderTable = $this->resolveMesaForRestaurant($restaurantId, $senderMesa);
+        if ($senderTable === null) {
+            Response::error('No encontramos tu mesa en la sucursal actual.', 409);
+        }
+
+        $openAccount = $this->findLatestOpenAccountForUser($restaurantId, (int)$user->id, (int)$senderTable['id']);
+        if ($openAccount === null) {
+            Response::error('Necesitas una cuenta abierta en tu mesa para enviar regalos.', 409);
+        }
+
         $giftProduct = $this->findGiftProduct($giftProductId);
         if ($giftProduct === null) {
             Response::notFound('Regalo no encontrado');
@@ -522,58 +795,26 @@ class SocialController
         try {
             $pdo->beginTransaction();
 
-            $giftOrderId = Database::execute(
-                "INSERT INTO social_gift_orders (
-                    restaurante_id,
-                    mesa_id,
-                    gift_product_id,
-                    sender_user_id,
-                    recipient_user_id,
-                    sender_nombre,
-                    recipient_nombre,
-                    sender_mesa,
-                    recipient_mesa,
-                    gift_nombre,
-                    gift_descripcion,
-                    gift_precio,
-                    gift_imagen,
-                    status,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    :restaurante_id,
-                    :mesa_id,
-                    :gift_product_id,
-                    :sender_user_id,
-                    :recipient_user_id,
-                    :sender_nombre,
-                    :recipient_nombre,
-                    :sender_mesa,
-                    :recipient_mesa,
-                    :gift_nombre,
-                    :gift_descripcion,
-                    :gift_precio,
-                    :gift_imagen,
-                    'listo',
-                    NOW(),
-                    NOW()
-                )",
-                [
-                    ':restaurante_id' => $restaurantId,
-                    ':mesa_id' => $mesa['id'],
-                    ':gift_product_id' => $giftProductId,
-                    ':sender_user_id' => (int)$user->id,
-                    ':recipient_user_id' => $recipientUserId,
-                    ':sender_nombre' => $sender['nombre'] ?? 'Comensal',
-                    ':recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
-                    ':sender_mesa' => $senderMesa,
-                    ':recipient_mesa' => $recipientMesa,
-                    ':gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
-                    ':gift_descripcion' => $giftProduct['descripcion'] ?? null,
-                    ':gift_precio' => isset($giftProduct['precio']) ? (float)$giftProduct['precio'] : 0,
-                    ':gift_imagen' => $giftProduct['imagen'] ?? null,
-                ]
-            );
+            $giftOrderId = $this->insertGiftOrder([
+                'restaurante_id' => $restaurantId,
+                'mesa_id' => $mesa['id'],
+                'gift_product_id' => $giftProductId,
+                'sender_user_id' => (int)$user->id,
+                'recipient_user_id' => $recipientUserId,
+                'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                'recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
+                'sender_mesa' => $senderMesa,
+                'recipient_mesa' => $recipientMesa,
+                'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
+                'gift_descripcion' => $giftProduct['descripcion'] ?? null,
+                'gift_precio' => isset($giftProduct['precio']) ? (float)$giftProduct['precio'] : 0,
+                'gift_imagen' => $giftProduct['imagen'] ?? null,
+                'status' => 'listo',
+                'consumo_id' => $openAccount['consumo_id'] ?? null,
+                'pedido_id' => $openAccount['id'] ?? null,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
 
             if ($giftOrderId <= 0) {
                 throw new \RuntimeException('No se pudo crear el registro del regalo');
@@ -613,6 +854,438 @@ class SocialController
             error_log('SocialController::sendGift ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo enviar el regalo en este momento.');
         }
+    }
+
+    public function createGiftPayment(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $requestKey = trim((string)($input['request_key'] ?? ''));
+        $context = $this->resolveGiftOrderContext($input, (int)$user->id, true);
+
+        if (!$this->tableExists('social_gift_orders')) {
+            Response::serverError('La tabla de regalos sociales no existe.');
+        }
+
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        foreach (['payment_request_key', 'pagado_at', 'moneda'] as $required) {
+            if (!in_array($required, $giftColumns, true)) {
+                Response::serverError('Ejecuta la migracion 030 antes de cargar regalos a la cuenta.');
+            }
+        }
+
+        $gift = Database::queryOne(
+            'SELECT * FROM social_gift_orders WHERE sender_user_id = :sender_id AND payment_request_key = :request_key LIMIT 1',
+            [':sender_id' => (int)$user->id, ':request_key' => $requestKey]
+        );
+        if ($gift && (
+            (int)$gift['restaurante_id'] !== $context['restaurant_id'] ||
+            (int)$gift['recipient_user_id'] !== $context['recipient_user_id'] ||
+            (int)$gift['gift_product_id'] !== $context['gift_product_id']
+        )) {
+            Response::error('La clave de solicitud ya pertenece a otro regalo.', 409);
+        }
+
+        if (!$gift) {
+            $pdo = Database::getInstance();
+            try {
+                $pdo->beginTransaction();
+                $giftInsertData = [
+                    'restaurante_id' => $context['restaurant_id'],
+                    'mesa_id' => $context['table']['id'],
+                    'gift_product_id' => $context['gift_product_id'],
+                    'sender_user_id' => (int)$user->id,
+                    'recipient_user_id' => $context['recipient_user_id'],
+                    'sender_nombre' => $context['sender']['nombre'] ?? 'Comensal',
+                    'recipient_nombre' => $context['recipient']['nombre'] ?? 'Comensal',
+                    'sender_mesa' => $context['sender_mesa'],
+                    'recipient_mesa' => $context['recipient_mesa'],
+                    'gift_nombre' => $context['gift_product']['nombre'] ?? 'Regalo',
+                    'gift_descripcion' => $context['gift_product']['descripcion'] ?? null,
+                    'gift_precio' => $context['gift_price'],
+                    'gift_imagen' => $context['gift_product']['imagen'] ?? null,
+                    'status' => 'listo',
+                    'moneda' => 'MXN',
+                    'payment_request_key' => $requestKey,
+                    'consumo_id' => $context['open_account']['consumo_id'] ?? null,
+                    'pedido_id' => $context['open_account']['id'] ?? null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ];
+                $this->logGiftDebug('createGiftPayment.insert_payload', [
+                    'request_key' => $requestKey,
+                    'gift_columns' => $giftColumns,
+                    'open_account' => [
+                        'id' => isset($context['open_account']['id']) ? (int)$context['open_account']['id'] : null,
+                        'consumo_id' => $context['open_account']['consumo_id'] ?? null,
+                        'mesa_id' => isset($context['open_account']['mesa_id']) ? (int)$context['open_account']['mesa_id'] : null,
+                        'mobile_usuario_id' => isset($context['open_account']['mobile_usuario_id']) ? (int)$context['open_account']['mobile_usuario_id'] : null,
+                    ],
+                    'gift_insert' => $giftInsertData,
+                ]);
+
+                $giftId = $this->insertGiftOrder($giftInsertData);
+                if ($giftId <= 0) {
+                    throw new \RuntimeException('No se pudo crear el regalo');
+                }
+                Database::rowCount(
+                    'UPDATE social_gift_orders SET folio = :folio, updated_at = NOW() WHERE id = :id',
+                    [':folio' => $this->buildGiftFolio($giftId), ':id' => $giftId]
+                );
+                $this->ensureGiftLinkedToOpenAccount($giftId, $context['open_account'], $giftColumns);
+                $pdo->commit();
+                $gift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+                $this->logGiftDebug('createGiftPayment.inserted', [
+                    'gift_id' => $giftId,
+                    'gift' => $gift,
+                ]);
+            } catch (\Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('SocialController::createGiftPayment DB ERROR: ' . $exception->getMessage());
+                Response::serverError('No se pudo agregar el regalo a la cuenta abierta.');
+            }
+        }
+
+        if ($gift) {
+            $this->ensureGiftLinkedToOpenAccount((int)$gift['id'], $context['open_account'], $giftColumns);
+            $gift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => (int)$gift['id']]) ?? $gift;
+            $this->logGiftDebug('createGiftPayment.response', [
+                'gift_id' => (int)$gift['id'],
+                'pedido_id' => $gift['pedido_id'] ?? null,
+                'consumo_id' => $gift['consumo_id'] ?? null,
+                'sender_user_id' => $gift['sender_user_id'] ?? null,
+                'recipient_user_id' => $gift['recipient_user_id'] ?? null,
+                'status' => $gift['status'] ?? null,
+            ]);
+        }
+
+        Response::success([
+            'gift' => $this->giftPaymentResponse($gift),
+            'charged_to_open_account' => true,
+            'payment_required' => false,
+        ], 'Regalo agregado a tu cuenta abierta.', 201);
+    }
+
+    public function confirmGiftPayment(int $giftId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $gift = Database::queryOne(
+            'SELECT * FROM social_gift_orders WHERE id = :id AND sender_user_id = :user_id LIMIT 1',
+            [':id' => $giftId, ':user_id' => (int)$user->id]
+        );
+        if (!$gift) {
+            Response::notFound('Regalo no encontrado');
+        }
+
+        Response::success(
+            $this->giftPaymentResponse($gift),
+            !empty($gift['pagado_at'])
+                ? 'Regalo cobrado dentro de la cuenta de la mesa.'
+                : 'Este regalo ya fue agregado a tu cuenta abierta.'
+        );
+    }
+
+    private function giftPaymentResponse(array $gift): array
+    {
+        return [
+            'id' => (int)$gift['id'],
+            'folio' => $gift['folio'] ?? null,
+            'mesa_id' => (int)$gift['mesa_id'],
+            'mesa_label' => $this->formatMesaLabel((string)($gift['recipient_mesa'] ?? $gift['mesa_id'])),
+            'gift_nombre' => $gift['gift_nombre'],
+            'gift_precio' => (float)$gift['gift_precio'],
+            'recipient_nombre' => $gift['recipient_nombre'],
+            'sender_nombre' => $gift['sender_nombre'],
+            'recipient_mesa' => $gift['recipient_mesa'] ?? null,
+            'status' => $gift['status'],
+        ];
+    }
+
+    /**
+     * @return array{
+     *   restaurant_id:int,
+     *   gift_product_id:int,
+     *   recipient_user_id:int,
+     *   sender:array,
+     *   sender_mesa:string,
+     *   recipient:array,
+     *   recipient_mesa:string,
+     *   table:array{id:int,label:string,value:string},
+     *   gift_product:array,
+     *   gift_price:float,
+     *   open_account:array{id:int,consumo_id?:string|null,created_at?:string|null}
+     * }
+     */
+    private function resolveGiftOrderContext(array $input, int $authenticatedUserId, bool $requireRequestKey = false): array
+    {
+        $restaurantId = isset($input['restaurant_id']) ? (int)$input['restaurant_id'] : 0;
+        $giftProductId = isset($input['gift_product_id']) ? (int)$input['gift_product_id'] : 0;
+        $recipientUserId = isset($input['recipient_user_id']) ? (int)$input['recipient_user_id'] : 0;
+        $requestKey = trim((string)($input['request_key'] ?? ''));
+
+        $errors = [];
+        if ($restaurantId <= 0) {
+            $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
+        }
+        if ($giftProductId <= 0) {
+            $errors['gift_product_id'] = ['Selecciona un regalo valido'];
+        }
+        if ($recipientUserId <= 0) {
+            $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
+        }
+        if ($recipientUserId === $authenticatedUserId) {
+            $errors['recipient_user_id'] = ['No puedes enviarte un regalo a ti mismo'];
+        }
+        if ($requireRequestKey && !preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
+            $errors['request_key'] = ['La clave de solicitud no es valida'];
+        }
+        if (!empty($errors)) {
+            Response::validationError($errors);
+        }
+
+        $sender = $this->fetchSocialProfile($authenticatedUserId);
+        if (!$sender || !$this->hasSocialProfile($sender)) {
+            Response::error('Completa tu perfil social antes de enviar regalos.', 400);
+        }
+        $senderRestaurantId = (int)($sender['current_restaurante_id'] ?? 0);
+        $senderMesa = $this->sanitizeNullableString($sender['mesa'] ?? null);
+        if (!(bool)($sender['is_social_active'] ?? false) || $senderRestaurantId !== $restaurantId) {
+            Response::error('Activa tu modo social en la sucursal actual antes de enviar regalos.', 400);
+        }
+        if ($senderMesa === null) {
+            Response::error('Necesitas seleccionar tu mesa antes de enviar un regalo.', 400);
+        }
+
+        $recipient = $this->fetchSocialProfile($recipientUserId);
+        if (
+            !$recipient ||
+            !(bool)($recipient['is_social_active'] ?? false) ||
+            (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId
+        ) {
+            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
+        }
+
+        $recipientMesa = $this->sanitizeNullableString($recipient['mesa'] ?? null);
+        if ($recipientMesa === null) {
+            Response::error('No pudimos ubicar la mesa del comensal seleccionado.', 409);
+        }
+
+        $table = $this->resolveMesaForRestaurant($restaurantId, $recipientMesa);
+        if ($table === null) {
+            Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
+        }
+
+        $giftProduct = $this->findGiftProduct($giftProductId);
+        if ($giftProduct === null) {
+            Response::notFound('Regalo no encontrado');
+        }
+
+        $giftPrice = round((float)($giftProduct['precio'] ?? 0), 2);
+        if ($giftPrice <= 0) {
+            Response::error('Este regalo no tiene un precio valido.', 409);
+        }
+
+        $senderTable = $this->resolveMesaForRestaurant($restaurantId, $senderMesa);
+        if ($senderTable === null) {
+            Response::error('No encontramos tu mesa en la sucursal actual.', 409);
+        }
+
+        $openAccount = $this->findLatestOpenAccountForUser($restaurantId, $authenticatedUserId, (int)$senderTable['id']);
+        if ($openAccount === null) {
+            Response::error('Necesitas una cuenta abierta en tu mesa para enviar regalos.', 409);
+        }
+
+        $this->logGiftDebug('resolveGiftOrderContext', [
+            'restaurant_id' => $restaurantId,
+            'gift_product_id' => $giftProductId,
+            'sender_user_id' => $authenticatedUserId,
+            'recipient_user_id' => $recipientUserId,
+            'sender_mesa' => $senderMesa,
+            'recipient_mesa' => $recipientMesa,
+            'sender_table_id' => (int)$senderTable['id'],
+            'recipient_table_id' => (int)$table['id'],
+            'open_account' => [
+                'id' => isset($openAccount['id']) ? (int)$openAccount['id'] : null,
+                'consumo_id' => $openAccount['consumo_id'] ?? null,
+                'mesa_id' => isset($openAccount['mesa_id']) ? (int)$openAccount['mesa_id'] : null,
+                'mobile_usuario_id' => isset($openAccount['mobile_usuario_id']) ? (int)$openAccount['mobile_usuario_id'] : null,
+                'created_at' => $openAccount['created_at'] ?? null,
+            ],
+        ]);
+
+        return [
+            'restaurant_id' => $restaurantId,
+            'gift_product_id' => $giftProductId,
+            'recipient_user_id' => $recipientUserId,
+            'sender' => $sender,
+            'sender_mesa' => $senderMesa,
+            'recipient' => $recipient,
+            'recipient_mesa' => $recipientMesa,
+            'table' => $table,
+            'gift_product' => $giftProduct,
+            'gift_price' => $giftPrice,
+            'open_account' => $openAccount,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function insertGiftOrder(array $data): int
+    {
+        $columns = $this->getTableColumns('social_gift_orders');
+        $fields = [];
+        $placeholders = [];
+        $params = [];
+
+        foreach ($data as $column => $value) {
+            if (!in_array($column, $columns, true)) {
+                continue;
+            }
+
+            $fields[] = "`{$column}`";
+            $placeholder = ':' . $column;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $value;
+        }
+
+        if (empty($fields)) {
+            return 0;
+        }
+
+        $sql = 'INSERT INTO social_gift_orders (' . implode(', ', $fields) . ')
+                VALUES (' . implode(', ', $placeholders) . ')';
+
+        return Database::execute($sql, $params);
+    }
+
+    private function findLatestOpenAccountForUser(int $restaurantId, int $accountUserId, int $tableId): ?array
+    {
+        if ($tableId <= 0 || !$this->tableExists('rest_pedidos')) {
+            return null;
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        $fields = ['id', 'restaurante_id', 'mesa_id', 'mobile_usuario_id', 'tipo_pedido', 'created_at'];
+        foreach (['consumo_id', 'cuenta_abierta', 'estado', 'salida_qr_generado_at', 'salida_validado_at', 'updated_at'] as $optionalColumn) {
+            if (in_array($optionalColumn, $columns, true)) {
+                $fields[] = $optionalColumn;
+            }
+        }
+
+        $baseSql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", $fields)) . '
+                      FROM rest_pedidos
+                     WHERE restaurante_id = :restaurant_id
+                       AND mesa_id = :mesa_id
+                       AND tipo_pedido IN ("eat_in", "dine_in")';
+
+        $baseParams = [
+            ':restaurant_id' => $restaurantId,
+            ':mesa_id' => $tableId,
+        ];
+
+        $queryOpenAccount = function (bool $byUser) use ($baseSql, $baseParams, $columns, $accountUserId): ?array {
+            $sql = $baseSql;
+            $params = $baseParams;
+
+            if ($byUser) {
+                $sql .= ' AND mobile_usuario_id = :account_user_id';
+                $params[':account_user_id'] = $accountUserId;
+            }
+
+            if (in_array('cuenta_abierta', $columns, true)) {
+                $sql .= ' AND cuenta_abierta = 1';
+            } else {
+                $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
+            }
+
+            if (in_array('salida_qr_generado_at', $columns, true)) {
+                $sql .= ' AND salida_qr_generado_at IS NULL';
+            }
+            if (in_array('salida_validado_at', $columns, true)) {
+                $sql .= ' AND salida_validado_at IS NULL';
+            }
+
+            $sql .= ' ORDER BY created_at DESC, id DESC LIMIT 1';
+
+            return Database::queryOne($sql, $params);
+        };
+
+        if (in_array('mobile_usuario_id', $columns, true)) {
+            $strictMatch = $queryOpenAccount(true);
+            $this->logGiftDebug('findLatestOpenAccountForUser.strict', [
+                'restaurant_id' => $restaurantId,
+                'table_id' => $tableId,
+                'account_user_id' => $accountUserId,
+                'matched_order_id' => $strictMatch['id'] ?? null,
+                'matched_consumo_id' => $strictMatch['consumo_id'] ?? null,
+            ]);
+            return $strictMatch;
+        }
+
+        $tableMatch = $queryOpenAccount(false);
+        $this->logGiftDebug('findLatestOpenAccountForUser.table', [
+            'restaurant_id' => $restaurantId,
+            'table_id' => $tableId,
+            'account_user_id' => $accountUserId,
+            'matched_order_id' => $tableMatch['id'] ?? null,
+            'matched_consumo_id' => $tableMatch['consumo_id'] ?? null,
+        ]);
+        return $tableMatch;
+    }
+
+    /**
+     * @param array<string, mixed> $openAccount
+     * @param array<int, string> $giftColumns
+     */
+    private function ensureGiftLinkedToOpenAccount(int $giftId, array $openAccount, array $giftColumns): void
+    {
+        if ($giftId <= 0) {
+            return;
+        }
+
+        $setClauses = [];
+        $params = [':id' => $giftId];
+
+        if (in_array('pedido_id', $giftColumns, true) && !empty($openAccount['id'])) {
+            $setClauses[] = 'pedido_id = :pedido_id';
+            $params[':pedido_id'] = (int)$openAccount['id'];
+        }
+        if (in_array('consumo_id', $giftColumns, true) && !empty($openAccount['consumo_id'])) {
+            $setClauses[] = 'consumo_id = :consumo_id';
+            $params[':consumo_id'] = (string)$openAccount['consumo_id'];
+        }
+        if (in_array('updated_at', $giftColumns, true)) {
+            $setClauses[] = 'updated_at = NOW()';
+        }
+
+        if (empty($setClauses)) {
+            $this->logGiftDebug('ensureGiftLinkedToOpenAccount.skipped', [
+                'gift_id' => $giftId,
+                'gift_columns' => $giftColumns,
+                'open_account' => [
+                    'id' => $openAccount['id'] ?? null,
+                    'consumo_id' => $openAccount['consumo_id'] ?? null,
+                ],
+            ]);
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE social_gift_orders SET ' . implode(', ', $setClauses) . ' WHERE id = :id',
+            $params
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function logGiftDebug(string $event, array $context = []): void
+    {
+        $json = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        error_log('SocialController::' . $event . ' ' . ($json !== false ? $json : '[context-unavailable]'));
     }
 
     public function restaurantTables(int $restaurantId): void
@@ -1016,6 +1689,53 @@ class SocialController
     {
         $exists = Database::query("SHOW TABLES LIKE '{$tableName}'");
         return !empty($exists);
+    }
+
+    private function getRelationshipStatus(int $currentUserId, int $targetUserId): string
+    {
+        if ($currentUserId === $targetUserId || !$this->tableExists('social_likes')) {
+            return 'none';
+        }
+
+        $like = Database::queryOne(
+            "SELECT matched_at
+               FROM social_likes
+              WHERE liker_user_id = :current_user_id
+                AND liked_user_id = :target_user_id
+              LIMIT 1",
+            [
+                ':current_user_id' => $currentUserId,
+                ':target_user_id' => $targetUserId,
+            ]
+        );
+
+        if (!$like) {
+            return 'none';
+        }
+
+        return !empty($like['matched_at']) ? 'matched' : 'liked';
+    }
+
+    private function getMatchDate(int $currentUserId, int $targetUserId): ?string
+    {
+        if (!$this->tableExists('social_likes')) {
+            return null;
+        }
+
+        $like = Database::queryOne(
+            "SELECT matched_at
+               FROM social_likes
+              WHERE liker_user_id = :current_user_id
+                AND liked_user_id = :target_user_id
+                AND matched_at IS NOT NULL
+              LIMIT 1",
+            [
+                ':current_user_id' => $currentUserId,
+                ':target_user_id' => $targetUserId,
+            ]
+        );
+
+        return $like['matched_at'] ?? null;
     }
 
     /**
