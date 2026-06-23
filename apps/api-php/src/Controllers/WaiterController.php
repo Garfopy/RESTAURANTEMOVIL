@@ -590,6 +590,10 @@ class WaiterController
         }
 
         Database::rowCount($sql, $params);
+        $this->markGiftOrdersPaid(array_map(
+            static fn(array $order): int => (int)$order['id'],
+            $orders
+        ));
         $this->updateTableClaim($tableId, null, null, null, false);
 
         Response::success([
@@ -1084,6 +1088,30 @@ class WaiterController
         Database::rowCount(
             'UPDATE rest_pedidos SET ' . implode(', ', $set) .
             ' WHERE id IN (' . implode(',', $idParams) . ')',
+            $params
+        );
+        $this->markGiftOrdersPaid($orderIds);
+    }
+
+    private function markGiftOrdersPaid(array $orderIds): void
+    {
+        if (!$orderIds || !$this->tableExists('social_gift_orders')) return;
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        if (!in_array('pedido_id', $giftColumns, true) || !in_array('pagado_at', $giftColumns, true)) return;
+
+        $placeholders = [];
+        $params = [];
+        foreach (array_values(array_unique(array_map('intval', $orderIds))) as $index => $orderId) {
+            if ($orderId <= 0) continue;
+            $placeholder = ':gift_order_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $orderId;
+        }
+        if (!$placeholders) return;
+        Database::rowCount(
+            'UPDATE social_gift_orders
+                SET pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
+              WHERE pedido_id IN (' . implode(',', $placeholders) . ')',
             $params
         );
     }

@@ -30,7 +30,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CardField, useStripe } from '@stripe/stripe-react-native';
 import InputField from '../../components/ui/InputField';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import { Colors, Shadows } from '../../theme';
@@ -521,7 +520,6 @@ export default function SocialProfileScreen() {
   const router = useRouter();
   const { activateSocial } = useLocalSearchParams<{ activateSocial?: string }>();
   const { width } = useWindowDimensions();
-  const { confirmPayment: confirmStripePayment } = useStripe();
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const selectedBranch = useBranchStore((state) => state.seleccionada);
@@ -545,13 +543,6 @@ export default function SocialProfileScreen() {
   const [likingUserId, setLikingUserId] = useState<number | null>(null);
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
   const [giftSending, setGiftSending] = useState(false);
-  const [giftCardComplete, setGiftCardComplete] = useState(false);
-  const [giftPaymentSession, setGiftPaymentSession] = useState<{
-    giftId: number;
-    clientSecret: string;
-    intentId: string;
-    stripeConfirmed: boolean;
-  } | null>(null);
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
@@ -1589,8 +1580,6 @@ export default function SocialProfileScreen() {
     if (giftSending) return;
     setGiftsVisible(false);
     setFocusedDiner(null);
-    setGiftPaymentSession(null);
-    setGiftCardComplete(false);
     giftRequestKeyRef.current = null;
   }
 
@@ -1607,53 +1596,27 @@ export default function SocialProfileScreen() {
 
     try {
       setGiftSending(true);
-      let session = giftPaymentSession;
-      if (!session) {
-        giftRequestKeyRef.current ??= `gift_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
-        const response = await apiClient.post<ApiEnvelope<{
-          gift: { id: number };
-          client_secret: string;
-          payment_intent_id: string;
-        }>>('/social-gifts', {
-          restaurant_id: selectedBranch.id,
-          recipient_user_id: detailDiner.user_id,
-          gift_product_id: selectedGift.id,
-          request_key: giftRequestKeyRef.current,
-        });
-        const prepared = unwrapApiData(response.data);
-        if (!prepared?.gift?.id || !prepared.client_secret || !prepared.payment_intent_id) {
-          throw new Error('No se pudo preparar el pago del regalo.');
-        }
-        session = {
-          giftId: prepared.gift.id,
-          clientSecret: prepared.client_secret,
-          intentId: prepared.payment_intent_id,
-          stripeConfirmed: false,
+      giftRequestKeyRef.current ??= `gift_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+      const response = await apiClient.post<ApiEnvelope<{
+        gift: {
+          id: number;
+          folio?: string;
+          mesa_label?: string;
+          gift_nombre: string;
+          recipient_nombre: string;
         };
-        setGiftPaymentSession(session);
-      }
-
-      if (!session.stripeConfirmed) {
-        if (!giftCardComplete) throw new Error('Completa los datos de la tarjeta.');
-        const { error } = await confirmStripePayment(session.clientSecret, { paymentMethodType: 'Card' });
-        if (error) {
-          Alert.alert('Pago rechazado', error.message);
-          return;
-        }
-        session = { ...session, stripeConfirmed: true };
-        setGiftPaymentSession(session);
-      }
-
-      const confirmation = await apiClient.post<ApiEnvelope<{
-        id: number;
-        folio?: string;
-        mesa_label?: string;
-        gift_nombre: string;
-        recipient_nombre: string;
-      }>>(`/social-gifts/${session.giftId}/confirm-payment`, {
-        payment_intent_id: session.intentId,
+        charged_to_account: boolean;
+      }>>('/social-gifts', {
+        restaurant_id: selectedBranch.id,
+        recipient_user_id: detailDiner.user_id,
+        gift_product_id: selectedGift.id,
+        request_key: giftRequestKeyRef.current,
       });
-      const result = unwrapApiData(confirmation.data);
+      const payload = unwrapApiData(response.data);
+      const result = payload?.gift;
+      if (!result?.id || !payload?.charged_to_account) {
+        throw new Error('No se pudo cargar el regalo a tu cuenta.');
+      }
       const giftName = result?.gift_nombre ?? selectedGift.nombre;
       const recipientName = result?.recipient_nombre ?? detailDiner.nombre;
       const mesaLabel = result?.mesa_label ?? (detailDiner.mesa ? `Mesa ${detailDiner.mesa}` : 'la mesa del comensal');
@@ -1661,12 +1624,10 @@ export default function SocialProfileScreen() {
 
       setGiftsVisible(false);
       setFocusedDiner(null);
-      setGiftPaymentSession(null);
-      setGiftCardComplete(false);
       giftRequestKeyRef.current = null;
       Alert.alert(
-        'Pago confirmado y regalo enviado',
-        `Avisamos al equipo de meseros para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
+        'Regalo enviado',
+        `Agregamos $${selectedGift.precio.toFixed(2)} a la cuenta de tu mesa y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
       );
     } catch (error) {
       Alert.alert('No se pudo enviar', getApiError(error));
@@ -2934,7 +2895,6 @@ export default function SocialProfileScreen() {
                       key={gift.id}
                       activeOpacity={0.85}
                       onPress={() => setSelectedGiftId(gift.id)}
-                      disabled={Boolean(giftPaymentSession)}
                       style={[styles.giftItem, active && styles.giftItemActive]}
                     >
                       <View style={[styles.giftIconWrap, { backgroundColor: `${gift.color ?? Colors.primary}18` }]}>
@@ -2968,29 +2928,22 @@ export default function SocialProfileScreen() {
               <View style={styles.giftPaymentBox}>
                 <View style={styles.giftPaymentHeading}>
                   <View>
-                    <Text style={styles.giftPaymentLabel}>Pago seguro con tarjeta</Text>
-                    <Text style={styles.giftPaymentHint}>El mesero recibira el aviso despues de confirmar el pago.</Text>
+                    <Text style={styles.giftPaymentLabel}>Se carga a tu cuenta</Text>
+                    <Text style={styles.giftPaymentHint}>Pagaras este regalo al cerrar la cuenta de tu mesa.</Text>
                   </View>
                   <Text style={styles.giftPaymentTotal}>${selectedGift.precio.toFixed(2)}</Text>
                 </View>
-                <CardField
-                  postalCodeEnabled={false}
-                  placeholders={{ number: '4242 4242 4242 4242' }}
-                  cardStyle={{ backgroundColor: '#FFFFFF', textColor: '#111827', borderColor: '#E2E8F0', borderWidth: 1, borderRadius: 12 }}
-                  style={styles.giftCardField}
-                  onCardChange={(details) => setGiftCardComplete(Boolean(details.complete))}
-                />
               </View>
             ) : null}
 
             <TouchableOpacity
-              style={[styles.saveButton, (!selectedGift || (!giftPaymentSession?.stripeConfirmed && !giftCardComplete) || giftProductsLoading || giftSending) && styles.saveButtonDisabled]}
+              style={[styles.saveButton, (!selectedGift || giftProductsLoading || giftSending) && styles.saveButtonDisabled]}
               activeOpacity={0.85}
               onPress={handleSendGift}
-              disabled={!selectedGift || (!giftPaymentSession?.stripeConfirmed && !giftCardComplete) || giftProductsLoading || giftSending}
+              disabled={!selectedGift || giftProductsLoading || giftSending}
             >
               {giftSending ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="gift-outline" size={18} color={Colors.white} />}
-              <Text style={styles.saveButtonText}>{giftSending ? 'Confirmando pago...' : `Pagar y enviar${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`}</Text>
+              <Text style={styles.saveButtonText}>{giftSending ? 'Enviando...' : `Enviar y cargar a cuenta${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3798,7 +3751,6 @@ const styles = StyleSheet.create({
   giftPaymentLabel: { color: '#111827', fontSize: 13, fontWeight: '800' },
   giftPaymentHint: { marginTop: 2, maxWidth: 230, color: '#64748B', fontSize: 10, lineHeight: 14 },
   giftPaymentTotal: { color: Colors.primary, fontSize: 18, fontWeight: '900' },
-  giftCardField: { width: '100%', height: 52, marginTop: 10 },
   giftPrice: {
     fontSize: 15,
     fontWeight: '800',
