@@ -26,7 +26,7 @@ class BranchController
         }
 
         if ($tipoPedido !== null && !in_array($tipoPedido, ['delivery', 'pickup', 'eat_in'], true)) {
-            Response::validationError(['tipo_pedido' => ['Tipo de pedido no valido']]);
+            Response::validationError(['tipo_pedido' => ['Tipo de pedido no válido']]);
         }
 
         $branches = Branch::nearest($lat, $lng, $tipoPedido);

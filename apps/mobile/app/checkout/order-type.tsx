@@ -164,7 +164,7 @@ export default function OrderTypeScreen() {
     setUbicacionVisual(
       tableSession
         ? `${selectedBranch?.nombre || 'Sucursal'} · ${tableSession.mesaLabel}`
-        : selectedBranch?.nombre || 'Comer aqui'
+        : selectedBranch?.nombre || 'Comer aquí'
     );
   }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, tableSession, tipoPedido]);
 
@@ -197,9 +197,9 @@ export default function OrderTypeScreen() {
       if (status !== 'granted') {
         Alert.alert(
           'Permiso denegado',
-          'Necesitamos acceso a tu ubicacion para calcular el envio. Puedes escribir tu direccion manualmente.'
+          'Necesitamos acceso a tu ubicación para calcular el envío. Puedes escribir tu dirección manualmente.'
         );
-        setUbicacionVisual('Escribe tu direccion aqui...');
+        setUbicacionVisual('Escribe tu dirección aquí...');
         return;
       }
 
@@ -217,8 +217,8 @@ export default function OrderTypeScreen() {
       setCoords(initialRegion);
       await actualizarDireccionTexto(initialRegion.latitude, initialRegion.longitude);
     } catch (error) {
-      console.error('Error al obtener la ubicacion:', error);
-      setUbicacionVisual('Direccion no encontrada automaticamente');
+      console.error('Error al obtener la ubicación:', error);
+      setUbicacionVisual('Dirección no encontrada automáticamente');
     } finally {
       setLoadingLocation(false);
     }
@@ -256,7 +256,7 @@ export default function OrderTypeScreen() {
     if (tipoPedido !== 'delivery') return;
 
     Alert.prompt(
-      'Modificar direccion',
+      'Modificar dirección',
       'Introduce los detalles exactos de tu domicilio:',
       [
         { text: 'Cancelar', style: 'cancel' },
@@ -294,7 +294,7 @@ export default function OrderTypeScreen() {
   async function promptToSaveAddress(): Promise<string | number | null> {
     return new Promise((resolve) => {
       Alert.alert(
-        'Guardar esta direccion?',
+        '¿Guardar esta dirección?',
         'Podras usarla en futuros pedidos a domicilio',
         [
           {
@@ -306,8 +306,8 @@ export default function OrderTypeScreen() {
             text: 'Guardar',
             onPress: () => {
               Alert.alert(
-                'Tipo de direccion',
-                'Elige como quieres llamar esta direccion',
+                'Tipo de dirección',
+                'Elige cómo quieres llamar esta dirección',
                 [
                   { text: 'Casa', onPress: () => saveAddressWithAlias('Casa') },
                   { text: 'Trabajo', onPress: () => saveAddressWithAlias('Trabajo') },
@@ -342,7 +342,7 @@ export default function OrderTypeScreen() {
           }
           resolve(saved?.id || null);
         } catch (err) {
-          console.error('Error al guardar direccion:', err);
+          console.error('Error al guardar dirección:', err);
           resolve(null);
         }
       }
@@ -356,7 +356,7 @@ export default function OrderTypeScreen() {
     }
 
     if (tipoPedido === 'delivery' && !direccionSeleccionada && !addressData) {
-      Alert.alert('Direccion requerida', 'Por favor, introduce una direccion de entrega valida.');
+      Alert.alert('Dirección requerida', 'Por favor, introduce una dirección de entrega válida.');
       return;
     }
 
@@ -371,7 +371,7 @@ export default function OrderTypeScreen() {
     if (tipoPedido === 'eat_in' && tableSession && Number(resolvedRestaurantId) !== tableSession.restauranteId) {
       Alert.alert(
         'Mesa de otra sucursal',
-        'La mesa escaneada pertenece a otra sucursal. Escanea el QR de esta mesa o vacia el carrito para cambiar de sucursal.',
+        'La mesa escaneada pertenece a otra sucursal. Escanea el QR de esta mesa o vacía el carrito para cambiar de sucursal.',
         [
           { text: 'Cancelar', style: 'cancel' },
           { text: 'Escanear QR', onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } }) },
@@ -478,7 +478,7 @@ export default function OrderTypeScreen() {
         icon: 'bicycle-outline' as const,
         title: 'Delivery',
         subtitle: 'Entrega a domicilio',
-        detail: ubicacionVisual || 'Confirma tu direccion de entrega',
+        detail: ubicacionVisual || 'Confirma tu dirección de entrega',
       };
     }
 
@@ -494,7 +494,7 @@ export default function OrderTypeScreen() {
     if (tipoPedido === 'eat_in') {
       return {
         icon: 'restaurant-outline' as const,
-        title: 'Comer aqui',
+        title: 'Comer aquí',
         subtitle: 'Pedido en restaurante',
         detail: tableSession
           ? `${tableSession.mesaLabel} · ${selectedBranch?.nombre || 'Sucursal seleccionada'}`
@@ -593,7 +593,7 @@ export default function OrderTypeScreen() {
                         setDeliveryAddress(addressToSelection(dir));
                         setShowMap(false);
                       }}
-                      accessibilityLabel={`Seleccionar direccion: ${dir.alias || 'guardada'}`}
+                      accessibilityLabel={`Seleccionar dirección: ${dir.alias || 'guardada'}`}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: direccionSeleccionada?.id === dir.id }}
                       testID={`address-chip-${dir.id}`}
@@ -612,7 +612,7 @@ export default function OrderTypeScreen() {
                       setShowMap(true);
                       obtenerUbicacionGPS();
                     }}
-                    accessibilityLabel="Agregar nueva direccion"
+                    accessibilityLabel="Agregar nueva dirección"
                     accessibilityRole="button"
                     testID="add-address-btn"
                   >
@@ -649,23 +649,23 @@ export default function OrderTypeScreen() {
               {loadingLocation ? (
                 <View style={styles.locationLoading}>
                   <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
-                  <Text style={styles.locationTextMuted}>Detectando tu ubicacion...</Text>
+                  <Text style={styles.locationTextMuted}>Detectando tu ubicación...</Text>
                 </View>
               ) : (
                 <>
                   <Text style={styles.locationAddress} numberOfLines={2}>
-                    {ubicacionVisual || 'Confirma tu direccion de entrega'}
+                    {ubicacionVisual || 'Confirma tu dirección de entrega'}
                   </Text>
 
                   <TouchableOpacity
                     style={styles.changeButton}
                     onPress={handleCambiarUbicacion}
                     activeOpacity={0.7}
-                    accessibilityLabel="Cambiar direccion de entrega"
+                    accessibilityLabel="Cambiar dirección de entrega"
                     accessibilityRole="button"
                     testID="change-address-btn"
                   >
-                    <Text style={styles.changeButtonText}>Cambiar direccion</Text>
+                    <Text style={styles.changeButtonText}>Cambiar dirección</Text>
                     <Ionicons name="create-outline" size={16} color={Colors.primary || '#111827'} />
                   </TouchableOpacity>
                 </>

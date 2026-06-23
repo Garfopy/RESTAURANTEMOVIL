@@ -130,7 +130,7 @@ export function BannerCarousel({
                 style={styles.banner}
                 accessibilityLabel={item.titulo || 'Promocion'}
                 accessibilityRole="button"
-                accessibilityHint={item.subtitulo || 'Toca para ver mas detalles'}
+                accessibilityHint={item.subtitulo || 'Toca para ver más detalles'}
                 testID={`banner-${item.id}`}
               >
                 <Image

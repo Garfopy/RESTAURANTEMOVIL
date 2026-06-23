@@ -37,7 +37,7 @@ type Props = {
 
 const FILTERS: Array<[Filter, string]> = [
   ['pending', 'Pendientes'],
-  ['mine', 'Mis entregas'],
+  ['mine', 'Mías'],
   ['history', 'Historial'],
 ];
 
@@ -136,16 +136,19 @@ export function GiftInboxModal({ visible, restaurantId, inbox, onClose, onChange
         ) : gift.claimed_by_me ? (
           <View style={styles.actions}>
             <TouchableOpacity style={styles.releaseButton} onPress={() => runAction(gift, 'release')} disabled={busy}>
+              <Ionicons name="return-up-back-outline" size={17} color="#475569" />
               <Text style={styles.releaseText}>Liberar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.deliverButton} onPress={() => confirmDelivery(gift)} disabled={busy}>
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.deliverText}>Marcar entregado</Text>}
+              {busy ? <ActivityIndicator color="#FFFFFF" /> : (
+                <><Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" /><Text style={styles.deliverText}>Entregado</Text></>
+              )}
             </TouchableOpacity>
           </View>
         ) : (
           <TouchableOpacity style={styles.claimButton} onPress={() => runAction(gift, 'claim')} disabled={busy}>
             {busy ? <ActivityIndicator color="#FFFFFF" /> : (
-              <><Ionicons name="hand-left-outline" size={18} color="#FFFFFF" /><Text style={styles.claimText}>Reclamar entrega</Text></>
+              <><Ionicons name="hand-left-outline" size={18} color="#FFFFFF" /><Text style={styles.claimText}>Reclamar</Text></>
             )}
           </TouchableOpacity>
         )}
@@ -219,11 +222,11 @@ const styles = StyleSheet.create({
   peopleText: { flex: 1, color: '#475569', fontSize: 12 },
   peopleLabel: { color: '#1F2937', fontWeight: '800' },
   actions: { marginTop: 12, flexDirection: 'row', gap: 9 },
-  releaseButton: { width: 90, height: 46, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F5F9' },
+  releaseButton: { width: 104, height: 44, borderRadius: 13, flexDirection: 'row', gap: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F5F9' },
   releaseText: { color: '#475569', fontWeight: '800' },
-  deliverButton: { flex: 1, height: 46, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#16A34A' },
+  deliverButton: { flex: 1, height: 44, borderRadius: 13, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: '#16A34A' },
   deliverText: { color: '#FFFFFF', fontWeight: '900' },
-  claimButton: { marginTop: 12, height: 46, borderRadius: 13, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#BE123C' },
+  claimButton: { marginTop: 12, height: 44, borderRadius: 13, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#BE123C' },
   claimText: { color: '#FFFFFF', fontWeight: '900' },
   claimedBadge: { marginTop: 12, padding: 11, borderRadius: 12, flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: '#F1F5F9' },
   claimedText: { color: '#475569', fontSize: 12, fontWeight: '700' },

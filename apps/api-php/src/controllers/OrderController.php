@@ -83,7 +83,7 @@ class OrderController
 
         $exitPass = Order::validateExitPass($payload, $user->id);
         if (!$exitPass) {
-            Response::notFound('QR de salida invalido o expirado');
+            Response::notFound('QR de salida inválido o expirado');
         }
 
         Response::success([

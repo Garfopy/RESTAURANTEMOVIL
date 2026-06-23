@@ -38,14 +38,14 @@ class PromotionsController
 
     /**
      * GET /promotions/:id
-     * Detalle de una promocion especifica.
+     * Detalle de una promoción específica.
      */
     public function show(int $id): void
     {
         $promotion = Promotion::findById($id);
 
         if (!$promotion) {
-            Response::notFound('Promocion no encontrada');
+            Response::notFound('Promoción no encontrada');
         }
 
         Response::success(['promotion' => $promotion]);
@@ -53,7 +53,7 @@ class PromotionsController
 
     /**
      * POST /admin/promotions/validate
-     * Valida un codigo promocional (SOLO para admin desde panel web).
+     * Valida un código promocional (SOLO para admin desde panel web).
      * Útil para verificar que un código sea válido antes de asignarlo.
      * Body: { "code": "PROMO123", "usuario_id": 123 }
      */
@@ -77,7 +77,7 @@ class PromotionsController
         $promotion = Promotion::validateCode($input['code'], $userId);
 
         if (!$promotion) {
-            Response::error('Codigo de promocion invalido, expirado o no asignado a este usuario', 404);
+            Response::error('Código de promoción inválido, expirado o no asignado a este usuario', 404);
         }
 
         Response::success(['promotion' => $promotion]);
@@ -89,7 +89,7 @@ class PromotionsController
 
     /**
      * GET /admin/promotions
-     * Lista TODAS las promociones para el panel web admin con paginacion.
+     * Lista TODAS las promociones para el panel web admin con paginación.
      *
      * Query params opcionales:
      *   page       (int, default 1)
@@ -122,7 +122,7 @@ class PromotionsController
 
     /**
      * POST /admin/promotions
-     * Crea una nueva promocion para un usuario especifico.
+     * Crea una nueva promoción para un usuario específico.
      * SOLO accesible desde panel web (requiere rol=admin).
      *
      * Body requerido:  usuario_id, titulo
@@ -154,7 +154,7 @@ class PromotionsController
         if (!$dt) {
             Response::validationError([
                 'expires_at' => [
-                    'Formato de fecha invalido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS'
+                    'Formato de fecha inválido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS'
                 ]
             ]);
         }
@@ -172,7 +172,7 @@ class PromotionsController
     if (!empty($input['code']) && Promotion::codeExists($input['code'])) {
         Response::validationError([
             'code' => [
-                'Este codigo ya esta en uso. Por favor elige otro.'
+                'Este código ya está en uso. Por favor elige otro.'
             ]
         ]);
     }
@@ -260,13 +260,13 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
     Response::success(
         ['promotion' => $promotion],
-        'Promocion creada exitosamente',
+        'Promoción creada exitosamente',
         201
     );
 }
     /**
      * PUT /admin/promotions/:id
-     * Actualiza una promocion existente.
+     * Actualiza una promoción existente.
      * SOLO accesible desde panel web (requiere rol=admin).
      * Body: cualquier combinacion de campos editables.
      */
@@ -277,12 +277,12 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         $promotion = Promotion::findById($id);
 
         if (!$promotion) {
-            Response::notFound('Promocion no encontrada');
+            Response::notFound('Promoción no encontrada');
         }
 
         // Validar permisos: verificar si el admin puede editar esta promo
         if (!Promotion::canEdit($id, (int)$user->id)) {
-            Response::error('No tienes permiso para editar esta promocion', 403);
+            Response::error('No tienes permiso para editar esta promoción', 403);
         }
 
         $input = ValidationMiddleware::getAllInput();
@@ -291,9 +291,9 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
             Response::validationError(['body' => ['No se enviaron campos para actualizar']]);
         }
 
-        // Validar codigo unico si cambia
+        // Validar código único si cambia
         if (!empty($input['code']) && Promotion::codeExists($input['code'], $id)) {
-            Response::validationError(['code' => ['Este codigo ya esta en uso por otra promocion.']]);
+            Response::validationError(['code' => ['Este código ya está en uso por otra promoción.']]);
         }
 
         // Validar formato de expires_at si se proporciona
@@ -302,7 +302,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
                ?: \DateTime::createFromFormat('Y-m-d', $input['expires_at']);
 
             if (!$dt) {
-                Response::validationError(['expires_at' => ['Formato de fecha invalido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS']]);
+                Response::validationError(['expires_at' => ['Formato de fecha inválido. Usa YYYY-MM-DD o YYYY-MM-DD HH:MM:SS']]);
             }
 
             // Validar que no sea fecha pasada
@@ -311,7 +311,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
             }
         }
 
-        // Normalizar codigo a mayusculas si se proporciona
+        // Normalizar código a mayúsculas si se proporciona
         if (isset($input['code']) && $input['code'] !== null) {
             $input['code'] = strtoupper(trim($input['code']));
         }
@@ -320,12 +320,12 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
         $updated = Promotion::findById($id);
 
-        Response::success(['promotion' => $updated], 'Promocion actualizada exitosamente');
+        Response::success(['promotion' => $updated], 'Promoción actualizada exitosamente');
     }
 
     /**
      * DELETE /admin/promotions/:id
-     * Elimina permanentemente una promocion (hard delete).
+     * Elimina permanentemente una promoción (hard delete).
      * SOLO accesible desde panel web (requiere rol=admin).
      */
     public function adminDestroy(int $id): void
@@ -335,26 +335,26 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         $promotion = Promotion::findById($id);
 
         if (!$promotion) {
-            Response::notFound('Promocion no encontrada');
+            Response::notFound('Promoción no encontrada');
         }
 
         // Validar permisos: verificar si el admin puede editar esta promo
         if (!Promotion::canEdit($id, (int)$user->id)) {
-            Response::error('No tienes permiso para eliminar esta promocion', 403);
+            Response::error('No tienes permiso para eliminar esta promoción', 403);
         }
 
         $deleted = Promotion::delete($id);
 
         if (!$deleted) {
-            Response::error('No se pudo eliminar la promocion', 500);
+            Response::error('No se pudo eliminar la promoción', 500);
         }
 
-        Response::success(null, 'Promocion eliminada exitosamente');
+        Response::success(null, 'Promoción eliminada exitosamente');
     }
 
     /**
      * PUT /admin/promotions/:id/deactivate
-     * Desactiva (soft-delete) una promocion sin eliminarla.
+     * Desactiva (soft-delete) una promoción sin eliminarla.
      * SOLO accesible desde panel web (requiere rol=admin).
      */
     public function adminDeactivate(int $id): void
@@ -364,23 +364,23 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         $promotion = Promotion::findById($id);
 
         if (!$promotion) {
-            Response::notFound('Promocion no encontrada');
+            Response::notFound('Promoción no encontrada');
         }
 
         if ((int)$promotion['activo'] === 0) {
-            Response::error('La promocion ya esta desactivada', 422);
+            Response::error('La promoción ya está desactivada', 422);
         }
 
         // Validar permisos: verificar si el admin puede editar esta promo
         if (!Promotion::canEdit($id, (int)$user->id)) {
-            Response::error('No tienes permiso para desactivar esta promocion', 403);
+            Response::error('No tienes permiso para desactivar esta promoción', 403);
         }
 
         Promotion::deactivate($id, (int)$user->id);
 
         $updated = Promotion::findById($id);
 
-        Response::success(['promotion' => $updated], 'Promocion desactivada exitosamente');
+        Response::success(['promotion' => $updated], 'Promoción desactivada exitosamente');
     }
 
     public function uploadImage(): void

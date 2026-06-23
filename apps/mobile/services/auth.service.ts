@@ -74,7 +74,7 @@ function parseSesion(response: AuthResponse): Sesion {
   const user = hasAuthEnvelope(response) ? response.data?.user : response;
 
   if (!token || !user) {
-    throw new Error('La respuesta del servidor no contiene una sesion valida.');
+    throw new Error('La respuesta del servidor no contiene una sesión válida.');
   }
 
   return {

@@ -137,7 +137,7 @@ final class DishModifier
         if (empty($modifiers)) return 0;
         $count = 0;
         foreach ($modifiers as $input) {
-            if (!is_array($input)) throw new \InvalidArgumentException('Cada modificador debe ser un objeto valido.');
+            if (!is_array($input)) throw new \InvalidArgumentException('Cada modificador debe ser un objeto válido.');
             $modifierId = self::upsertModifier($pdo, $restaurantId, $input);
             $maxSelection = self::normalizeType((string)($input['tipo'] ?? '')) === 'sin'
                 ? 1
@@ -156,7 +156,7 @@ final class DishModifier
         $type = self::normalizeType((string)($input['tipo'] ?? ''));
         $name = trim((string)($input['nombre'] ?? ''));
         if (!in_array($type, ['sin', 'extra', 'opcion'], true) || $name === '') {
-            throw new \InvalidArgumentException('Cada modificador requiere tipo y nombre validos.');
+            throw new \InvalidArgumentException('Cada modificador requiere tipo y nombre válidos.');
         }
         $ingredientId = !empty($input['ingrediente_id']) ? (int)$input['ingrediente_id'] : null;
         $scope = (string)self::value($input, 'alcance', 'platillo');

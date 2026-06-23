@@ -50,7 +50,7 @@ class WaiterController
         $restaurantId = isset($_GET['restaurant_id']) ? (int)$_GET['restaurant_id'] : 0;
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
 
@@ -164,7 +164,7 @@ class WaiterController
         $customerName = trim((string)($input['cliente_nombre'] ?? $input['customer_name'] ?? ''));
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         if ($customerName === '') {
             Response::validationError(['cliente_nombre' => ['Ingresa el nombre del comensal']]);
@@ -197,7 +197,7 @@ class WaiterController
         $restaurantId = isset($input['restaurant_id']) ? (int)$input['restaurant_id'] : 0;
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
         $table = $this->findTable($restaurantId, $tableId);
@@ -228,7 +228,7 @@ class WaiterController
         $restaurantId = isset($_GET['restaurant_id']) ? (int)$_GET['restaurant_id'] : 0;
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
 
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
@@ -245,7 +245,7 @@ class WaiterController
         $user = $this->requireWaiter();
         $restaurantId = (int)($_GET['restaurant_id'] ?? 0);
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
         if (!$this->tableExists('social_gift_orders')) {
@@ -306,7 +306,7 @@ class WaiterController
         $input = ValidationMiddleware::getAllInput();
         $restaurantId = (int)($input['restaurant_id'] ?? 0);
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
         if (!$this->tableExists('social_gift_orders')) {
@@ -337,7 +337,7 @@ class WaiterController
                     );
                     $update->execute([':user_id' => $userId, ':id' => $giftId]);
                 } elseif ($status === 'reclamado') {
-                    throw new \DomainException('Otro mesero ya reclamo este regalo.');
+                    throw new \DomainException('Otro mesero ya reclamó este regalo.');
                 } else {
                     throw new \DomainException('Este regalo ya no se puede reclamar.');
                 }
@@ -425,7 +425,7 @@ class WaiterController
         $customerName = trim((string)($input['cliente_nombre'] ?? $input['customer_name'] ?? ''));
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         if (empty($input['items']) || !is_array($input['items'])) {
             Response::validationError(['items' => ['Agrega al menos un producto']]);
@@ -460,7 +460,7 @@ class WaiterController
             $precio = (float)($item['precio_unit'] ?? $item['unit_price'] ?? 0);
 
             if ($platilloId <= 0 || $precio <= 0) {
-                Response::validationError(['items' => ['Producto o precio invalido']]);
+                Response::validationError(['items' => ['Producto o precio inválido']]);
             }
             if (!Product::belongsToRestaurant($platilloId, $restaurantId)) {
                 Response::validationError(['items' => ["El platillo {$platilloId} no pertenece a la sucursal seleccionada"]]);
@@ -518,7 +518,7 @@ class WaiterController
         $paymentMethod = $this->normalizeWaiterPaymentMethod((string)($input['metodo_pago'] ?? $input['payment_method'] ?? ''));
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         if ($paymentMethod === null) {
             Response::validationError(['metodo_pago' => ['Selecciona efectivo, tarjeta o transferencia']]);
@@ -614,13 +614,13 @@ class WaiterController
         $accountsInput = $input['accounts'] ?? null;
 
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         if (!is_array($accountsInput) || count($accountsInput) < 2) {
             Response::validationError(['accounts' => ['Agrega al menos dos cuentas']]);
         }
         if (!$this->splitTablesExist()) {
-            Response::error('Ejecuta la migracion 029 para usar cuentas separadas.', 500);
+            Response::error('Ejecuta la migración 029 para usar cuentas separadas.', 500);
         }
 
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
@@ -639,7 +639,7 @@ class WaiterController
             );
             $activeStmt->execute([':restaurant_id' => $restaurantId, ':table_id' => $tableId]);
             if ($activeStmt->fetch()) {
-                throw new \DomainException('Esta mesa ya tiene una division activa.');
+                throw new \DomainException('Esta mesa ya tiene una división activa.');
             }
 
             $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
@@ -682,10 +682,10 @@ class WaiterController
                     $itemId = (int)($itemInput['pedido_item_id'] ?? 0);
                     $quantity = (int)($itemInput['cantidad'] ?? 0);
                     if ($itemId <= 0 || $quantity <= 0 || !isset($sourceItems[$itemId])) {
-                        throw new \InvalidArgumentException('El reparto contiene un producto o cantidad invalida.');
+                        throw new \InvalidArgumentException('El reparto contiene un producto o cantidad inválida.');
                     }
                     if (isset($accountItems[$itemId])) {
-                        throw new \InvalidArgumentException('Un producto esta repetido dentro de la misma cuenta.');
+                        throw new \InvalidArgumentException('Un producto está repetido dentro de la misma cuenta.');
                     }
                     $assigned[$itemId] = ($assigned[$itemId] ?? 0) + $quantity;
                     $unitCents = (int)round($sourceItems[$itemId]['precio_unit'] * 100);
@@ -819,7 +819,7 @@ class WaiterController
                 ], 'La cuenta ya estaba pagada');
             }
             if ($row['division_estado'] !== 'activa') {
-                throw new \DomainException('La division ya no esta activa.');
+                throw new \DomainException('La división ya no está activa.');
             }
 
             $payStmt = $pdo->prepare(
@@ -886,7 +886,7 @@ class WaiterController
         $input = ValidationMiddleware::getAllInput();
         $restaurantId = (int)($input['restaurant_id'] ?? $_GET['restaurant_id'] ?? 0);
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
 
@@ -909,10 +909,10 @@ class WaiterController
             ]);
             $split = $stmt->fetch();
             if (!$split) {
-                throw new \DomainException('La division activa no existe.');
+                throw new \DomainException('La división activa no existe.');
             }
             if ((int)$split['paid_count'] > 0) {
-                throw new \DomainException('No puedes cancelar una division con cuentas pagadas.');
+                throw new \DomainException('No puedes cancelar una división con cuentas pagadas.');
             }
             $cancelStmt = $pdo->prepare(
                 "UPDATE rest_cuenta_divisiones
@@ -921,7 +921,7 @@ class WaiterController
             );
             $cancelStmt->execute([':split_id' => $splitId]);
             $pdo->commit();
-            Response::success(['cancelled' => true], 'Division cancelada');
+            Response::success(['cancelled' => true], 'División cancelada');
         } catch (\DomainException $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -932,7 +932,7 @@ class WaiterController
                 $pdo->rollBack();
             }
             error_log('WaiterController::cancelSplit ERROR: ' . $e->getMessage());
-            Response::serverError('No se pudo cancelar la division.');
+            Response::serverError('No se pudo cancelar la división.');
         }
     }
 
@@ -1046,7 +1046,7 @@ class WaiterController
         );
         $orderIds = array_map(static fn(array $row): int => (int)$row['pedido_id'], $orderRows);
         if (empty($orderIds)) {
-            throw new \DomainException('La division no contiene pedidos para cerrar.');
+            throw new \DomainException('La división no contiene pedidos para cerrar.');
         }
 
         $columns = $this->getTableColumns('rest_pedidos');
@@ -1153,7 +1153,7 @@ class WaiterController
         $assignmentSource = $this->staffAssignmentSource();
 
         if ($assignmentSource === null) {
-            Response::error('No existe tabla de asignacion de meseros. Ejecuta la migracion 025.', 500);
+            Response::error('No existe tabla de asignación de meseros. Ejecuta la migración 025.', 500);
         }
 
         $roleColumn = $assignmentSource === 'rest_staff' ? 'rol_slug' : 'rol_operativo';

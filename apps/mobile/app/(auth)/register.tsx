@@ -56,7 +56,7 @@ type CountryCodeOption = {
 };
 
 const COUNTRY_CODES: CountryCodeOption[] = [
-  { iso: 'MX', name: 'Mexico', dialCode: '52', flag: '🇲🇽', example: '55 1234 5678' },
+  { iso: 'MX', name: 'México', dialCode: '52', flag: '🇲🇽', example: '55 1234 5678' },
   { iso: 'US', name: 'Estados Unidos', dialCode: '1', flag: '🇺🇸', example: '201 555 0123' },
   { iso: 'CA', name: 'Canada', dialCode: '1', flag: '🇨🇦', example: '416 555 0123' },
   { iso: 'CO', name: 'Colombia', dialCode: '57', flag: '🇨🇴', example: '300 123 4567' },
@@ -64,7 +64,7 @@ const COUNTRY_CODES: CountryCodeOption[] = [
   { iso: 'CL', name: 'Chile', dialCode: '56', flag: '🇨🇱', example: '9 1234 5678' },
   { iso: 'PE', name: 'Peru', dialCode: '51', flag: '🇵🇪', example: '912 345 678' },
   { iso: 'BR', name: 'Brasil', dialCode: '55', flag: '🇧🇷', example: '11 91234 5678' },
-  { iso: 'ES', name: 'Espana', dialCode: '34', flag: '🇪🇸', example: '612 345 678' },
+  { iso: 'ES', name: 'España', dialCode: '34', flag: '🇪🇸', example: '612 345 678' },
   { iso: 'GT', name: 'Guatemala', dialCode: '502', flag: '🇬🇹', example: '5123 4567' },
   { iso: 'SV', name: 'El Salvador', dialCode: '503', flag: '🇸🇻', example: '7123 4567' },
 ];
@@ -150,7 +150,7 @@ export default function RegisterScreen() {
       setDetectingCountry(true);
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') {
-        toast.warning('No se pudo acceder a tu ubicacion. Dejamos Mexico como lada.');
+        toast.warning('No se pudo acceder a tu ubicación. Dejamos México como lada.');
         return;
       }
 
@@ -165,10 +165,10 @@ export default function RegisterScreen() {
         handleCountrySelect(match);
         toast.success(`Lada detectada: ${match.flag} +${match.dialCode}`);
       } else {
-        toast.info('No encontramos ese pais en la lista. Dejamos Mexico como lada.');
+        toast.info('No encontramos ese país en la lista. Dejamos México como lada.');
       }
     } catch {
-      toast.error('No se pudo detectar tu pais.');
+      toast.error('No se pudo detectar tu país.');
     } finally {
       setDetectingCountry(false);
     }
@@ -228,7 +228,7 @@ export default function RegisterScreen() {
           <TouchableOpacity
             style={styles.back}
             onPress={() => router.back()}
-            accessibilityLabel="Volver atras"
+            accessibilityLabel="Volver atrás"
             accessibilityRole="button"
             testID="back-btn"
           >
@@ -252,8 +252,8 @@ export default function RegisterScreen() {
                 <Ionicons name="person-add-outline" size={18} color={AuthColors.accent} />
               </View>
               <View style={styles.formIntroCopy}>
-                <Text style={styles.formIntroTitle}>Cuentanos sobre ti</Text>
-                <Text style={styles.formIntroText}>Te tomara menos de un minuto.</Text>
+                <Text style={styles.formIntroTitle}>Cuéntanos sobre ti</Text>
+                <Text style={styles.formIntroText}>Te tomará menos de un minuto.</Text>
               </View>
               <Ionicons name="shield-checkmark-outline" size={18} color={AuthColors.muted} />
             </View>
@@ -273,7 +273,7 @@ export default function RegisterScreen() {
             />
 
             <View style={styles.phoneField}>
-              <Text style={styles.fieldLabel}>Telefono</Text>
+              <Text style={styles.fieldLabel}>Teléfono</Text>
               <View style={[styles.phoneInputRow, telefonoError && styles.fieldInputError]}>
                 <TouchableOpacity
                   style={styles.countryButton}
@@ -290,15 +290,15 @@ export default function RegisterScreen() {
                 <TextInput
                   value={telefono}
                   onChangeText={handleTelefonoChange}
-                  onBlur={() => setTelefonoError(telefono.trim() ? validatePhone(`${selectedCountry.dialCode}${digitsOnly(telefono)}`) : 'Telefono es requerido')}
+                  onBlur={() => setTelefonoError(telefono.trim() ? validatePhone(`${selectedCountry.dialCode}${digitsOnly(telefono)}`) : 'Teléfono es requerido')}
                   placeholder={selectedCountry.example}
                   placeholderTextColor={AuthColors.muted}
                   keyboardType="phone-pad"
                   autoComplete="off"
                   style={styles.phoneInput}
                   testID="phone-input"
-                  accessibilityLabel="Telefono"
-                  accessibilityHint="Ingresa tu numero telefonico"
+                  accessibilityLabel="Teléfono"
+                  accessibilityHint="Ingresa tu número telefónico"
                 />
               </View>
               {telefonoError ? (
@@ -311,7 +311,7 @@ export default function RegisterScreen() {
 
             <FormField
               {...fieldTheme}
-              label="Correo electronico (opcional)"
+              label="Correo electrónico (opcional)"
               value={email}
               onChangeText={handleEmailChange}
               onBlur={() => setEmailError(validateOptionalEmail(email))}
@@ -322,13 +322,13 @@ export default function RegisterScreen() {
               autoComplete="email"
               icon="mail-outline"
               testID="email-input"
-              accessibilityLabel="Correo electronico"
-              accessibilityHint="Ingresa una direccion de correo valida"
+              accessibilityLabel="Correo electrónico"
+              accessibilityHint="Ingresa una dirección de correo válida"
             />
 
             <FormField
               {...fieldTheme}
-              label="Contrasena"
+              label="Contraseña"
               value={password}
               onChangeText={handlePasswordChange}
               onBlur={() => setPasswordError(password.trim() ? validatePassword(password) : null)}
@@ -338,8 +338,8 @@ export default function RegisterScreen() {
               onToggleSecure={() => setShowPassword((v) => !v)}
               icon="lock-closed-outline"
               testID="password-input"
-              accessibilityLabel="Contrasena"
-              accessibilityHint="Ingresa una contrasena de al menos 8 caracteres"
+              accessibilityLabel="Contraseña"
+              accessibilityHint="Ingresa una contraseña de al menos 8 caracteres"
             />
 
             <View style={styles.passwordHint}>
@@ -362,12 +362,12 @@ export default function RegisterScreen() {
             <TouchableOpacity
               style={styles.loginLink}
               onPress={() => router.replace('/(auth)/email-login')}
-              accessibilityLabel="Ir a iniciar sesion"
+              accessibilityLabel="Ir a iniciar sesión"
               accessibilityRole="link"
               testID="login-link"
             >
               <Text style={styles.loginText}>
-                Ya tienes cuenta? <Text style={styles.loginBold}>Iniciar sesion</Text>
+                ¿Ya tienes cuenta? <Text style={styles.loginBold}>Iniciar sesión</Text>
               </Text>
             </TouchableOpacity>
           </Animated.View>
@@ -381,7 +381,7 @@ export default function RegisterScreen() {
             <View style={styles.countrySheetHeader}>
               <View>
                 <Text style={styles.countrySheetTitle}>Selecciona tu lada</Text>
-                <Text style={styles.countrySheetSubtitle}>Mexico queda seleccionado por defecto.</Text>
+                <Text style={styles.countrySheetSubtitle}>México queda seleccionado por defecto.</Text>
               </View>
               <TouchableOpacity style={styles.detectButton} onPress={detectCountryFromLocation} disabled={detectingCountry}>
                 {detectingCountry ? (

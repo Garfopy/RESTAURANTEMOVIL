@@ -130,7 +130,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
       if (permission.status !== 'granted') {
         Alert.alert(
           'Ubicacion',
-          'No pudimos usar tu GPS. Puedes mover el mapa manualmente y completar la direccion.'
+          'No pudimos usar tu GPS. Puedes mover el mapa manualmente y completar la dirección.'
         );
         await updateAddressFromCoords(DEFAULT_REGION.latitude, DEFAULT_REGION.longitude);
         return;
@@ -148,7 +148,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
       setRegion(nextRegion);
       await updateAddressFromCoords(nextRegion.latitude, nextRegion.longitude);
     } catch (error) {
-      console.error('Error obteniendo ubicacion:', error);
+      console.error('Error obteniendo ubicación:', error);
       await updateAddressFromCoords(DEFAULT_REGION.latitude, DEFAULT_REGION.longitude);
     } finally {
       setLoadingLocation(false);
@@ -206,7 +206,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
 
   function handleConfirmSavedAddress() {
     if (!selectedAddress) {
-      Alert.alert('Direccion requerida', 'Selecciona una direccion o agrega una nueva.');
+      Alert.alert('Dirección requerida', 'Selecciona una dirección o agrega una nueva.');
       return;
     }
 
@@ -215,7 +215,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
 
   async function handleSaveNewAddress() {
     if (!draft) {
-      Alert.alert('Ubicacion requerida', 'Mueve el pin en el mapa para confirmar tu ubicacion.');
+      Alert.alert('Ubicación requerida', 'Mueve el pin en el mapa para confirmar tu ubicación.');
       return;
     }
 
@@ -247,7 +247,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
 
       const saved = response.data?.data as SavedAddress | undefined;
       if (!saved) {
-        throw new Error('No se recibio la direccion guardada.');
+        throw new Error('No se recibió la dirección guardada.');
       }
 
       onConfirm(buildSelection(saved));
@@ -358,7 +358,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                       {loadingLocation ? (
                         <View style={styles.mapLoading}>
                           <ActivityIndicator color={Colors.primary} />
-                          <Text style={styles.mapLoadingText}>Detectando ubicacion...</Text>
+                          <Text style={styles.mapLoadingText}>Detectando ubicación...</Text>
                         </View>
                       ) : null}
                     </View>
@@ -455,7 +455,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
 
               <View style={[styles.footer, { paddingBottom: (Spacing.base || 16) + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}>
                 <Button
-                  label={mode === 'saved' ? 'Usar esta direccion' : 'Guardar y usar direccion'}
+                  label={mode === 'saved' ? 'Usar esta dirección' : 'Guardar y usar dirección'}
                   onPress={mode === 'saved' ? handleConfirmSavedAddress : handleSaveNewAddress}
                   loading={saving}
                   disabled={saving || loadingLocation}

@@ -73,7 +73,7 @@ export async function getPromotion(id: number): Promise<Promotion> {
   return res.data.data.promotion;
 }
 
-/** POST /promotions/validate  -  Valida un codigo de descuento */
+/** POST /promotions/validate  -  Valida un código de descuento */
 export async function validatePromoCode(code: string): Promise<Promotion> {
   const res = await apiClient.post('/promotions/validate', { code });
   return res.data.data.promotion;

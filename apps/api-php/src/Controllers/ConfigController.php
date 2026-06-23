@@ -97,7 +97,7 @@ class ConfigController
 
         if (isset($input['modificadores'])) {
             if (!is_array($input['modificadores'])) {
-                Response::validationError(['modificadores' => ['La configuracion de modificadores no es valida']]);
+                Response::validationError(['modificadores' => ['La configuración de modificadores no es válida']]);
             }
             if (array_key_exists('exclusiones_habilitadas', $input['modificadores'])) {
                 $data['exclusiones_habilitadas'] = (bool)$input['modificadores']['exclusiones_habilitadas'];

@@ -215,7 +215,7 @@ export default function OrderDetailScreen() {
             />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.detailLabel}>
-                {order?.tipo_pedido === 'delivery' ? 'Direccion de envio' : order?.tipo_pedido === 'eat_in' ? 'Mesa' : 'Recoges en sucursal'}
+                {order?.tipo_pedido === 'delivery' ? 'Dirección de envío' : order?.tipo_pedido === 'eat_in' ? 'Mesa' : 'Recoges en sucursal'}
               </Text>
               <Text style={styles.detailValue}>
                 {order?.tipo_pedido === 'eat_in'

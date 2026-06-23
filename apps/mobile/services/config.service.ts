@@ -37,7 +37,7 @@ export async function fetchRestaurantConfig(restauranteId: number, etag?: string
 
 export async function getRestaurantConfig(restauranteId: number): Promise<RestaurantConfig> {
   const result = await fetchRestaurantConfig(restauranteId);
-  if (!result.config) throw new Error('La configuracion de la sucursal no esta disponible.');
+  if (!result.config) throw new Error('La configuración de la sucursal no está disponible.');
   return result.config;
 }
 

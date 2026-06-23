@@ -161,7 +161,7 @@ export default function HomeScreen() {
 
       if (!permission.granted) {
         if (!options?.silentOnDenied) {
-          toast.info('Activa tu ubicacion para detectar tu sucursal automaticamente.');
+          toast.info('Activa tu ubicación para detectar tu sucursal automáticamente.');
         }
         return null;
       }
@@ -178,10 +178,10 @@ export default function HomeScreen() {
       setDetectedCoords(coords);
       return coords;
     } catch (error) {
-      console.error('Error detectando ubicacion:', error);
+      console.error('Error detectando ubicación:', error);
 
       if (!options?.silentOnDenied) {
-        toast.warning('No pudimos obtener tu ubicacion. Puedes elegir la sucursal manualmente.');
+        toast.warning('No pudimos obtener tu ubicación. Puedes elegir la sucursal manualmente.');
       }
 
       return null;
@@ -311,7 +311,7 @@ export default function HomeScreen() {
           setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
         } else {
           modalTypes = getTypesWithoutEatIn(enabledTypes);
-          setDetectedBranchMessage('No pudimos confirmar que estes en restaurante. Te mostramos las opciones para pedir fuera.');
+          setDetectedBranchMessage('No pudimos confirmar que estés en restaurante. Te mostramos las opciones para pedir fuera.');
         }
       }
 
@@ -338,7 +338,7 @@ export default function HomeScreen() {
 
       if (nearbyBranch.kind === 'inside') {
         syncDetectedBranchIfSafe(nearbyBranch.branch);
-        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre}. Escanea tu mesa cuando quieras pedir aqui.`);
+        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre}. Escanea tu mesa cuando quieras pedir aquí.`);
         nextAvailableTypes = ['eat_in'];
       }
 
@@ -351,7 +351,7 @@ export default function HomeScreen() {
         setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
       } else {
         nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
-        setDetectedBranchMessage('No pudimos confirmar que estes en restaurante. Te mostramos las opciones para pedir fuera.');
+        setDetectedBranchMessage('No pudimos confirmar que estés en restaurante. Te mostramos las opciones para pedir fuera.');
       }
     }
 
@@ -487,7 +487,7 @@ export default function HomeScreen() {
       closeDeliveryFlow();
       Alert.alert(
         'Selecciona sucursal',
-        'Guardamos tu direccion, pero no pudimos detectar una sucursal cercana. Elige una manualmente.',
+        'Guardamos tu dirección, pero no pudimos detectar una sucursal cercana. Elige una manualmente.',
         [
           {
             text: 'Elegir sucursal',
@@ -553,7 +553,7 @@ export default function HomeScreen() {
   function getOrderModeLabel() {
     if (tipoPedido === 'delivery') return 'Delivery';
     if (tipoPedido === 'pickup') return 'Pickup';
-    if (tipoPedido === 'eat_in') return tableSession?.mesaLabel ? `Comer aqui · ${tableSession.mesaLabel}` : 'Comer aqui';
+    if (tipoPedido === 'eat_in') return tableSession?.mesaLabel ? `Comer aquí · ${tableSession.mesaLabel}` : 'Comer aquí';
     return 'Elegir entrega';
   }
 
@@ -706,7 +706,7 @@ export default function HomeScreen() {
                 value={search}
                 onChangeText={setSearch}
                 onSubmit={handleSearch}
-                placeholder="Buscar platillos, bebidas y mas"
+                placeholder="Buscar platillos, bebidas y más"
               />
             </View>
 
@@ -758,7 +758,7 @@ export default function HomeScreen() {
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionKicker}>FAVORITOS</Text>
-            <Text style={styles.sectionTitle}>Los mas pedidos</Text>
+            <Text style={styles.sectionTitle}>Los más pedidos</Text>
           </View>
           <TouchableOpacity 
             onPress={() => {
@@ -980,7 +980,7 @@ export default function HomeScreen() {
             {!detectingLocation && !selectingPickupBranch && availableTypes.includes('eat_in') ? (
               <TouchableOpacity style={styles.scanLaterButton} activeOpacity={0.84} onPress={handleScanLater}>
                 <Ionicons name="time-outline" size={17} color={Colors.primary} />
-                <Text style={styles.scanLaterButtonText}>Escanear mas tarde</Text>
+                <Text style={styles.scanLaterButtonText}>Escanear más tarde</Text>
               </TouchableOpacity>
             ) : null}
 

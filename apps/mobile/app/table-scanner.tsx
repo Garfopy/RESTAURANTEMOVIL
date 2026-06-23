@@ -99,7 +99,7 @@ export default function TableScannerScreen() {
       const table = await scanTableQr(payload, null);
       handleResolvedTable(table);
     } catch (error) {
-      Alert.alert('QR invalido', getApiError(error) || 'No pudimos reconocer esta mesa. Intenta con otro QR.', [
+      Alert.alert('QR inválido', getApiError(error) || 'No pudimos reconocer esta mesa. Intenta con otro QR.', [
         {
           text: 'Intentar de nuevo',
           onPress: () => {
@@ -187,16 +187,16 @@ export default function TableScannerScreen() {
           <View style={styles.permissionIcon}>
             <Ionicons name="camera-outline" size={42} color={Colors.primary || '#111827'} />
           </View>
-          <Text style={styles.title}>Permiso de camara</Text>
+          <Text style={styles.title}>Permiso de cámara</Text>
           <Text style={styles.subtitle}>
-            Necesitamos la camara para leer el QR de tu mesa y habilitar Comer aqui.
+            Necesitamos la cámara para leer el QR de tu mesa y habilitar Comer aquí.
           </Text>
           <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
-            <Text style={styles.primaryButtonText}>Permitir camara</Text>
+            <Text style={styles.primaryButtonText}>Permitir cámara</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater}>
             <Ionicons name="time-outline" size={17} color={Colors.primary || '#111827'} />
-            <Text style={styles.secondaryButtonText}>Escanear mas tarde</Text>
+            <Text style={styles.secondaryButtonText}>Escanear más tarde</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -238,7 +238,7 @@ export default function TableScannerScreen() {
         ) : null}
         <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater} disabled={isProcessing}>
           <Ionicons name="time-outline" size={17} color={Colors.primary || '#111827'} />
-          <Text style={styles.secondaryButtonText}>Escanear mas tarde</Text>
+          <Text style={styles.secondaryButtonText}>Escanear más tarde</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

@@ -54,7 +54,7 @@ export default function ExitPassScreen() {
 
         if (exitPass.is_validated && !handledValidationRef.current) {
           handledValidationRef.current = true;
-          Alert.alert('Salida validada', 'Tu cuenta quedo cerrada y la mesa fue liberada.', [
+          Alert.alert('Salida validada', 'Tu cuenta quedó cerrada y la mesa fue liberada.', [
             { text: 'Listo', onPress: () => router.replace('/(tabs)' as never) },
           ]);
         }

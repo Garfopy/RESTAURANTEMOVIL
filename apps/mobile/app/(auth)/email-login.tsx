@@ -133,7 +133,7 @@ export default function EmailLoginScreen() {
             <TouchableOpacity
               style={styles.backBtn}
               onPress={() => router.back()}
-              accessibilityLabel="Volver atras"
+              accessibilityLabel="Volver atrás"
               accessibilityRole="button"
               testID="back-btn"
             >
@@ -148,7 +148,7 @@ export default function EmailLoginScreen() {
             opacity: intro,
             transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
           }]}>
-            <Text style={styles.title}>Que gusto verte.</Text>
+            <Text style={styles.title}>Qué gusto verte.</Text>
             <Text style={styles.subtitle}>Ingresa para continuar tu experiencia Amare.</Text>
           </Animated.View>
 
@@ -158,8 +158,8 @@ export default function EmailLoginScreen() {
           }]}>
             <View style={styles.formHeader}>
               <View>
-                <Text style={styles.formTitle}>Iniciar sesion</Text>
-                <Text style={styles.formHint}>Usa tu correo o numero de telefono</Text>
+                <Text style={styles.formTitle}>Iniciar sesión</Text>
+                <Text style={styles.formHint}>Usa tu correo o número de teléfono</Text>
               </View>
               <View style={styles.secureBadge}>
                 <Ionicons name="shield-checkmark-outline" size={16} color={AuthColors.accent} />
@@ -168,7 +168,7 @@ export default function EmailLoginScreen() {
             <View style={styles.form}>
             <FormField
               {...fieldTheme}
-              label="Correo o telefono"
+              label="Correo o teléfono"
               value={email}
               onChangeText={handleEmailChange}
               onBlur={handleEmailBlur}
@@ -179,13 +179,13 @@ export default function EmailLoginScreen() {
               autoComplete="username"
               icon="person-circle-outline"
               testID="email-input"
-              accessibilityLabel="Correo o telefono"
-              accessibilityHint="Ingresa tu correo electronico o telefono"
+              accessibilityLabel="Correo o teléfono"
+              accessibilityHint="Ingresa tu correo electrónico o teléfono"
             />
 
             <View style={styles.passwordBlock}>
               <View style={styles.labelRow}>
-                <Text style={styles.label}>Contrasena</Text>
+                <Text style={styles.label}>Contraseña</Text>
                 <View style={styles.secureLabel}>
                   <Ionicons name="lock-closed-outline" size={12} color={AuthColors.muted} />
                   <Text style={styles.forgotPassword}>Acceso seguro</Text>
@@ -204,20 +204,20 @@ export default function EmailLoginScreen() {
                 icon="lock-closed-outline"
                 onToggleSecure={() => setShowPass((v) => !v)}
                 testID="password-input"
-                accessibilityLabel="Contrasena"
-                accessibilityHint="Ingresa tu contrasena"
+                accessibilityLabel="Contraseña"
+                accessibilityHint="Ingresa tu contraseña"
               />
             </View>
 
             <Button
-              label="Iniciar sesion"
+              label="Iniciar sesión"
               onPress={handleLogin}
               loading={loading}
               fullWidth
               size="lg"
               style={styles.signInButton}
               textStyle={styles.signInButtonText}
-              accessibilityLabel="Iniciar sesion"
+              accessibilityLabel="Iniciar sesión"
               testID="login-btn"
             />
 
@@ -235,7 +235,7 @@ export default function EmailLoginScreen() {
                 accessibilityRole="link"
                 testID="signup-link"
               >
-                <Text style={styles.signUpLink}> Registrate</Text>
+                <Text style={styles.signUpLink}> Regístrate</Text>
               </TouchableOpacity>
             </View>
             </View>
@@ -243,7 +243,7 @@ export default function EmailLoginScreen() {
 
           <Animated.View style={[styles.securityNote, { opacity: formReveal }]}>
             <Ionicons name="lock-closed-outline" size={13} color="#8E887D" />
-            <Text style={styles.securityText}>Tu informacion esta protegida.</Text>
+            <Text style={styles.securityText}>Tu información está protegida.</Text>
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>

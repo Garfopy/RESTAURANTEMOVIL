@@ -36,7 +36,7 @@ export default function StoreCheckoutScreen() {
   const productPrice = parseFloat(params.productPrice ?? '0');
   const quantity = parseInt(params.quantity ?? '1', 10);
   const subtotal = productPrice * quantity;
-  const total = subtotal; // + envio if needed later
+  const total = subtotal; // + envío if needed later
 
   const [direccionesGuardadas, setDireccionesGuardadas] = useState<any[]>([]);
   const [direccionSeleccionada, setDireccionSeleccionada] = useState<any | null>(null);
@@ -405,7 +405,7 @@ export default function StoreCheckoutScreen() {
             ) : (
               <>
                 <Text style={styles.locationAddress} numberOfLines={2}>
-                  {ubicacionVisual || 'Selecciona o introduce tu dirección'}
+                    {ubicacionVisual || 'Selecciona o introduce tu dirección'}
                 </Text>
 
                 <TouchableOpacity

@@ -72,23 +72,23 @@ class AuthController
         }
 
         if ($phone === '') {
-            Response::validationError(['phone' => ['El telefono es requerido']]);
+            Response::validationError(['phone' => ['El teléfono es requerido']]);
         }
 
         if (strlen($phone) < 10 || strlen($phone) > 15) {
-            Response::validationError(['phone' => ['El telefono debe tener entre 10 y 15 digitos']]);
+            Response::validationError(['phone' => ['El teléfono debe tener entre 10 y 15 dígitos']]);
         }
 
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            Response::validationError(['email' => ['El email no es valido']]);
+            Response::validationError(['email' => ['El correo electrónico no es válido']]);
         }
 
         if ($email !== '' && User::existsByEmail($email)) {
-            Response::error('El email ya está registrado', 409);
+            Response::error('El correo electrónico ya está registrado', 409);
         }
 
         if (self::findUserByPhoneCandidates($phone)) {
-            Response::error('El telefono ya esta registrado', 409);
+            Response::error('El teléfono ya está registrado', 409);
         }
 
         $userId = User::create([
@@ -134,7 +134,7 @@ class AuthController
         $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? ''));
 
         if ($identifier === '') {
-            Response::validationError(['identifier' => ['Correo o telefono es requerido']]);
+            Response::validationError(['identifier' => ['Correo o teléfono es requerido']]);
         }
 
         $user = str_contains($identifier, '@')
@@ -157,7 +157,7 @@ class AuthController
         Response::success([
             'user' => $user,
             'token' => $token
-        ], 'Login exitoso');
+        ], 'Inicio de sesión exitoso');
     }
 
     public function google(): void
@@ -210,7 +210,7 @@ class AuthController
             Response::success([
                 'user' => $user,
                 'token' => $token
-            ], 'Login con Google exitoso');
+            ], 'Inicio de sesión con Google exitoso');
         } catch (\Exception $e) {
             Response::serverError('Error al verificar token de Google');
         }

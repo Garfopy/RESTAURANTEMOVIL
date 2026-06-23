@@ -106,7 +106,7 @@ function BranchConfigRuntime() {
             notifyBranchConfigUpdated({ branch_id: Number(event.branch_id), version: Number(event.version) });
           }
         } catch {
-          // Ignorar mensajes ajenos al contrato de configuracion.
+          // Ignorar mensajes ajenos al contrato de configuración.
         }
       };
       nextSocket.onclose = () => {

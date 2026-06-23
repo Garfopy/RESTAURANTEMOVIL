@@ -80,7 +80,7 @@ function getOrderModeMeta(order: Pedido) {
     const count = Number(order.pedidos_count ?? 0);
     return {
       icon: 'restaurant-outline' as const,
-      label: count > 1 ? `Comer aqui · ${count} tandas` : 'Comer aqui',
+      label: count > 1 ? `Comer aquí · ${count} tandas` : 'Comer aquí',
     };
   }
 

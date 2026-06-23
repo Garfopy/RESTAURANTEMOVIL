@@ -121,7 +121,7 @@ function DraggableUnit({
           onPress={onPress}
           disabled={disabled}
           accessibilityRole="button"
-          accessibilityLabel={`${unit.name}, ${money(unit.price)}. Manten presionado para arrastrar.`}
+          accessibilityLabel={`${unit.name}, ${money(unit.price)}. Mantén presionado para arrastrar.`}
         >
           <Ionicons name="reorder-three" size={21} color="#64748B" />
           <Image
@@ -256,13 +256,41 @@ export function SplitAccountModal({
     setAccounts((current) => current.filter((account) => account.key !== key));
   }
 
+  function autoAssignUnassigned() {
+    if (accounts.length === 0 || unassigned.length === 0) return;
+
+    setAllocation((current) => {
+      const next = { ...current };
+      const totals = Object.fromEntries(accounts.map((account) => [
+        account.key,
+        units
+          .filter((unit) => current[unit.key] === account.key)
+          .reduce((sum, unit) => sum + unit.price, 0),
+      ])) as Record<string, number>;
+
+      [...units]
+        .filter((unit) => !current[unit.key])
+        .sort((a, b) => b.price - a.price)
+        .forEach((unit) => {
+          const target = [...accounts].sort((a, b) => totals[a.key] - totals[b.key])[0];
+          if (!target) return;
+          next[unit.key] = target.key;
+          totals[target.key] += unit.price;
+        });
+
+      return next;
+    });
+    setSelectedUnit(null);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
   async function createSplit() {
     if (unassigned.length > 0) {
       Alert.alert('Faltan productos', 'Asigna todos los productos antes de continuar.');
       return;
     }
     if (accounts.some((account) => accountUnits(account.key).length === 0)) {
-      Alert.alert('Cuenta vacia', 'Cada cuenta debe tener al menos un producto.');
+      Alert.alert('Cuenta vacía', 'Cada cuenta debe tener al menos un producto.');
       return;
     }
 
@@ -315,10 +343,10 @@ export function SplitAccountModal({
 
   function requestCancelSplit() {
     if (!split || split.paid_count > 0) return;
-    Alert.alert('Cancelar division', 'Los productos volveran a una sola cuenta.', [
+    Alert.alert('Cancelar división', 'Los productos volverán a una sola cuenta.', [
       { text: 'Conservar', style: 'cancel' },
       {
-        text: 'Cancelar division',
+        text: 'Cancelar división',
         style: 'destructive',
         onPress: async () => {
           try {
@@ -422,17 +450,26 @@ export function SplitAccountModal({
 
             {split.paid_count === 0 ? (
               <TouchableOpacity style={styles.cancelSplitButton} onPress={requestCancelSplit} disabled={saving}>
-                <Text style={styles.cancelSplitText}>Cancelar division</Text>
+                <Text style={styles.cancelSplitText}>Cancelar división</Text>
               </TouchableOpacity>
             ) : (
-              <Text style={styles.lockedText}>El reparto queda bloqueado despues del primer pago.</Text>
+              <Text style={styles.lockedText}>El reparto queda bloqueado después del primer pago.</Text>
             )}
           </ScrollView>
         ) : (
           <>
             <View style={styles.tipBar}>
               <Ionicons name="hand-left-outline" size={18} color="#1D4ED8" />
-              <Text style={styles.tipText}>Manten presionado y arrastra una unidad, o tocala y elige su cuenta.</Text>
+              <Text style={styles.tipText}>Mantén presionado y arrastra una unidad, o tócala y elige su cuenta.</Text>
+              <TouchableOpacity
+                style={[styles.autoAssignButton, unassigned.length === 0 && styles.autoAssignButtonDisabled]}
+                activeOpacity={0.84}
+                onPress={autoAssignUnassigned}
+                disabled={saving || unassigned.length === 0}
+              >
+                <Ionicons name="sparkles-outline" size={16} color="#1D4ED8" />
+                <Text style={styles.autoAssignText}>Auto</Text>
+              </TouchableOpacity>
             </View>
             <ScrollView
               contentContainerStyle={styles.splitContent}
@@ -465,7 +502,7 @@ export function SplitAccountModal({
                       onDrop={(x, y) => handleDrop(unit.key, x, y)}
                       onDragFinish={handleDragFinish}
                     />
-                  )) : <Text style={styles.zoneEmpty}>Todos los productos estan asignados.</Text>}
+                  )) : <Text style={styles.zoneEmpty}>Todos los productos están asignados.</Text>}
                 </View>
               </TouchableOpacity>
 
@@ -507,7 +544,7 @@ export function SplitAccountModal({
                           onDrop={(x, y) => handleDrop(unit.key, x, y)}
                           onDragFinish={handleDragFinish}
                         />
-                      )) : <Text style={styles.zoneEmpty}>{selectedUnit ? 'Toca aqui para mover el producto.' : 'Arrastra productos aqui.'}</Text>}
+                      )) : <Text style={styles.zoneEmpty}>{selectedUnit ? 'Toca aquí para mover el producto.' : 'Arrastra productos aquí.'}</Text>}
                     </View>
                   </TouchableOpacity>
                 );
@@ -549,6 +586,9 @@ const styles = StyleSheet.create({
   countBadgeText: { color: '#1D4ED8', fontWeight: '800' },
   tipBar: { margin: 14, marginBottom: 0, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: '#EFF6FF' },
   tipText: { flex: 1, color: '#1E40AF', fontSize: 13, lineHeight: 18 },
+  autoAssignButton: { minHeight: 34, borderRadius: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: '#DBEAFE' },
+  autoAssignButtonDisabled: { opacity: 0.45 },
+  autoAssignText: { color: '#1D4ED8', fontSize: 12, fontWeight: '900' },
   splitContent: { padding: 14, paddingBottom: 28, gap: 14 },
   zone: { padding: 14, borderRadius: 18, borderWidth: 2, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
   unassignedZone: { borderStyle: 'dashed', backgroundColor: '#FFFDF7' },

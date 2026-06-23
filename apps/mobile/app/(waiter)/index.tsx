@@ -32,6 +32,7 @@ import { useToast } from '../../context/ToastContext';
 import { GiftInboxModal } from '../../components/waiter/GiftInboxModal';
 
 type StatusIcon = keyof typeof Ionicons.glyphMap;
+type TableFilter = 'mine' | 'free' | 'support' | 'gifts';
 
 const STATUS_LABEL: Record<WaiterTable['status'], string> = {
   libre: 'Libre',
@@ -85,6 +86,7 @@ export default function WaiterHomeScreen() {
   const [customerName, setCustomerName] = useState('');
   const [claiming, setClaiming] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<TableFilter>('mine');
   const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
 
   const branchesQuery = useQuery({
@@ -108,6 +110,8 @@ export default function WaiterHomeScreen() {
     queryKey: ['waiter', 'tables', selectedBranch?.id],
     queryFn: () => getWaiterTables(selectedBranch!.id),
     enabled: Boolean(selectedBranch?.id),
+    refetchInterval: 12_000,
+    refetchIntervalInBackground: false,
   });
 
   const giftsQuery = useQuery({
@@ -121,6 +125,12 @@ export default function WaiterHomeScreen() {
   const giftInbox = giftsQuery.data ?? { active: [], history: [], pending_count: 0 };
   const giftCountByTable = useMemo(() => giftInbox.active.reduce<Record<number, number>>((counts, gift) => {
     counts[gift.table_id] = (counts[gift.table_id] ?? 0) + 1;
+    return counts;
+  }, {}), [giftInbox.active]);
+  const pendingGiftCountByTable = useMemo(() => giftInbox.active.reduce<Record<number, number>>((counts, gift) => {
+    if (gift.status === 'listo') {
+      counts[gift.table_id] = (counts[gift.table_id] ?? 0) + 1;
+    }
     return counts;
   }, {}), [giftInbox.active]);
 
@@ -146,11 +156,28 @@ export default function WaiterHomeScreen() {
   }, [giftsQuery.data, selectedBranch?.id, toast]);
 
   const tables = tablesQuery.data ?? [];
+  const priorityTables = useMemo(() => {
+    const statusWeight = (table: WaiterTable) => {
+      if (pendingGiftCountByTable[table.id]) return 0;
+      if (table.status === 'mia' || (table.status === 'cuenta_abierta' && table.mesero_usuario_id === user?.id)) return 1;
+      if (table.status === 'ocupada_por_otro' || table.status === 'cuenta_abierta') return 2;
+      return 3;
+    };
+
+    return [...tables].sort((a, b) => {
+      const giftDiff = (pendingGiftCountByTable[b.id] ?? 0) - (pendingGiftCountByTable[a.id] ?? 0);
+      if (giftDiff !== 0) return giftDiff;
+      const statusDiff = statusWeight(a) - statusWeight(b);
+      if (statusDiff !== 0) return statusDiff;
+      return String(a.label).localeCompare(String(b.label), 'es', { numeric: true });
+    });
+  }, [pendingGiftCountByTable, tables, user?.id]);
+
   const filteredTables = useMemo(() => {
     const query = normalizeSearchText(searchText);
-    if (!query) return tables;
+    if (!query) return priorityTables;
 
-    return tables.filter((table) =>
+    return priorityTables.filter((table) =>
       [
         table.label,
         table.value,
@@ -161,7 +188,7 @@ export default function WaiterHomeScreen() {
         table.id,
       ].some((value) => normalizeSearchText(value).includes(query))
     );
-  }, [tables, searchText]);
+  }, [priorityTables, searchText]);
 
   const myTables = filteredTables.filter(
     (table) =>
@@ -174,6 +201,27 @@ export default function WaiterHomeScreen() {
       (table.status === 'cuenta_abierta' && table.mesero_usuario_id !== user?.id)
   );
   const freeTables = filteredTables.filter((table) => table.status === 'libre');
+  const giftTables = filteredTables.filter((table) => (giftCountByTable[table.id] ?? 0) > 0);
+  const activeTables = activeFilter === 'mine'
+    ? myTables
+    : activeFilter === 'free'
+      ? freeTables
+      : activeFilter === 'support'
+        ? supportTables
+        : giftTables;
+  const activeEmptyText = activeFilter === 'mine'
+    ? 'Todavía no tienes mesas asignadas.'
+    : activeFilter === 'free'
+      ? 'No hay mesas libres en este momento.'
+      : activeFilter === 'support'
+        ? 'No hay mesas ocupadas por otros meseros.'
+        : 'No hay regalos activos en esta sucursal.';
+  const filters: Array<{ key: TableFilter; label: string; count: number; icon: StatusIcon }> = [
+    { key: 'mine', label: 'Mis mesas', count: myTables.length, icon: 'person-outline' },
+    { key: 'free', label: 'Libres', count: freeTables.length, icon: 'grid-outline' },
+    { key: 'support', label: 'Apoyo', count: supportTables.length, icon: 'people-outline' },
+    { key: 'gifts', label: 'Regalos', count: giftInbox.active.length, icon: 'gift-outline' },
+  ];
 
   const summary = useMemo(() => {
     const mine = tables.filter(
@@ -257,29 +305,21 @@ export default function WaiterHomeScreen() {
     );
   }
 
-  function renderTableSection(title: string, subtitle: string, data: WaiterTable[], empty: string, icon: StatusIcon) {
+  function renderTableFilter(filter: (typeof filters)[number]) {
+    const active = activeFilter === filter.key;
     return (
-      <View style={styles.tableSection}>
-        <View style={styles.tableSectionHeader}>
-          <View style={styles.sectionTitleRow}>
-            <View style={styles.sectionIcon}>
-              <Ionicons name={icon} size={18} color="#111827" />
-            </View>
-            <View style={styles.sectionTitleCopy}>
-              <Text style={styles.tableSectionTitle}>{title}</Text>
-              <Text style={styles.tableSectionSubtitle}>{subtitle}</Text>
-            </View>
-          </View>
-          <View style={styles.countPill}>
-            <Text style={styles.countText}>{data.length}</Text>
-          </View>
-        </View>
-        {data.length > 0 ? (
-          <View style={styles.tableGrid}>{data.map(renderTableCard)}</View>
-        ) : (
-          <Text style={styles.sectionEmptyText}>{empty}</Text>
-        )}
-      </View>
+      <TouchableOpacity
+        key={filter.key}
+        activeOpacity={0.86}
+        style={[styles.filterChip, active && styles.filterChipActive]}
+        onPress={() => setActiveFilter(filter.key)}
+      >
+        <Ionicons name={filter.icon} size={16} color={active ? '#FFFFFF' : '#475569'} />
+        <Text numberOfLines={1} style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+          {filter.label}
+        </Text>
+        <Text style={[styles.filterChipCount, active && styles.filterChipCountActive]}>{Math.min(99, filter.count)}</Text>
+      </TouchableOpacity>
     );
   }
 
@@ -420,7 +460,7 @@ export default function WaiterHomeScreen() {
             />
             {searchText ? (
               <TouchableOpacity
-                accessibilityLabel="Limpiar busqueda"
+                accessibilityLabel="Limpiar búsqueda"
                 style={styles.clearSearchButton}
                 onPress={() => setSearchText('')}
                 activeOpacity={0.75}
@@ -459,7 +499,7 @@ export default function WaiterHomeScreen() {
             <View style={styles.emptyState}>
               <Ionicons name="grid-outline" size={44} color="#94A3B8" />
               <Text style={styles.emptyTitle}>No hay mesas configuradas</Text>
-              <Text style={styles.emptyText}>Revisa la configuracion de mesas de esta sucursal.</Text>
+              <Text style={styles.emptyText}>Revisa la configuración de mesas de esta sucursal.</Text>
             </View>
           ) : filteredTables.length === 0 ? (
             <View style={styles.emptyState}>
@@ -468,11 +508,14 @@ export default function WaiterHomeScreen() {
               <Text style={styles.emptyText}>No encontramos mesas con ese nombre, zona o comensal.</Text>
             </View>
           ) : (
-            <>
-              {renderTableSection('Mis mesas', 'Cuentas asignadas a ti.', myTables, 'Todavia no tienes mesas asignadas.', 'person-outline')}
-              {renderTableSection('Disponibles', 'Toca una mesa libre para reclamarla.', freeTables, 'No hay mesas libres en este momento.', 'grid-outline')}
-              {renderTableSection('Apoyo', 'Mesas ocupadas que puedes apoyar.', supportTables, 'No hay mesas ocupadas por otros meseros.', 'people-outline')}
-            </>
+            <View style={styles.tableSection}>
+              <View style={styles.filterRow}>{filters.map(renderTableFilter)}</View>
+              {activeTables.length > 0 ? (
+                <View style={styles.tableGrid}>{activeTables.map(renderTableCard)}</View>
+              ) : (
+                <Text style={styles.sectionEmptyText}>{activeEmptyText}</Text>
+              )}
+            </View>
           )}
         </ScrollView>
       )}
@@ -687,11 +730,60 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   tableSection: {
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    padding: 12,
+    padding: 10,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  filterChip: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  filterChipActive: {
+    backgroundColor: '#111827',
+    borderColor: '#111827',
+  },
+  filterChipText: {
+    flex: 1,
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  filterChipCount: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    overflow: 'hidden',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    backgroundColor: '#E2E8F0',
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingTop: 3,
+  },
+  filterChipCountActive: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    color: '#FFFFFF',
   },
   tableSectionHeader: {
     flexDirection: 'row',
@@ -748,11 +840,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   tableCard: {
-    width: '48.5%',
-    minHeight: 174,
-    borderRadius: 18,
+    width: '48%',
+    minHeight: 148,
+    borderRadius: 16,
     backgroundColor: '#F8FAFC',
-    padding: 12,
+    padding: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -777,10 +869,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   tableIdentity: {
-    marginTop: 14,
+    marginTop: 10,
   },
   tableLabel: {
-    fontSize: 23,
+    fontSize: 21,
     fontWeight: '900',
     color: '#111827',
   },
@@ -791,8 +883,8 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   tableMeta: {
-    marginTop: 12,
-    gap: 7,
+    marginTop: 9,
+    gap: 5,
   },
   metaLine: {
     flexDirection: 'row',
@@ -807,7 +899,7 @@ const styles = StyleSheet.create({
   },
   tableFooter: {
     marginTop: 'auto',
-    paddingTop: 12,
+    paddingTop: 9,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -815,7 +907,7 @@ const styles = StyleSheet.create({
   },
   tableTotal: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
     color: '#111827',
   },

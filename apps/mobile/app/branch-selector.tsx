@@ -90,7 +90,7 @@ export default function BranchSelectorScreen() {
               <Ionicons name="storefront-outline" size={48} color="#9CA3AF" />
               <Text style={styles.emptyText}>No hay sucursales disponibles</Text>
               <Text style={styles.emptySubtext}>
-                Intenta de nuevo mas tarde o elige otro tipo de pedido.
+                Intenta de nuevo más tarde o elige otro tipo de pedido.
               </Text>
             </View>
           }

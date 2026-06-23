@@ -102,7 +102,7 @@ class Order
     }
 
     /**
-     * Fija precios desde la BD y valida el catalogo sincronizado antes de cobrar.
+     * Fija precios desde la BD y valida el catálogo sincronizado antes de cobrar.
      */
     private static function normalizeAndPriceOrder(array $data): array
     {
@@ -124,7 +124,7 @@ class Order
             $dishId = (int)($item['platillo_id'] ?? $item['product_id'] ?? 0);
             $origin = (string)($item['origen'] ?? 'menu');
             if ($dishId <= 0 || $quantity <= 0) {
-                throw new \InvalidArgumentException('Producto o cantidad invalida.');
+                throw new \InvalidArgumentException('Producto o cantidad inválida.');
             }
 
             if ($origin === 'store') {
@@ -147,7 +147,7 @@ class Order
                 [':id' => $dishId, ':restaurant_id' => $restaurantId]
             );
             if (!$dish || !(bool)$dish['disponible']) {
-                throw new \RuntimeException('El platillo solicitado no esta disponible.');
+                throw new \RuntimeException('El platillo solicitado no está disponible.');
             }
 
             $selection = self::flattenModifierSelection((array)($item['modificadores'] ?? []));
@@ -166,14 +166,14 @@ class Order
                 $modifier = $catalog[$modifierId];
                 $type = (string)$modifier['tipo'];
                 if ($type === 'exclusion' && !($config['exclusiones_habilitadas'] ?? true)) {
-                    throw new \InvalidArgumentException('Las exclusiones estan deshabilitadas en esta sucursal.');
+                    throw new \InvalidArgumentException('Las exclusiones están deshabilitadas en esta sucursal.');
                 }
                 if ($type === 'extra' && !($config['extras_habilitados'] ?? true)) {
-                    throw new \InvalidArgumentException('Los extras estan deshabilitados en esta sucursal.');
+                    throw new \InvalidArgumentException('Los extras están deshabilitados en esta sucursal.');
                 }
                 $max = $type === 'exclusion' ? 1 : max(1, (int)$modifier['max_cantidad']);
                 if ($modifierQuantity > $max) {
-                    throw new \InvalidArgumentException('La cantidad de un modificador excede el maximo permitido.');
+                    throw new \InvalidArgumentException('La cantidad de un modificador excede el máximo permitido.');
                 }
                 $price = $type === 'exclusion' ? 0.0 : round((float)$modifier['precio_unitario'], 2);
                 $modifierSubtotal = round($price * $modifierQuantity, 2);
@@ -953,7 +953,7 @@ class Order
                 }
             }
 
-            // Los triggers existentes solo conocen la receta base; los extras se descuentan aqui siempre.
+            // Los triggers existentes solo conocen la receta base; los extras se descuentan aquí siempre.
             if (self::columnExists('rest_ingredientes', 'stock')) {
                 foreach ($menuItems as $mi) {
                     foreach (($mi['modificadores'] ?? []) as $modifier) {

@@ -239,10 +239,10 @@ export function validateOptionalEmail(email: string): string | null {
 export function validatePhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, '');
   if (!digits) {
-    return 'Telefono es requerido';
+    return 'Teléfono es requerido';
   }
   if (digits.length < 10 || digits.length > 15) {
-    return 'Telefono debe tener entre 10 y 15 digitos';
+    return 'Teléfono debe tener entre 10 y 15 dígitos';
   }
   return null;
 }
@@ -250,7 +250,7 @@ export function validatePhone(phone: string): string | null {
 export function validateLoginIdentifier(value: string): string | null {
   const clean = value.trim();
   if (!clean) {
-    return 'Correo o telefono es requerido';
+    return 'Correo o teléfono es requerido';
   }
   if (clean.includes('@')) {
     return validateEmail(clean);

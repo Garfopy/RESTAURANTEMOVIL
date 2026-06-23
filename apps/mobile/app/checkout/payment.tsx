@@ -109,7 +109,7 @@ export default function PaymentScreen() {
   useEffect(() => {
     if (resolvedRestaurantId) {
       void refreshBranchConfig(Number(resolvedRestaurantId)).catch((err) =>
-        console.error('Error al cargar configuracion:', err)
+        console.error('Error al cargar configuración:', err)
       );
     }
   }, [refreshBranchConfig, resolvedRestaurantId]);

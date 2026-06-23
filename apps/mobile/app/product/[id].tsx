@@ -306,7 +306,7 @@ export default function ProductScreen() {
                     {mod.categoria === 'exclusion'
                       ? 'Desmarca lo que deseas omitir'
                       : mod.tipo === 'radio'
-                      ? 'Elige una opcion'
+                      ? 'Elige una opción'
                       : 'Selecciona las que quieras'}
                   </Text>
 

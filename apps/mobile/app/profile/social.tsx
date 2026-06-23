@@ -193,32 +193,32 @@ const SEXUALITY_OPTIONS: SelectOption[] = [
   {
     label: 'Heterosexual',
     value: 'Heterosexual',
-    description: 'Atraccion romantica o sexual hacia personas de un genero distinto al propio.',
+    description: 'Atracción romántica o sexual hacia personas de un género distinto al propio.',
   },
   {
     label: 'Homosexual',
     value: 'Homosexual',
-    description: 'Atraccion romantica o sexual hacia personas del mismo genero.',
+    description: 'Atracción romántica o sexual hacia personas del mismo género.',
   },
   {
     label: 'Bisexual',
     value: 'Bisexual',
-    description: 'Atraccion romantica o sexual hacia mas de un genero.',
+    description: 'Atracción romántica o sexual hacia más de un género.',
   },
   {
     label: 'Pansexual',
     value: 'Pansexual',
-    description: 'Atraccion romantica o sexual hacia personas sin que el genero sea el factor principal.',
+    description: 'Atracción romántica o sexual hacia personas sin que el género sea el factor principal.',
   },
   {
     label: 'Asexual',
     value: 'Asexual',
-    description: 'Poca o nula atraccion sexual. Puede existir atraccion romantica, afectiva o emocional.',
+    description: 'Poca o nula atracción sexual. Puede existir atracción romántica, afectiva o emocional.',
   },
   {
     label: 'Prefiero no decirlo',
     value: 'Prefiero no decirlo',
-    description: 'Puedes mantener esta informacion privada.',
+    description: 'Puedes mantener esta información privada.',
   },
 ];
 
@@ -452,7 +452,7 @@ function ChoiceField({
       .map((option) => `${option.label}: ${option.description}`)
       .join('\n\n');
 
-    Alert.alert(label, descriptionText || 'Selecciona una opcion para ver mas informacion.');
+    Alert.alert(label, descriptionText || 'Selecciona una opción para ver más información.');
   }
 
   return (
@@ -464,7 +464,7 @@ function ChoiceField({
             style={styles.fieldInfoButton}
             activeOpacity={0.75}
             onPress={showOptionInfo}
-            accessibilityLabel={`Informacion sobre ${label}`}
+            accessibilityLabel={`Información sobre ${label}`}
             accessibilityRole="button"
           >
             <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
@@ -610,7 +610,7 @@ export default function SocialProfileScreen() {
   const topReceivedLike = receivedLikes[0] ?? null;
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
-      ? `${topReceivedLike.nombre} y ${receivedLikes.length - 1} mas te dieron me gusta`
+      ? `${topReceivedLike.nombre} y ${receivedLikes.length - 1} más te dieron me gusta`
       : `${topReceivedLike.nombre} te dio me gusta`
     : '';
   const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
@@ -709,11 +709,12 @@ export default function SocialProfileScreen() {
     })
     .onEnd((event) => {
       if (Math.abs(event.translationX) > SWIPE_THRESHOLD) {
+        const swipeDirection = event.translationX > 0 ? 'prev' : 'next';
         const targetX = event.translationX > 0 ? width + 100 : -width - 100;
         translateX.value = withTiming(targetX, { duration: 250 });
         translateY.value = withTiming(event.translationY, { duration: 250 });
         rotate.value = withTiming(event.translationX > 0 ? 20 : -20, { duration: 250 }, () => {
-          runOnJS(handleNextDiner)();
+          runOnJS(handleSwipeDiner)(swipeDirection);
           translateX.value = 0;
           translateY.value = 0;
           rotate.value = 0;
@@ -1102,6 +1103,10 @@ export default function SocialProfileScreen() {
     advanceToDiner('next');
   }
 
+  function handleSwipeDiner(direction: 'next' | 'prev') {
+    advanceToDiner(direction);
+  }
+
   async function handleLikeDiner(userId: number) {
     if (likingUserId !== null) return;
 
@@ -1130,7 +1135,7 @@ export default function SocialProfileScreen() {
           const withoutDuplicate = current.filter((item) => item.user_id !== matchedDiner.user_id);
           return [{ ...matchedDiner, relationship_status: 'matched' }, ...withoutDuplicate];
         });
-        Alert.alert('¡Es match!', `${matchedDiner.nombre} tambien te dio like. Lo agregamos a Mis matches.`);
+        Alert.alert('¡Es match!', `${matchedDiner.nombre} también te dio like. Lo agregamos a Mis matches.`);
       }
       void refreshMatches(false);
       void refreshReceivedLikes();
@@ -1187,13 +1192,13 @@ export default function SocialProfileScreen() {
 
   async function handlePickImage() {
     if (socialPhotos.length >= 6) {
-      Alert.alert('Galeria completa', 'Puedes tener hasta 6 fotos en tu perfil social.');
+      Alert.alert('Galería completa', 'Puedes tener hasta 6 fotos en tu perfil social.');
       return;
     }
 
-    Alert.alert('Agregar foto', 'Elige de donde tomar la imagen.', [
+    Alert.alert('Agregar foto', 'Elige de dónde tomar la imagen.', [
       { text: 'Camara', onPress: () => openPicker(true) },
-      { text: 'Galeria', onPress: () => openPicker(false) },
+      { text: 'Galería', onPress: () => openPicker(false) },
       { text: 'Cancelar', style: 'cancel' },
     ]);
   }
@@ -1201,7 +1206,7 @@ export default function SocialProfileScreen() {
   async function openPicker(isCamera: boolean) {
     const remainingSlots = Math.max(0, 6 - socialPhotos.length);
     if (remainingSlots <= 0) {
-      Alert.alert('Galeria completa', 'Puedes tener hasta 6 fotos en tu perfil social.');
+      Alert.alert('Galería completa', 'Puedes tener hasta 6 fotos en tu perfil social.');
       return;
     }
 
@@ -1294,7 +1299,7 @@ export default function SocialProfileScreen() {
   }
 
   async function handleDeletePhoto(photoUrl: string) {
-    Alert.alert('Eliminar foto', 'Esta foto se quitara de tu perfil social.', [
+    Alert.alert('Eliminar foto', 'Esta foto se quitará de tu perfil social.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Eliminar',
@@ -1331,7 +1336,7 @@ export default function SocialProfileScreen() {
 
   async function handleAcceptSocialConsent() {
     if (!socialConsentChecked) {
-      Alert.alert('Confirmacion requerida', 'Marca la casilla para confirmar que aceptas compartir tus datos sociales.');
+      Alert.alert('Confirmación requerida', 'Marca la casilla para confirmar que aceptas compartir tus datos sociales.');
       return;
     }
 
@@ -1483,7 +1488,7 @@ export default function SocialProfileScreen() {
     const cleanMesa = mesaInput.trim();
 
     if (!cleanMesa) {
-      Alert.alert('Mesa requerida', 'Ingresa tu numero de mesa para activar el modo social.');
+      Alert.alert('Mesa requerida', 'Ingresa tu número de mesa para activar el modo social.');
       return;
     }
 
@@ -1494,7 +1499,7 @@ export default function SocialProfileScreen() {
     const edad = Number(form.edad);
 
     if (!Number.isFinite(edad) || edad <= 0) {
-      Alert.alert('Edad invalida', 'Ingresa una edad valida.');
+      Alert.alert('Edad inválida', 'Ingresa una edad válida.');
       return;
     }
 
@@ -1504,7 +1509,7 @@ export default function SocialProfileScreen() {
     }
 
     if (!form.genero || !form.sexualidad || !form.biografia.trim()) {
-      Alert.alert('Perfil incompleto', 'Genero, sexualidad y descripcion son obligatorios.');
+      Alert.alert('Perfil incompleto', 'Género, sexualidad y descripción son obligatorios.');
       return;
     }
 
@@ -1559,7 +1564,7 @@ export default function SocialProfileScreen() {
         tiktok: redes.tiktok || null,
       });
 
-      Alert.alert('Perfil guardado', 'Tu perfil social quedo actualizado.');
+      Alert.alert('Perfil guardado', 'Tu perfil social quedó actualizado.');
     } catch (error) {
       Alert.alert('No se pudo guardar', getApiError(error));
     } finally {
@@ -1664,7 +1669,7 @@ export default function SocialProfileScreen() {
   function showSexualityInfo(value?: string | null) {
     if (!value) return;
     const description = getSexualityDescription(value);
-    Alert.alert(value, description || 'Esta persona eligio compartir esta informacion en su perfil.');
+    Alert.alert(value, description || 'Esta persona eligió compartir esta información en su perfil.');
   }
 
   function renderSexualityChip(value?: string | null) {
@@ -1677,7 +1682,7 @@ export default function SocialProfileScreen() {
         activeOpacity={0.75}
         onPress={() => showSexualityInfo(value)}
         accessibilityRole="button"
-        accessibilityLabel={`Informacion sobre ${value}`}
+        accessibilityLabel={`Información sobre ${value}`}
       >
         <Text style={styles.metaChipText}>{value}</Text>
         {hasDescription ? <Ionicons name="information-circle-outline" size={15} color={Colors.primary} /> : null}
@@ -1859,9 +1864,9 @@ export default function SocialProfileScreen() {
       return (
         <View style={styles.centerStateCard}>
           <Ionicons name="people-outline" size={58} color={Colors.textMuted} />
-          <Text style={styles.centerStateTitle}>Aun no hay comensales visibles</Text>
+          <Text style={styles.centerStateTitle}>Aún no hay comensales visibles</Text>
           <Text style={styles.centerStateText}>
-            Cuando mas personas activen su modo social en {selectedBranch.nombre}, apareceran aqui.
+            Cuando más personas activen su modo social en {selectedBranch.nombre}, aparecerán aquí.
           </Text>
           <TouchableOpacity style={styles.secondaryButton} onPress={() => setModalVisible(true)}>
             <Ionicons name="create-outline" size={18} color={Colors.primary} />
@@ -1941,14 +1946,15 @@ export default function SocialProfileScreen() {
               onPress={openGiftSelector}
               disabled={giftButtonDisabled}
             >
+              <Text style={styles.discoveryButtonText} numberOfLines={1}>
+                Enviar
+              </Text>
               {giftProductsLoading ? (
                 <ActivityIndicator size="small" color={Colors.white} />
               ) : (
                 <Ionicons name="gift-outline" size={20} color={Colors.white} />
               )}
-              <Text style={styles.discoveryButtonText} numberOfLines={1}>
-                Regalo
-              </Text>
+
             </TouchableOpacity>
           </View>
 
@@ -1973,7 +1979,7 @@ export default function SocialProfileScreen() {
         <View style={styles.centerStateCard}>
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.centerStateTitle}>Cargando tus matches</Text>
-          <Text style={styles.centerStateText}>Estamos buscando las personas que tambien te dieron like.</Text>
+          <Text style={styles.centerStateText}>Estamos buscando las personas que también te dieron like.</Text>
         </View>
       );
     }
@@ -1982,9 +1988,9 @@ export default function SocialProfileScreen() {
       return (
         <View style={styles.centerStateCard}>
           <Ionicons name="heart-outline" size={70} color={Colors.textMuted} />
-          <Text style={styles.centerStateTitle}>Aun no tienes matches</Text>
+          <Text style={styles.centerStateTitle}>Aún no tienes matches</Text>
           <Text style={styles.centerStateText}>
-            Da like a personas que te interesen. Si tambien te dan like, apareceran aqui.
+            Da like a personas que te interesen. Si también te dan like, aparecerán aquí.
           </Text>
           {canDiscover ? (
             <TouchableOpacity style={styles.primaryButton} onPress={() => setSocialView('discover')} activeOpacity={0.85}>
@@ -2036,11 +2042,11 @@ export default function SocialProfileScreen() {
 
   function renderLikesView() {
     const likes = likesView === 'received' ? receivedLikes : sentLikes;
-    const emptyTitle = likesView === 'received' ? 'Aun no te dan likes' : 'Aun no has dado likes';
+    const emptyTitle = likesView === 'received' ? 'Aún no te dan likes' : 'Aún no has dado likes';
     const emptyText =
       likesView === 'received'
-        ? 'Cuando alguien te de me gusta, aparecera aqui para que puedas ver su perfil.'
-        : 'Los perfiles a los que les des like apareceran aqui mientras no hagan match.';
+        ? 'Cuando alguien te dé me gusta, aparecerá aquí para que puedas ver su perfil.'
+        : 'Los perfiles a los que les des like aparecerán aquí mientras no hagan match.';
 
     if (likesLoading && likes.length === 0) {
       return (
@@ -2276,7 +2282,7 @@ export default function SocialProfileScreen() {
             <Ionicons name="people-outline" size={72} color={Colors.textMuted} />
             <Text style={styles.centerStateTitle}>Conoce a otros comensales</Text>
             <Text style={styles.centerStateText}>
-              Activa el modo social para descubrir quien mas esta disfrutando de este restaurante.
+              Activa el modo social para descubrir quién más está disfrutando de este restaurante.
             </Text>
 
             <TouchableOpacity style={styles.primaryButton} onPress={() => updateSocialStatus(true)} activeOpacity={0.85}>
@@ -2323,7 +2329,7 @@ export default function SocialProfileScreen() {
                 <View style={styles.galleryHeader}>
                   <View>
                     <Text style={styles.galleryTitle}>Fotos</Text>
-                    <Text style={styles.helperText}>La primera foto sera tu portada social.</Text>
+                    <Text style={styles.helperText}>La primera foto será tu portada social.</Text>
                   </View>
                   <Text style={styles.galleryCount}>{socialPhotos.length}/6</Text>
                 </View>
@@ -2389,7 +2395,7 @@ export default function SocialProfileScreen() {
                 label="Nombre"
                 value={form.nombre}
                 onChangeText={(value) => updateField('nombre', value.slice(0, 80))}
-                placeholder="Como quieres aparecer"
+                placeholder="Cómo quieres aparecer"
                 autoCapitalize="words"
                 maxLength={80}
               />
@@ -2412,23 +2418,23 @@ export default function SocialProfileScreen() {
               />
 
               <ChoiceField
-                label="Genero"
+                label="Género"
                 value={form.genero}
-                placeholder="Selecciona tu genero"
+                placeholder="Selecciona tu género"
                 options={GENDER_OPTIONS}
                 onSelect={(value) => updateField('genero', value)}
               />
 
               <ChoiceField
-                label="Que buscas"
+                label="Qué buscas"
                 value={form.queBusca}
-                placeholder="Cuéntale a otros que buscas"
+                placeholder="Cuéntale a otros qué buscas"
                 options={LOOKING_FOR_OPTIONS}
                 onSelect={(value) => updateField('queBusca', value)}
               />
 
               <InputField
-                label="Descripcion"
+                label="Descripción"
                 value={form.biografia}
                 onChangeText={(value) => updateField('biografia', value)}
                 placeholder="Describe tu vibra, tu plan favorito o lo que te gusta platicar."
@@ -2521,7 +2527,7 @@ export default function SocialProfileScreen() {
               </View>
 
               <Text style={styles.consentText}>
-                Al activar el modo social, otros comensales activos de esta sucursal podran ver la informacion que
+                Al activar el modo social, otros comensales activos de esta sucursal podrán ver la información que
                 compartas en tu perfil: nombre, fotos, edad, genero, sexualidad, descripcion, intereses, que buscas y
                 tu mesa o sucursal actual.
               </Text>
@@ -2624,7 +2630,7 @@ export default function SocialProfileScreen() {
             </View>
 
             <Text style={styles.helperText}>
-              Comparte tu numero de mesa para ubicar mejor tu perfil en la sucursal y dejar listo el flujo de regalos
+              Comparte tu número de mesa para ubicar mejor tu perfil en la sucursal y dejar listo el flujo de regalos
               hacia el panel de meseros.
             </Text>
 
@@ -2644,7 +2650,7 @@ export default function SocialProfileScreen() {
             ) : (
               <>
                 <InputField
-                  label="Numero de mesa"
+                  label="Número de mesa"
                   value={mesaInput}
                   onChangeText={(value) => setMesaInput(value.slice(0, 20))}
                   placeholder="Ej. 12"
@@ -2809,13 +2815,13 @@ export default function SocialProfileScreen() {
 
             <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
               <Text style={styles.helperText}>
-                Ajusta edad, genero o sexualidad para ver perfiles mas cercanos a lo que buscas.
+                Ajusta edad, género o sexualidad para ver perfiles más cercanos a lo que buscas.
               </Text>
 
               <View style={styles.filterRow}>
                 <View style={styles.filterHalf}>
                   <InputField
-                    label="Edad minima"
+                    label="Edad mínima"
                     value={filters.edadMin}
                     onChangeText={(value) => updateFilter('edadMin', value.replace(/[^0-9]/g, ''))}
                     placeholder="18"
@@ -2825,7 +2831,7 @@ export default function SocialProfileScreen() {
 
                 <View style={styles.filterHalf}>
                   <InputField
-                    label="Edad maxima"
+                    label="Edad máxima"
                     value={filters.edadMax}
                     onChangeText={(value) => updateFilter('edadMax', value.replace(/[^0-9]/g, ''))}
                     placeholder="35"
@@ -2835,7 +2841,7 @@ export default function SocialProfileScreen() {
               </View>
 
               <ChoiceField
-                label="Genero"
+                label="Género"
                 value={filters.genero}
                 placeholder="Todos"
                 options={GENDER_OPTIONS}
@@ -2947,7 +2953,7 @@ export default function SocialProfileScreen() {
                 <View style={styles.giftPaymentHeading}>
                   <View>
                     <Text style={styles.giftPaymentLabel}>Se carga a tu cuenta</Text>
-                    <Text style={styles.giftPaymentHint}>Pagaras este regalo al cerrar la cuenta de tu mesa.</Text>
+                  <Text style={styles.giftPaymentHint}>Pagarás este regalo al cerrar la cuenta de tu mesa.</Text>
                   </View>
                   <Text style={styles.giftPaymentTotal}>${selectedGift.precio.toFixed(2)}</Text>
                 </View>

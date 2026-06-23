@@ -137,7 +137,7 @@ class MenuController
             if (!is_array($input['modificadores'])) Response::validationError(['modificadores' => ['Debe ser un arreglo.']]);
             return $input['modificadores'];
         }
-        Response::validationError(['modificadores' => ['Envia modifiers, modificadores o un arreglo directo.']]);
+        Response::validationError(['modificadores' => ['Envía modifiers, modificadores o un arreglo directo.']]);
     }
 
     private static function modifierFlags(int $restaurantId): array

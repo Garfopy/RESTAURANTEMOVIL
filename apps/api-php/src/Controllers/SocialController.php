@@ -44,12 +44,12 @@ class SocialController
 
         if ($isActive) {
             if (!$this->hasMesaColumn()) {
-                Response::serverError('La base de datos aun no tiene la columna mesa. Ejecuta primero el SQL de la fase 1.');
+                Response::serverError('La base de datos aún no tiene la columna mesa. Ejecuta primero el SQL de la fase 1.');
             }
 
             if ($mesa === null) {
                 Response::validationError([
-                    'mesa' => ['Ingresa tu numero de mesa para activar el modo social'],
+                    'mesa' => ['Ingresa tu número de mesa para activar el modo social'],
                 ]);
             }
 
@@ -66,7 +66,7 @@ class SocialController
                 }
 
                 if (!$this->hasSocialConsentColumns()) {
-                    Response::serverError('La base de datos aun no tiene las columnas de consentimiento social. Ejecuta la migracion 024.');
+                    Response::serverError('La base de datos aún no tiene las columnas de consentimiento social. Ejecuta la migración 024.');
                 }
 
                 $shouldStoreConsent = true;
@@ -177,16 +177,16 @@ class SocialController
         $restaurantId = isset($input['restaurant_id']) ? (int)$input['restaurant_id'] : 0;
 
         if ($likedUserId <= 0) {
-            Response::validationError(['liked_user_id' => ['Selecciona un comensal valido']]);
+            Response::validationError(['liked_user_id' => ['Selecciona un comensal válido']]);
         }
         if ($restaurantId <= 0) {
-            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         if ($likedUserId === (int)$user->id) {
             Response::validationError(['liked_user_id' => ['No puedes darte like a ti mismo']]);
         }
         if (!$this->tableExists('social_likes')) {
-            Response::serverError('La tabla social_likes aun no existe. Ejecuta la migracion 027.');
+            Response::serverError('La tabla social_likes aún no existe. Ejecuta la migración 027.');
         }
 
         $sender = $this->fetchSocialProfile((int)$user->id);
@@ -281,7 +281,7 @@ class SocialController
         $user = AuthMiddleware::authenticate();
 
         if ($likedUserId <= 0) {
-            Response::validationError(['liked_user_id' => ['Selecciona un comensal valido']]);
+            Response::validationError(['liked_user_id' => ['Selecciona un comensal válido']]);
         }
         if ($likedUserId === (int)$user->id) {
             Response::validationError(['liked_user_id' => ['No puedes quitarte un like a ti mismo']]);
@@ -299,7 +299,7 @@ class SocialController
             Response::success(['liked' => false, 'matched' => false, 'relationship_status' => 'none'], 'Like eliminado');
         }
         if (!empty($like['matched_at'])) {
-            Response::error('No puedes quitar el like de un match desde aqui.', 409);
+            Response::error('No puedes quitar el like de un match desde aquí.', 409);
         }
 
         Database::rowCount(
@@ -502,7 +502,7 @@ class SocialController
         }
 
         if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            Response::error('No se recibio ninguna imagen', 400);
+            Response::error('No se recibió ninguna imagen', 400);
         }
 
         $ext = strtolower(pathinfo($file['name'] ?? 'photo.jpg', PATHINFO_EXTENSION));
@@ -512,11 +512,11 @@ class SocialController
             Response::error('Formato no permitido. Use: jpg, jpeg, png, webp', 400);
         }
         if ((int)($file['size'] ?? 0) > 5 * 1024 * 1024) {
-            Response::error('La imagen no debe pesar mas de 5 MB.', 400);
+            Response::error('La imagen no debe pesar más de 5 MB.', 400);
         }
 
         if (!$this->hasSocialPhotosColumn()) {
-            Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
+            Response::serverError('La base de datos aún no tiene social_photos_json. Ejecuta la migración 023.');
         }
 
         $profile = $this->fetchSocialProfile($user->id);
@@ -571,7 +571,7 @@ class SocialController
         }
 
         if (!$this->hasSocialPhotosColumn()) {
-            Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
+            Response::serverError('La base de datos aún no tiene social_photos_json. Ejecuta la migración 023.');
         }
 
         $profile = $this->fetchSocialProfile($user->id);
@@ -614,7 +614,7 @@ class SocialController
         }
 
         if (!$this->hasSocialPhotosColumn()) {
-            Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
+            Response::serverError('La base de datos aún no tiene social_photos_json. Ejecuta la migración 023.');
         }
 
         $profile = $this->fetchSocialProfile($user->id);
@@ -721,13 +721,13 @@ class SocialController
         $errors = [];
 
         if ($restaurantId <= 0) {
-            $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
+            $errors['restaurant_id'] = ['Selecciona una sucursal válida'];
         }
         if ($giftProductId <= 0) {
-            $errors['gift_product_id'] = ['Selecciona un regalo valido'];
+            $errors['gift_product_id'] = ['Selecciona un regalo válido'];
         }
         if ($recipientUserId <= 0) {
-            $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
+            $errors['recipient_user_id'] = ['Selecciona un comensal válido'];
         }
         if ($recipientUserId === (int)$user->id) {
             $errors['recipient_user_id'] = ['No puedes enviarte un regalo a ti mismo'];
@@ -738,7 +738,7 @@ class SocialController
         }
 
         if (!$this->tableExists('social_gift_orders')) {
-            Response::serverError('La tabla social_gift_orders aun no existe. Ejecuta primero la migracion de regalos sociales.');
+            Response::serverError('La tabla social_gift_orders aún no existe. Ejecuta primero la migración de regalos sociales.');
         }
 
         $sender = $this->fetchSocialProfile((int)$user->id);
@@ -765,7 +765,7 @@ class SocialController
             !(bool)($recipient['is_social_active'] ?? false) ||
             (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId
         ) {
-            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
+            Response::error('Este comensal ya no está disponible en la sucursal seleccionada.', 409);
         }
 
         $recipientMesa = $this->sanitizeNullableString($recipient['mesa'] ?? null);
@@ -891,24 +891,24 @@ class SocialController
         $requestKey = trim((string)($input['request_key'] ?? ''));
 
         $errors = [];
-        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
-        if ($giftProductId <= 0) $errors['gift_product_id'] = ['Selecciona un regalo valido'];
-        if ($recipientUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
+        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal válida'];
+        if ($giftProductId <= 0) $errors['gift_product_id'] = ['Selecciona un regalo válido'];
+        if ($recipientUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal válido'];
         if ($recipientUserId === (int)$user->id) $errors['recipient_user_id'] = ['No puedes enviarte un regalo a ti mismo'];
         if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
-            $errors['request_key'] = ['La clave de solicitud no es valida'];
+            $errors['request_key'] = ['La clave de solicitud no es válida'];
         }
         if ($errors) Response::validationError($errors);
 
         foreach (['social_gift_orders', 'social_gift_account_products', 'rest_pedidos', 'rest_pedido_items'] as $table) {
             if (!$this->tableExists($table)) {
-                Response::serverError('Ejecuta la migracion 033 antes de enviar regalos a la cuenta.');
+                Response::serverError('Ejecuta la migración 033 antes de enviar regalos a la cuenta.');
             }
         }
         $giftColumns = $this->getTableColumns('social_gift_orders');
         foreach (['sender_mesa_id', 'pedido_id', 'pedido_item_id', 'cargado_cuenta_at'] as $column) {
             if (!in_array($column, $giftColumns, true)) {
-                Response::serverError('Ejecuta la migracion 033 antes de enviar regalos a la cuenta.');
+                Response::serverError('Ejecuta la migración 033 antes de enviar regalos a la cuenta.');
             }
         }
 
@@ -926,7 +926,7 @@ class SocialController
 
         $recipient = $this->fetchSocialProfile($recipientUserId);
         if (!$recipient || !(bool)($recipient['is_social_active'] ?? false) || (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId) {
-            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
+            Response::error('Este comensal ya no está disponible en la sucursal seleccionada.', 409);
         }
         $recipientMesaLabel = $this->sanitizeNullableString($recipient['mesa'] ?? null);
         if ($recipientMesaLabel === null) Response::error('No pudimos ubicar la mesa del comensal seleccionado.', 409);
@@ -936,7 +936,7 @@ class SocialController
         $giftProduct = $this->findGiftProduct($giftProductId);
         if ($giftProduct === null) Response::notFound('Regalo no encontrado');
         $price = round((float)($giftProduct['precio'] ?? 0), 2);
-        if ($price <= 0) Response::error('Este regalo no tiene un precio valido.', 409);
+        if ($price <= 0) Response::error('Este regalo no tiene un precio válido.', 409);
 
         $pdo = Database::getInstance();
         try {
@@ -955,7 +955,7 @@ class SocialController
                     throw new \DomainException('La clave de solicitud ya pertenece a otro regalo.');
                 }
                 if (empty($gift['pedido_item_id'])) {
-                    throw new \DomainException('Esta solicitud pertenece a un flujo de pago anterior. Inicia un nuevo envio.');
+                    throw new \DomainException('Esta solicitud pertenece a un flujo de pago anterior. Inicia un nuevo envío.');
                 }
                 $pdo->commit();
                 Response::success([
@@ -1055,12 +1055,12 @@ class SocialController
         $requestKey = trim((string)($input['request_key'] ?? ''));
 
         $errors = [];
-        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
-        if ($giftProductId <= 0) $errors['gift_product_id'] = ['Selecciona un regalo valido'];
-        if ($recipientUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
+        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal válida'];
+        if ($giftProductId <= 0) $errors['gift_product_id'] = ['Selecciona un regalo válido'];
+        if ($recipientUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal válido'];
         if ($recipientUserId === (int)$user->id) $errors['recipient_user_id'] = ['No puedes enviarte un regalo a ti mismo'];
         if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
-            $errors['request_key'] = ['La clave de solicitud no es valida'];
+            $errors['request_key'] = ['La clave de solicitud no es válida'];
         }
         if (!empty($errors)) Response::validationError($errors);
         if (!$this->tableExists('social_gift_orders')) {
@@ -1069,7 +1069,7 @@ class SocialController
         $giftColumns = $this->getTableColumns('social_gift_orders');
         foreach (['stripe_payment_intent_id', 'payment_request_key', 'pagado_at', 'moneda'] as $required) {
             if (!in_array($required, $giftColumns, true)) {
-                Response::serverError('Ejecuta la migracion 030 antes de cobrar regalos.');
+                Response::serverError('Ejecuta la migración 030 antes de cobrar regalos.');
             }
         }
 
@@ -1086,7 +1086,7 @@ class SocialController
 
         $recipient = $this->fetchSocialProfile($recipientUserId);
         if (!$recipient || !(bool)($recipient['is_social_active'] ?? false) || (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId) {
-            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
+            Response::error('Este comensal ya no está disponible en la sucursal seleccionada.', 409);
         }
         $recipientMesa = $this->sanitizeNullableString($recipient['mesa'] ?? null);
         if ($recipientMesa === null) Response::error('No pudimos ubicar la mesa del comensal seleccionado.', 409);
@@ -1096,7 +1096,7 @@ class SocialController
         $giftProduct = $this->findGiftProduct($giftProductId);
         if ($giftProduct === null) Response::notFound('Regalo no encontrado');
         $amountCents = (int)round((float)($giftProduct['precio'] ?? 0) * 100);
-        if ($amountCents <= 0) Response::error('Este regalo no tiene un precio valido.', 409);
+        if ($amountCents <= 0) Response::error('Este regalo no tiene un precio válido.', 409);
 
         $gift = Database::queryOne(
             'SELECT * FROM social_gift_orders WHERE sender_user_id = :sender_id AND payment_request_key = :request_key LIMIT 1',
@@ -1214,10 +1214,10 @@ class SocialController
             $metadataGiftId = (int)($intent->metadata['gift_order_id'] ?? 0);
             $metadataUserId = (int)($intent->metadata['user_id'] ?? 0);
             if ($metadataGiftId !== $giftId || $metadataUserId !== (int)$user->id || (int)$intent->amount !== $expectedCents || strtolower((string)$intent->currency) !== 'mxn') {
-                Response::error('La informacion del pago no coincide con el regalo.', 409);
+                Response::error('La información del pago no coincide con el regalo.', 409);
             }
             if ($intent->status !== 'succeeded') {
-                Response::error('Stripe aun no confirma el pago del regalo.', 409);
+                Response::error('Stripe aún no confirma el pago del regalo.', 409);
             }
             Database::rowCount(
                 "UPDATE social_gift_orders
@@ -1276,7 +1276,7 @@ class SocialController
         $orderId = (int)($orderStmt->fetchColumn() ?: 0);
 
         if ($orderId <= 0) {
-            throw new \DomainException('Tu mesa aun no tiene una cuenta abierta. Solicita al mesero abrirla antes de enviar el regalo.');
+            throw new \DomainException('Tu mesa aún no tiene una cuenta abierta. Solicita al mesero abrirla antes de enviar el regalo.');
         }
 
         $mappingStmt = $pdo->prepare(
@@ -1470,11 +1470,11 @@ class SocialController
         }
 
         if (!$this->tableExists('rest_mesas')) {
-            Response::serverError('La base de datos aun no tiene rest_mesas configurado.');
+            Response::serverError('La base de datos aún no tiene rest_mesas configurado.');
         }
 
         if (!$this->hasMesaColumn()) {
-            Response::serverError('La base de datos aun no tiene la columna mesa. Ejecuta primero la migracion 018.');
+            Response::serverError('La base de datos aún no tiene la columna mesa. Ejecuta primero la migración 018.');
         }
 
         $scanData = $this->parseTableQrPayload($payload);
@@ -1489,13 +1489,13 @@ class SocialController
             $mesa = $this->findScannedTable(null, $tableId, $tableCode);
         }
         if ($mesa === null) {
-            Response::notFound('Mesa no encontrada o QR invalido');
+            Response::notFound('Mesa no encontrada o QR inválido');
         }
 
         $restaurantId = (int)$mesa['restaurante_id'];
         $branch = $this->findEatInBranch($restaurantId);
         if ($branch === null) {
-            Response::error('Esta sucursal no tiene habilitado Comer aqui.', 409);
+            Response::error('Esta sucursal no tiene habilitado Comer aquí.', 409);
         }
 
         Database::rowCount(

@@ -19,6 +19,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import type { Modificador, ModificadorSeleccionado, OpcionModificador, Platillo } from '@amare/types';
 import { getCategories, getDishById, getDishes } from '../../../services/menu.service';
 import { getApiError } from '../../../services/api';
@@ -149,6 +150,7 @@ export default function WaiterTableScreen() {
   const [menuSearch, setMenuSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Platillo | null>(null);
   const [productLoading, setProductLoading] = useState(false);
+  const [loadingProductId, setLoadingProductId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState('');
   const [selectedMods, setSelectedMods] = useState<ModificadorSeleccionado[]>([]);
@@ -210,20 +212,39 @@ export default function WaiterTableScreen() {
     [selectedProduct, selectedMods]
   );
 
-  async function openProduct(product: Platillo) {
+  async function openProduct(product: Platillo, quickAdd = false) {
     try {
-      setProductLoading(true);
+      setProductLoading(!quickAdd);
+      setLoadingProductId(product.id);
       setSelectedProduct(null);
       setQuantity(1);
       setNotes('');
       setSelectedMods([]);
       const fullProduct = await getDishById(restaurantId, product.id);
+      const defaultSelection = defaultModifierSelection(fullProduct);
+      const hasChoices = (fullProduct.modificadores ?? []).length > 0 || defaultSelection.length > 0;
+
+      if (quickAdd && !hasChoices) {
+        waiterCart.addItem({
+          tableId,
+          restaurantId,
+          clienteNombre: customerName,
+          platillo: fullProduct,
+          cantidad: 1,
+          modificadores: [],
+          notas: '',
+        });
+        void Haptics.selectionAsync();
+        return;
+      }
+
       setSelectedProduct(fullProduct);
-      setSelectedMods(defaultModifierSelection(fullProduct));
+      setSelectedMods(defaultSelection);
     } catch (error) {
       Alert.alert('Producto', getApiError(error));
     } finally {
-      setProductLoading(false);
+      if (!quickAdd) setProductLoading(false);
+      setLoadingProductId(null);
     }
   }
 
@@ -313,9 +334,17 @@ export default function WaiterTableScreen() {
     setSelectedProduct(null);
   }
 
+  function requestClearCart() {
+    if (cartItems.length === 0) return;
+    Alert.alert('Vaciar comanda', 'Se quitarán los productos pendientes antes de enviarlos a cocina.', [
+      { text: 'Conservar', style: 'cancel' },
+      { text: 'Vaciar', style: 'destructive', onPress: () => waiterCart.clear() },
+    ]);
+  }
+
   async function sendOrder() {
     if (cartItems.length === 0) {
-      Alert.alert('Comanda vacia', 'Agrega productos antes de enviar a cocina.');
+      Alert.alert('Comanda vacía', 'Agrega productos antes de enviar a cocina.');
       return;
     }
 
@@ -346,11 +375,11 @@ export default function WaiterTableScreen() {
 
   async function closeAccount() {
     if (cartItems.length > 0) {
-      Alert.alert('Comanda pendiente', 'Envia o vacia la comanda pendiente antes de cerrar la cuenta.');
+      Alert.alert('Comanda pendiente', 'Envía o vacía la comanda pendiente antes de cerrar la cuenta.');
       return;
     }
     if (sentItems.length === 0) {
-      Alert.alert('Cuenta vacia', 'No hay productos enviados para cerrar esta cuenta.');
+      Alert.alert('Cuenta vacía', 'No hay productos enviados para cerrar esta cuenta.');
       return;
     }
 
@@ -363,7 +392,7 @@ export default function WaiterTableScreen() {
       });
       waiterCart.clear();
       setCloseVisible(false);
-      Alert.alert('Cuenta cerrada', 'La cuenta se marco como pagada y la mesa quedo disponible.', [
+      Alert.alert('Cuenta cerrada', 'La cuenta se marcó como pagada y la mesa quedó disponible.', [
         {
           text: 'Aceptar',
           onPress: () => router.replace('/(waiter)' as never),
@@ -381,7 +410,7 @@ export default function WaiterTableScreen() {
       setSplitVisible(true);
       return;
     }
-    Alert.alert('Cerrar cuenta', '¿Como deseas cobrar esta mesa?', [
+    Alert.alert('Cerrar cuenta', '¿Cómo deseas cobrar esta mesa?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Una sola cuenta', onPress: () => setCloseVisible(true) },
       { text: 'Cuentas separadas', onPress: () => setSplitVisible(true) },
@@ -391,7 +420,7 @@ export default function WaiterTableScreen() {
   function finishSplitPayment() {
     waiterCart.clear();
     setSplitVisible(false);
-    Alert.alert('Mesa liquidada', 'Todas las cuentas fueron pagadas y la mesa quedo disponible.', [
+    Alert.alert('Mesa liquidada', 'Todas las cuentas fueron pagadas y la mesa quedó disponible.', [
       { text: 'Aceptar', onPress: () => router.replace('/(waiter)' as never) },
     ]);
   }
@@ -473,27 +502,6 @@ export default function WaiterTableScreen() {
           </View>
         </View>
 
-        <View style={styles.actionGrid}>
-          <TouchableOpacity
-            style={[styles.primaryActionButton, activeSplit && styles.actionButtonDisabled]}
-            activeOpacity={0.88}
-            onPress={() => void openMenu()}
-            disabled={Boolean(activeSplit)}
-          >
-            <Ionicons name="restaurant-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.primaryActionText}>Agregar productos</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.secondaryActionButton, !canCloseAccount && styles.actionButtonDisabled]}
-            activeOpacity={0.88}
-            onPress={openCloseFlow}
-            disabled={!canCloseAccount}
-          >
-            <Ionicons name="cash-outline" size={20} color="#111827" />
-            <Text style={styles.secondaryActionText}>{activeSplit ? 'Continuar cobro' : 'Cerrar cuenta'}</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={[styles.section, hasPendingCart && styles.pendingSection]}>
           <View style={styles.sectionHeader}>
             <View>
@@ -501,7 +509,7 @@ export default function WaiterTableScreen() {
               <Text style={styles.sectionSubtitle}>{cartItems.length} productos sin enviar</Text>
             </View>
             {cartItems.length > 0 ? (
-              <TouchableOpacity style={styles.clearButton} onPress={() => waiterCart.clear()}>
+              <TouchableOpacity style={styles.clearButton} onPress={requestClearCart}>
                 <Ionicons name="trash-outline" size={15} color="#B91C1C" />
                 <Text style={styles.clearText}>Vaciar</Text>
               </TouchableOpacity>
@@ -521,7 +529,7 @@ export default function WaiterTableScreen() {
               </TouchableOpacity>
             </>
           ) : (
-            <Text style={styles.emptyText}>Agrega alimentos desde el menu para preparar una comanda.</Text>
+            <Text style={styles.emptyText}>Agrega alimentos desde el menú para preparar una comanda.</Text>
           )}
         </View>
 
@@ -534,7 +542,7 @@ export default function WaiterTableScreen() {
             {accountQuery.isLoading ? <ActivityIndicator color="#111827" /> : null}
           </View>
           {accountQuery.isLoading ? null : sentItems.length === 0 ? (
-            <Text style={styles.emptyText}>Aun no hay productos enviados a cocina.</Text>
+            <Text style={styles.emptyText}>Aún no hay productos enviados a cocina.</Text>
           ) : (
             sentItems.map((item) => (
               <View key={`${item.pedido_id}-${item.id}`} style={styles.sentItem}>
@@ -552,6 +560,36 @@ export default function WaiterTableScreen() {
           )}
         </View>
       </ScrollView>
+
+      <View style={[styles.bottomActionBar, { paddingBottom: 10 + Math.max(insets.bottom, Platform.OS === 'android' ? 6 : 0) }]}>
+        <TouchableOpacity
+          style={[styles.bottomAction, styles.bottomPrimary, activeSplit && styles.actionButtonDisabled]}
+          activeOpacity={0.88}
+          onPress={() => void openMenu()}
+          disabled={Boolean(activeSplit)}
+        >
+          <Ionicons name="add" size={20} color="#FFFFFF" />
+          <Text style={styles.bottomPrimaryText}>Agregar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.bottomAction, !hasPendingCart && styles.actionButtonDisabled]}
+          activeOpacity={0.88}
+          onPress={sendOrder}
+          disabled={!hasPendingCart || sending}
+        >
+          {sending ? <ActivityIndicator color="#111827" /> : <Ionicons name="send-outline" size={18} color="#111827" />}
+          <Text style={styles.bottomActionText}>Enviar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.bottomAction, !canCloseAccount && styles.actionButtonDisabled]}
+          activeOpacity={0.88}
+          onPress={openCloseFlow}
+          disabled={!canCloseAccount}
+        >
+          <Ionicons name="cash-outline" size={18} color="#111827" />
+          <Text style={styles.bottomActionText}>Cobrar</Text>
+        </TouchableOpacity>
+      </View>
 
       <SplitAccountModal
         visible={splitVisible}
@@ -572,7 +610,7 @@ export default function WaiterTableScreen() {
               <Ionicons name="close" size={22} color="#111827" />
             </TouchableOpacity>
             <View style={styles.headerCopy}>
-              <Text style={styles.title}>Menu</Text>
+              <Text style={styles.title}>Menú</Text>
               <Text style={styles.subtitle}>{tableLabel} - {cartItems.length} pendientes</Text>
             </View>
             <TouchableOpacity style={styles.iconButton} onPress={() => dishesQuery.refetch()} activeOpacity={0.8}>
@@ -585,7 +623,7 @@ export default function WaiterTableScreen() {
             <TextInput
               value={menuSearch}
               onChangeText={setMenuSearch}
-              placeholder="Buscar platillo, categoria o descripcion"
+              placeholder="Buscar platillo, categoría o descripción"
               placeholderTextColor="#94A3B8"
               style={styles.menuSearchInput}
               autoCapitalize="none"
@@ -594,7 +632,7 @@ export default function WaiterTableScreen() {
             />
             {menuSearch ? (
               <TouchableOpacity
-                accessibilityLabel="Limpiar busqueda"
+                accessibilityLabel="Limpiar búsqueda"
                 style={styles.menuSearchClear}
                 onPress={() => setMenuSearch('')}
                 activeOpacity={0.75}
@@ -651,8 +689,8 @@ export default function WaiterTableScreen() {
                       <Text style={styles.menuEmptyTitle}>{menuSearch.trim() ? 'Sin resultados' : 'Sin productos'}</Text>
                       <Text style={styles.menuEmptyText}>
                         {menuSearch.trim()
-                          ? 'Intenta con otro nombre, ingrediente o categoria.'
-                          : 'Esta categoria no tiene platillos disponibles.'}
+                          ? 'Intenta con otro nombre, ingrediente o categoría.'
+                          : 'Esta categoría no tiene platillos disponibles.'}
                       </Text>
                     </View>
                   }
@@ -669,7 +707,7 @@ export default function WaiterTableScreen() {
                           <Text style={styles.productName} numberOfLines={2}>{item.nombre}</Text>
                           {!item.disponible ? <Text style={styles.unavailablePill}>Agotado</Text> : null}
                         </View>
-                        <Text style={styles.productDescription} numberOfLines={2}>{item.descripcion ?? 'Sin descripcion'}</Text>
+                        <Text style={styles.productDescription} numberOfLines={2}>{item.descripcion ?? 'Sin descripción'}</Text>
                         <View style={styles.productMetaRow}>
                           {item.tiempo_preparacion_min ? (
                             <Text style={styles.productMeta}>{item.tiempo_preparacion_min} min</Text>
@@ -679,7 +717,22 @@ export default function WaiterTableScreen() {
                       </View>
                       <View style={styles.priceRail}>
                         <Text style={styles.productPrice}>{formatMoney(item.precio)}</Text>
-                        <Ionicons name="add-circle" size={24} color={item.disponible ? '#2563EB' : '#CBD5E1'} />
+                        <TouchableOpacity
+                          style={styles.quickAddButton}
+                          activeOpacity={0.82}
+                          disabled={!item.disponible || loadingProductId === item.id}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void openProduct(item, true);
+                          }}
+                          accessibilityLabel={`Agregar ${item.nombre}`}
+                        >
+                          {loadingProductId === item.id ? (
+                            <ActivityIndicator size="small" color="#2563EB" />
+                          ) : (
+                            <Ionicons name="add" size={18} color={item.disponible ? '#FFFFFF' : '#94A3B8'} />
+                          )}
+                        </TouchableOpacity>
                       </View>
                     </TouchableOpacity>
                   )}
@@ -831,7 +884,7 @@ export default function WaiterTableScreen() {
           >
             <View style={styles.sheetHandle} />
             <Text style={styles.closeTitle}>Cerrar cuenta</Text>
-            <Text style={styles.closeText}>Selecciona el metodo de pago para liberar {tableLabel}.</Text>
+            <Text style={styles.closeText}>Selecciona el método de pago para liberar {tableLabel}.</Text>
             <Text style={styles.closeTotal}>{formatMoney(sentTotal)}</Text>
 
             {([
@@ -953,7 +1006,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 14,
-    paddingBottom: 28,
+    paddingBottom: 120,
     gap: 14,
   },
   accountPanel: {
@@ -1345,11 +1398,60 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
+    gap: 8,
   },
   productPrice: {
     fontSize: 14,
     fontWeight: '900',
     color: '#111827',
+  },
+  quickAddButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 13,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomActionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 10,
+    paddingHorizontal: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  bottomAction: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  bottomPrimary: {
+    flex: 1.15,
+    borderColor: '#111827',
+    backgroundColor: '#111827',
+  },
+  bottomActionText: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  bottomPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
   },
   loadingProducts: {
     flex: 1,
