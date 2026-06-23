@@ -46,7 +46,10 @@ export default function CategoryScreen() {
   }
 
   function handleDish(p: Platillo) {
-    router.push({ pathname: '/product/[id]', params: { id: String(p.id), restauranteId } });
+    router.push({
+      pathname: '/product/[id]',
+      params: { id: String(p.id), restauranteId: String(p.restaurante_id || restId) },
+    });
   }
 
   return (

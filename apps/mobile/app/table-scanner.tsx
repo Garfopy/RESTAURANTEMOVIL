@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import type { TableScanResult } from '@amare/types';
 import { scanTableQr } from '../services/table-session.service';
 import { getApiError } from '../services/api';
@@ -22,7 +23,13 @@ import { Colors, Spacing } from '../theme';
 
 export default function TableScannerScreen() {
   const router = useRouter();
-  const { returnTo, activateSocial } = useLocalSearchParams<{ returnTo?: string; activateSocial?: string }>();
+  const queryClient = useQueryClient();
+  const { returnTo, activateSocial, mode, branchId } = useLocalSearchParams<{
+    returnTo?: string;
+    activateSocial?: string;
+    mode?: string;
+    branchId?: string;
+  }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanLocked, setScanLocked] = useState(false);
@@ -30,11 +37,50 @@ export default function TableScannerScreen() {
   const hasNavigatedRef = useRef(false);
 
   const seleccionar = useBranchStore((s) => s.seleccionar);
+  const currentBranch = useBranchStore((s) => s.seleccionada);
+  const sucursales = useBranchStore((s) => s.sucursales);
   const { itemCount, restauranteId: cartRestaurantId, clear, setTipoPedido } = useCartStore();
   const setTableSession = useTableSessionStore((s) => s.setSession);
+  const clearTableSession = useTableSessionStore((s) => s.clearSession);
   const updateProfile = useUserStore((s) => s.updateProfile);
 
   const destination = typeof returnTo === 'string' && returnTo.trim() ? returnTo : '/(tabs)';
+  const resolvedDestination = destination === '/(tabs)/index' ? '/(tabs)' : destination;
+
+  function navigateToDestination() {
+    if (resolvedDestination === '/(tabs)' && router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace(resolvedDestination as never);
+  }
+
+  function handleScanLater() {
+    if (hasNavigatedRef.current) return;
+    hasNavigatedRef.current = true;
+
+    if (mode === 'eat_in') {
+      setTipoPedido('eat_in');
+      clearTableSession();
+      const selectedBranch = branchId
+        ? sucursales.find((item) => String(item.id) === String(branchId))
+        : null;
+      const fallbackBranch =
+        selectedBranch ??
+        currentBranch ??
+        sucursales.find((item) => item.tipos_entrega?.includes('eat_in')) ??
+        sucursales[0] ??
+        null;
+
+      if (fallbackBranch) {
+        seleccionar(fallbackBranch);
+        void queryClient.invalidateQueries({ queryKey: ['menu', fallbackBranch.id] });
+      }
+    }
+
+    navigateToDestination();
+  }
 
   async function handleBarcodeScanned(result: BarcodeScanningResult) {
     if (scanLockedRef.current || scanLocked || isProcessing) return;
@@ -75,15 +121,16 @@ export default function TableScannerScreen() {
       setTableSession(table);
       seleccionar(table.branch);
       setTipoPedido('eat_in');
+      void queryClient.invalidateQueries({ queryKey: ['menu', table.restaurante_id] });
       updateProfile({
         current_restaurante_id: table.restaurante_id,
         mesa: table.mesa_value,
       });
-      if (activateSocial === '1' && destination === '/profile/social') {
+      if (activateSocial === '1' && resolvedDestination === '/profile/social') {
         router.replace({ pathname: '/profile/social', params: { activateSocial: '1' } } as never);
         return;
       }
-      router.replace(destination as never);
+      navigateToDestination();
     };
 
     if (itemCount > 0 && cartRestaurantId !== null && cartRestaurantId !== table.restaurante_id) {
@@ -147,6 +194,10 @@ export default function TableScannerScreen() {
           <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
             <Text style={styles.primaryButtonText}>Permitir camara</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater}>
+            <Ionicons name="time-outline" size={17} color={Colors.primary || '#111827'} />
+            <Text style={styles.secondaryButtonText}>Escanear mas tarde</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -185,6 +236,10 @@ export default function TableScannerScreen() {
             <Text style={styles.processingText}>Validando mesa...</Text>
           </View>
         ) : null}
+        <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater} disabled={isProcessing}>
+          <Ionicons name="time-outline" size={17} color={Colors.primary || '#111827'} />
+          <Text style={styles.secondaryButtonText}>Escanear mas tarde</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -277,6 +332,24 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
+  },
+  secondaryButton: {
+    minHeight: 46,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  secondaryButtonText: {
+    color: Colors.primary || '#111827',
+    fontWeight: '800',
+    fontSize: 14,
   },
   cameraWrap: {
     flex: 1,

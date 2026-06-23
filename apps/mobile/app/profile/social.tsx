@@ -575,6 +575,7 @@ export default function SocialProfileScreen() {
   const detailPhotoScrollRef = useRef<ScrollView | null>(null);
   const giftRequestKeyRef = useRef<string | null>(null);
   const socialScanActivationHandledRef = useRef(false);
+  const staleSocialActivationHandledRef = useRef(false);
 
   const interestOptions = useMemo(() => {
     const unique = new Set(DEFAULT_INTEREST_OPTIONS);
@@ -613,6 +614,13 @@ export default function SocialProfileScreen() {
       : `${topReceivedLike.nombre} te dio me gusta`
     : '';
   const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
+  const canDiscover = Boolean(modoSocial && selectedBranch?.id);
+
+  useEffect(() => {
+    if (!canDiscover && socialView === 'discover') {
+      setSocialView('matches');
+    }
+  }, [canDiscover, socialView]);
 
   useEffect(() => {
     if (!topReceivedLike) {
@@ -751,6 +759,23 @@ export default function SocialProfileScreen() {
     socialScanActivationHandledRef.current = true;
     void requestSocialActivation(tableSession.mesaValue);
   }, [activateSocial, tableSession?.mesaValue, modoSocial]);
+
+  useEffect(() => {
+    if (
+      profileLoading ||
+      staleSocialActivationHandledRef.current ||
+      !userSocialActive ||
+      tableSession?.mesaValue
+    ) {
+      return;
+    }
+
+    staleSocialActivationHandledRef.current = true;
+    void (async () => {
+      await persistSocialStatus(false, null);
+      router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social', activateSocial: '1' } });
+    })();
+  }, [profileLoading, userSocialActive, tableSession?.mesaValue]);
 
   useEffect(() => {
     let mounted = true;
@@ -1961,10 +1986,12 @@ export default function SocialProfileScreen() {
           <Text style={styles.centerStateText}>
             Da like a personas que te interesen. Si tambien te dan like, apareceran aqui.
           </Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setSocialView('discover')} activeOpacity={0.85}>
-            <Ionicons name="people-outline" size={18} color={Colors.white} />
-            <Text style={styles.primaryButtonText}>Descubrir comensales</Text>
-          </TouchableOpacity>
+          {canDiscover ? (
+            <TouchableOpacity style={styles.primaryButton} onPress={() => setSocialView('discover')} activeOpacity={0.85}>
+              <Ionicons name="people-outline" size={18} color={Colors.white} />
+              <Text style={styles.primaryButtonText}>Descubrir comensales</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       );
     }
@@ -2148,45 +2175,36 @@ export default function SocialProfileScreen() {
           />
         </View>
 
-        <View style={styles.summaryRow}>
-          <TouchableOpacity
-            style={styles.summaryPill}
-            activeOpacity={0.8}
-            onPress={() => {
-              setPendingActivationAfterBranch(false);
-              router.push('/branch-selector' as never);
-            }}
-          >
-            <Ionicons name="location-outline" size={18} color={Colors.primary} />
-            <Text numberOfLines={1} style={styles.summaryPillText}>
-              {selectedBranch?.nombre ?? 'Sucursal'}
-            </Text>
-          </TouchableOpacity>
+        {canDiscover ? (
+          <View style={styles.summaryRow}>
+            <TouchableOpacity
+              style={[styles.summaryPill, socialView === 'discover' && styles.summaryPillActive]}
+              activeOpacity={0.82}
+              onPress={() => setSocialView('discover')}
+            >
+              <Ionicons
+                name="people-outline"
+                size={18}
+                color={socialView === 'discover' ? Colors.white : Colors.primary}
+              />
+              <Text
+                numberOfLines={1}
+                style={[styles.summaryPillText, socialView === 'discover' && styles.summaryPillTextActive]}
+              >
+                Descubrir
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.summaryPill} activeOpacity={0.8} onPress={() => setFiltersVisible(true)}>
-            <Ionicons name="options-outline" size={18} color={Colors.primary} />
-            <Text numberOfLines={1} style={styles.summaryPillText}>
-              {activeFilterCount > 0 ? `Filtros (${activeFilterCount})` : 'Filtros'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity style={styles.summaryPill} activeOpacity={0.8} onPress={() => setFiltersVisible(true)}>
+              <Ionicons name="options-outline" size={18} color={Colors.primary} />
+              <Text numberOfLines={1} style={styles.summaryPillText}>
+                {activeFilterCount > 0 ? `Filtros (${activeFilterCount})` : 'Filtros'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={styles.socialViewSwitch}>
-          <TouchableOpacity
-            activeOpacity={0.82}
-            style={[styles.socialViewButton, socialView === 'discover' && styles.socialViewButtonActive]}
-            onPress={() => setSocialView('discover')}
-          >
-            <Ionicons
-              name="people-outline"
-              size={17}
-              color={socialView === 'discover' ? Colors.white : Colors.primary}
-            />
-            <Text style={[styles.socialViewText, socialView === 'discover' && styles.socialViewTextActive]}>
-              Descubrir
-            </Text>
-          </TouchableOpacity>
-
           <TouchableOpacity
             activeOpacity={0.82}
             style={[styles.socialViewButton, socialView === 'matches' && styles.socialViewButtonActive]}
@@ -2197,8 +2215,8 @@ export default function SocialProfileScreen() {
               size={17}
               color={socialView === 'matches' ? Colors.white : Colors.primary}
             />
-            <Text style={[styles.socialViewText, socialView === 'matches' && styles.socialViewTextActive]}>
-              Mis matches {matches.length > 0 ? `(${matches.length})` : ''}
+            <Text numberOfLines={1} style={[styles.socialViewText, socialView === 'matches' && styles.socialViewTextActive]}>
+              Matches{matches.length > 0 ? ` (${matches.length})` : ''}
             </Text>
           </TouchableOpacity>
 
@@ -2212,8 +2230,8 @@ export default function SocialProfileScreen() {
               size={17}
               color={socialView === 'likes' ? Colors.white : Colors.primary}
             />
-            <Text style={[styles.socialViewText, socialView === 'likes' && styles.socialViewTextActive]}>
-              Likes {receivedLikes.length + sentLikes.length > 0 ? `(${receivedLikes.length + sentLikes.length})` : ''}
+            <Text numberOfLines={1} style={[styles.socialViewText, socialView === 'likes' && styles.socialViewTextActive]}>
+              Likes{receivedLikes.length + sentLikes.length > 0 ? ` (${receivedLikes.length + sentLikes.length})` : ''}
             </Text>
           </TouchableOpacity>
         </View>
@@ -3065,6 +3083,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  summaryPillActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
   summaryPillText: {
     flex: 1,
     fontSize: 11,
@@ -3072,32 +3094,35 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     textAlign: 'center',
   },
+  summaryPillTextActive: {
+    color: Colors.white,
+  },
   socialViewSwitch: {
-    marginTop: 10,
-    borderRadius: 18,
+    marginTop: 8,
+    borderRadius: 14,
     backgroundColor: '#FFFFFFB8',
     borderWidth: 1,
     borderColor: '#E7EAF0',
-    padding: 4,
+    padding: 3,
     flexDirection: 'row',
-    gap: 4,
+    gap: 3,
   },
   socialViewButton: {
     flex: 1,
-    minHeight: 38,
-    borderRadius: 14,
+    minHeight: 34,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 8,
+    gap: 4,
+    paddingHorizontal: 5,
   },
   socialViewButtonActive: {
     backgroundColor: Colors.primary,
   },
   socialViewText: {
     flexShrink: 1,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: Colors.primary,
     textAlign: 'center',
@@ -3268,20 +3293,20 @@ const styles = StyleSheet.create({
   },
   discoveryActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
     paddingBottom: 2,
   },
   discoveryActionCenter: {
     flex: 1,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   discoveryArrowButton: {
-    width: 50,
-    minHeight: 50,
-    borderRadius: 18,
+    width: 44,
+    minHeight: 44,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: '#D8DDE8',
     backgroundColor: Colors.white,
@@ -3294,28 +3319,29 @@ const styles = StyleSheet.create({
   },
   likeButton: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 18,
+    minHeight: 44,
+    borderRadius: 15,
     backgroundColor: '#E11D48',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     ...Shadows.md,
   },
   discoveryGiftButton: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 18,
+    minHeight: 44,
+    borderRadius: 15,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     ...Shadows.md,
   },
   discoveryButtonText: {
-    fontSize: 14,
+    flexShrink: 1,
+    fontSize: 13,
     fontWeight: '800',
     color: Colors.white,
   },
@@ -3587,29 +3613,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   likesSegmentedControl: {
-    marginTop: 6,
-    marginBottom: 10,
-    borderRadius: 18,
+    marginTop: 4,
+    marginBottom: 8,
+    borderRadius: 14,
     backgroundColor: '#FFFFFFB8',
     borderWidth: 1,
     borderColor: '#E7EAF0',
-    padding: 4,
+    padding: 3,
     flexDirection: 'row',
-    gap: 4,
+    gap: 3,
   },
   likesSegmentButton: {
     flex: 1,
-    minHeight: 40,
-    borderRadius: 14,
+    minHeight: 34,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
   },
   likesSegmentButtonActive: {
     backgroundColor: Colors.primary,
   },
   likesSegmentText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
     color: Colors.primary,
     textAlign: 'center',

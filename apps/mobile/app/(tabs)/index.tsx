@@ -22,6 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUserStore } from '../../store/user.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useCartStore } from '../../store/cart.store';
@@ -78,12 +79,14 @@ type NearbyBranchState =
 
 export default function HomeScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const user = useUserStore((s) => s.user);
   const toast = useToast();
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
   const { tipoPedido, setTipoPedido, setDeliveryAddress, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const clearTableSession = useTableSessionStore((s) => s.clearSession);
   
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showDeliveryAddressModal, setShowDeliveryAddressModal] = useState(false);
@@ -187,68 +190,6 @@ export default function HomeScreen() {
     }
   }
 
-  async function maybeAutoSelectNearbyBranch() {
-    const coords = await getDetectedCoords({ silentOnDenied: true });
-    if (!coords) {
-      return false;
-    }
-
-    try {
-      const nearest = await getNearestBranches(coords.lat, coords.lng);
-      const candidate = nearest[0];
-      const secondCandidate = nearest[1];
-
-      if (!candidate || typeof candidate.distancia_km !== 'number') {
-        return false;
-      }
-
-      if (branch?.id === candidate.id) {
-        return true;
-      }
-
-      const candidateDistanceMeters = candidate.distancia_km * 1000;
-      const secondDistanceMeters =
-        typeof secondCandidate?.distancia_km === 'number' ? secondCandidate.distancia_km * 1000 : null;
-      const hasCloseRunnerUp =
-        secondDistanceMeters !== null && secondDistanceMeters - candidateDistanceMeters <= MIN_DISTANCE_GAP_METERS;
-
-      if (candidateDistanceMeters <= AUTO_SELECT_DISTANCE_METERS && !hasCloseRunnerUp) {
-        seleccionar(candidate);
-        setDetectedBranchMessage(`Detectamos ${candidate.nombre} cerca de ti y la dejamos lista.`);
-        return true;
-      }
-
-      if (candidateDistanceMeters > CONFIRM_SELECT_DISTANCE_METERS) {
-        return false;
-      }
-
-      return await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          'Sucursal cercana',
-          `Parece que estas en ${candidate.nombre}. ¿Quieres usar esta sucursal?`,
-          [
-            {
-              text: 'Ahora no',
-              style: 'cancel',
-              onPress: () => resolve(false),
-            },
-            {
-              text: 'Usar sucursal',
-              onPress: () => {
-                seleccionar(candidate);
-                setDetectedBranchMessage(`Usaremos ${candidate.nombre} para mostrarte el menu correcto.`);
-                resolve(true);
-              },
-            },
-          ]
-        );
-      });
-    } catch (error) {
-      console.error('Error detectando sucursal cercana:', error);
-      return false;
-    }
-  }
-
   async function evaluateNearbyBranch(): Promise<NearbyBranchState> {
     const coords = await getDetectedCoords({ silentOnDenied: true });
     if (!coords) {
@@ -290,8 +231,11 @@ export default function HomeScreen() {
   }
 
   function getTypesWithoutEatIn(types: TipoPedido[]): TipoPedido[] {
-    const filtered = types.filter((type) => type !== 'eat_in');
-    return filtered.length > 0 ? filtered : types;
+    return types.filter((type) => type !== 'eat_in');
+  }
+
+  function getFirstEatInBranch(): Sucursal | null {
+    return sucursales.find((item) => item.tipos_entrega?.includes('eat_in')) ?? sucursales[0] ?? null;
   }
 
   function syncDetectedBranchIfSafe(nextBranch: Sucursal) {
@@ -303,34 +247,22 @@ export default function HomeScreen() {
   }
 
   function openEatInScanner(branchToUse?: Sucursal | null) {
-    if (branchToUse) {
-      syncDetectedBranchIfSafe(branchToUse);
+    const branchForScanner = branchToUse ?? branch ?? getFirstEatInBranch();
+    const scannerParams: { returnTo: string; mode: string; branchId?: string } = {
+      returnTo: '/(tabs)',
+      mode: 'eat_in',
+    };
+
+    if (branchForScanner) {
+      syncDetectedBranchIfSafe(branchForScanner);
+      scannerParams.branchId = String(branchForScanner.id);
     }
 
+    setTipoPedido('eat_in');
     closeDeliveryFlow();
-    router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
-  }
-
-  async function confirmEatInNearby(branchToUse: Sucursal): Promise<boolean> {
-    return await new Promise<boolean>((resolve) => {
-      Alert.alert(
-        '¿Estás en el restaurante?',
-        `Detectamos que estás cerca de ${branchToUse.nombre}. Si ya llegaste, te llevamos directo al escáner QR de tu mesa.`,
-        [
-          {
-            text: 'No, pediré fuera',
-            style: 'cancel',
-            onPress: () => resolve(false),
-          },
-          {
-            text: 'Sí, estoy aquí',
-            onPress: () => {
-              openEatInScanner(branchToUse);
-              resolve(true);
-            },
-          },
-        ]
-      );
+    router.push({
+      pathname: '/table-scanner',
+      params: scannerParams,
     });
   }
 
@@ -347,23 +279,19 @@ export default function HomeScreen() {
       const enabledTypes = getEnabledOrderTypes(sucursales);
       let modalTypes = enabledTypes;
 
-      if (enabledTypes.includes('eat_in') && tableSession?.branch) {
-        if (!branch || branch.id !== tableSession.branch.id) {
-          seleccionar(tableSession.branch);
-        }
-        setTipoPedido('eat_in');
-        return;
-      }
-
       if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
-        if (tableSession?.branch) {
-          if (!branch || branch.id !== tableSession.branch.id) {
-            seleccionar(tableSession.branch);
-          }
-          setTipoPedido('eat_in');
+        const nearbyBranch = await evaluateNearbyBranch();
+        if (nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near') {
+          openEatInScanner(nearbyBranch.branch);
+          return;
+        } else if (nearbyBranch.kind === 'far') {
+          setDetectedBranchMessage('Para pedir en restaurante, acercate a una sucursal y escanea el QR de tu mesa.');
         } else {
-          router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+          setDetectedBranchMessage('No pudimos confirmar que estes en restaurante. Acercate a una sucursal para comer en mesa.');
         }
+        setAvailableTypes([]);
+        setSelectingPickupBranch(false);
+        setShowTypeModal(true);
         return;
       }
 
@@ -371,24 +299,19 @@ export default function HomeScreen() {
         const nearbyBranch = await evaluateNearbyBranch();
 
         if (nearbyBranch.kind === 'inside') {
-          setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre} y te llevamos directo al escáner QR.`);
           openEatInScanner(nearbyBranch.branch);
           return;
         }
 
-        if (nearbyBranch.kind === 'near') {
-          const confirmedEatIn = await confirmEatInNearby(nearbyBranch.branch);
-          if (confirmedEatIn) {
-            return;
-          }
-
-          modalTypes = getTypesWithoutEatIn(enabledTypes);
-          setDetectedBranchMessage('Si estás fuera del restaurante, por ahora te mostramos domicilio o recoger en tienda.');
+        else if (nearbyBranch.kind === 'near') {
+          openEatInScanner(nearbyBranch.branch);
+          return;
         } else if (nearbyBranch.kind === 'far') {
           modalTypes = getTypesWithoutEatIn(enabledTypes);
           setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
         } else {
-          setDetectedBranchMessage(null);
+          modalTypes = getTypesWithoutEatIn(enabledTypes);
+          setDetectedBranchMessage('No pudimos confirmar que estes en restaurante. Te mostramos las opciones para pedir fuera.');
         }
       }
 
@@ -414,24 +337,21 @@ export default function HomeScreen() {
       const nearbyBranch = await evaluateNearbyBranch();
 
       if (nearbyBranch.kind === 'inside') {
-        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre} y te llevamos directo al escáner QR.`);
-        openEatInScanner(nearbyBranch.branch);
-        return;
+        syncDetectedBranchIfSafe(nearbyBranch.branch);
+        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre}. Escanea tu mesa cuando quieras pedir aqui.`);
+        nextAvailableTypes = ['eat_in'];
       }
 
-      if (nearbyBranch.kind === 'near') {
-        const confirmedEatIn = await confirmEatInNearby(nearbyBranch.branch);
-        if (confirmedEatIn) {
-          return;
-        }
-
-        nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
-        setDetectedBranchMessage('Si estás fuera del restaurante, por ahora te mostramos domicilio o recoger en tienda.');
+      else if (nearbyBranch.kind === 'near') {
+        syncDetectedBranchIfSafe(nearbyBranch.branch);
+        setDetectedBranchMessage(`Estas cerca de ${nearbyBranch.branch.nombre}. Puedes escanear tu mesa despues.`);
+        nextAvailableTypes = ['eat_in'];
       } else if (nearbyBranch.kind === 'far') {
         nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
         setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
       } else {
-        setDetectedBranchMessage(null);
+        nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
+        setDetectedBranchMessage('No pudimos confirmar que estes en restaurante. Te mostramos las opciones para pedir fuera.');
       }
     }
 
@@ -451,6 +371,28 @@ export default function HomeScreen() {
     setDetectedBranchMessage(null);
   }
 
+  function handleScanLater() {
+    let branchForMenu = branch;
+
+    if (availableTypes.includes('eat_in') || branch?.tipos_entrega?.includes('eat_in')) {
+      if (!branch) {
+        const fallbackBranch = getFirstEatInBranch();
+        if (fallbackBranch) {
+          syncDetectedBranchIfSafe(fallbackBranch);
+          branchForMenu = fallbackBranch;
+        }
+      }
+      setTipoPedido('eat_in');
+      clearTableSession();
+
+      if (branchForMenu?.id) {
+        void refreshBranchConfig(branchForMenu.id, { force: true }).catch(() => undefined);
+        void queryClient.invalidateQueries({ queryKey: ['menu', branchForMenu.id] });
+      }
+    }
+    closeDeliveryFlow();
+  }
+
   async function handleInitialTypeSelect(tipo: TipoPedido) {
     if (tipo === 'delivery') {
       setShowTypeModal(false);
@@ -468,8 +410,7 @@ export default function HomeScreen() {
     }
 
     if (tipo === 'eat_in') {
-      closeDeliveryFlow();
-      router.push({ pathname: '/table-scanner', params: { returnTo: '/(tabs)' } });
+      openEatInScanner(branch);
       return;
     }
 
@@ -677,9 +618,10 @@ export default function HomeScreen() {
 
   function handleDish(platillo: Platillo) {
     if (!restauranteId) return;
+    const productRestaurantId = platillo.restaurante_id ?? restauranteId;
     router.push({
       pathname: '/product/[id]',
-      params: { id: String(platillo.id), restauranteId: String(restauranteId) },
+      params: { id: String(platillo.id), restauranteId: String(productRestaurantId) },
     });
   }
 
@@ -909,6 +851,12 @@ export default function HomeScreen() {
                 ? 'Selecciona una sucursal compatible con pickup.'
                 : 'Como prefieres disfrutar tu comida hoy?'}
             </Text>
+            {detectedBranchMessage && !selectingPickupBranch ? (
+              <View style={styles.detectedBranchBox}>
+                <Ionicons name="location-outline" size={16} color={Colors.primary} />
+                <Text style={styles.detectedBranchText}>{detectedBranchMessage}</Text>
+              </View>
+            ) : null}
              
             {detectingLocation ? (
               <ActivityIndicator color={Colors.primary} style={{ marginVertical: 20 }} />
@@ -1010,15 +958,31 @@ export default function HomeScreen() {
               </View>
             ) : (
               <View style={styles.selectorContainer}>
-                <OrderTypeSelector 
-                  value={tipoPedido as any} 
-                  onChange={(tipo) => {
-                    handleInitialTypeSelect(tipo);
-                  }}
-                  available={availableTypes}
-                />
+                {availableTypes.length > 0 ? (
+                  <OrderTypeSelector
+                    value={tipoPedido as any}
+                    onChange={(tipo) => {
+                      handleInitialTypeSelect(tipo);
+                    }}
+                    available={availableTypes}
+                  />
+                ) : (
+                  <View style={styles.emptyTypeBox}>
+                    <Ionicons name="location-outline" size={20} color="#6B7280" />
+                    <Text style={styles.emptyTypeText}>
+                      Acercate a una sucursal para escanear tu mesa.
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
+
+            {!detectingLocation && !selectingPickupBranch && availableTypes.includes('eat_in') ? (
+              <TouchableOpacity style={styles.scanLaterButton} activeOpacity={0.84} onPress={handleScanLater}>
+                <Ionicons name="time-outline" size={17} color={Colors.primary} />
+                <Text style={styles.scanLaterButtonText}>Escanear mas tarde</Text>
+              </TouchableOpacity>
+            ) : null}
 
             {false && availableTypes.length === 2 && !detectingLocation && !selectingPickupBranch && (
               <View style={styles.infoBox}>
@@ -1177,6 +1141,66 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 8,
     marginBottom: 4,
+  },
+  detectedBranchBox: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E7EAF0',
+    backgroundColor: '#F9FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detectedBranchText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  scanLaterButton: {
+    width: '100%',
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  scanLaterButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  emptyTypeBox: {
+    width: '100%',
+    minHeight: 68,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  emptyTypeText: {
+    flex: 1,
+    minWidth: 0,
+    color: '#4B5563',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   pickupSelector: {
     width: '100%',
