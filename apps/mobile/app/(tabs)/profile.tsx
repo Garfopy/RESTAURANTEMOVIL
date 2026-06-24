@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
 import { apiClient } from '../../services/api';
 import { logout } from '../../services/auth.service';
-import { getRewardsWallet, type RewardTransaction, type RewardsWallet } from '../../services/rewards.service';
+import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 
 export default function ProfileScreen() {
@@ -44,19 +44,6 @@ export default function ProfileScreen() {
     } finally {
       setWalletLoading(false);
     }
-  }
-
-  function formatTransactionAmount(tx: RewardTransaction): string {
-    const amount = Number(tx.amount_mxn || 0);
-    const prefix = amount > 0 ? '+' : '';
-    return `${prefix}$${amount.toFixed(2)}`;
-  }
-
-  function formatTransactionDate(value?: string | null): string {
-    if (!value) return '';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
   }
 
   async function handlePickImage() {
@@ -170,65 +157,35 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.rewardsSummaryGrid}>
-          <TouchableOpacity
-            style={[styles.summaryCard, styles.summaryCardBalance]}
-            activeOpacity={0.88}
-            onPress={() => router.push('/profile/amare-balance' as any)}
-          >
-            <View style={styles.summaryTopRow}>
-              <View style={styles.summaryIconWrap}>
-                <Ionicons name="wallet-outline" size={20} color="#064E3B" />
-              </View>
-              {walletLoading ? <ActivityIndicator size="small" color="#064E3B" /> : <Ionicons name="chevron-forward" size={18} color="#065F46" />}
-            </View>
-            <Text style={styles.summaryTitle}>Saldo Amare</Text>
-            <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
-            <Text style={styles.summaryHint}>Toca para recargar tu prepago</Text>
-          </TouchableOpacity>
-
-          <View style={[styles.summaryCard, styles.summaryCardPoints]}>
-            <View style={styles.summaryTopRow}>
-              <View style={styles.summaryIconWrap}>
-                <Ionicons name="trophy-outline" size={20} color="#7C2D12" />
-              </View>
-              {walletLoading ? <ActivityIndicator size="small" color="#7C2D12" /> : null}
-            </View>
-            <Text style={styles.summaryTitle}>Puntos Amare</Text>
-            <Text style={styles.summaryValue}>{Number(wallet?.points ?? 0)}</Text>
-            <Text style={styles.summaryHint}>1 punto = 1 peso. Puedes usarlos al pagar.</Text>
-          </View>
-
-          {wallet?.transactions?.length ? (
-            <View style={styles.walletHistory}>
-              <View style={styles.walletHistoryHeader}>
-                <Text style={styles.walletHistoryTitle}>Movimientos recientes</Text>
-                <Text style={styles.walletHistoryCount}>{wallet.transactions.length}</Text>
-              </View>
-              {wallet.transactions.slice(0, 3).map((tx, index) => (
-                <View key={`${tx.created_at}-${index}`} style={styles.walletTxRow}>
-                  <View style={styles.walletTxIcon}>
-                    <Ionicons
-                      name={tx.type === 'wallet_payment' ? 'bag-check-outline' : 'sparkles-outline'}
-                      size={15}
-                      color="#047857"
-                    />
-                  </View>
-                  <View style={styles.walletTxCopy}>
-                    <Text style={styles.walletTxTitle} numberOfLines={1}>
-                      {tx.description || (tx.type === 'wallet_payment' ? 'Pago con Saldo Amare' : 'Movimiento Amare')}
-                    </Text>
-                    <Text style={styles.walletTxMeta} numberOfLines={1}>
-                      {formatTransactionDate(tx.created_at)}
-                      {tx.points_delta ? ` · ${tx.points_delta > 0 ? '+' : ''}${tx.points_delta} pts` : ''}
-                    </Text>
-                  </View>
-                  <Text style={[styles.walletTxAmount, Number(tx.amount_mxn) < 0 && styles.walletTxAmountNegative]}>
-                    {formatTransactionAmount(tx)}
-                  </Text>
+          <View style={styles.summaryCardsRow}>
+            <TouchableOpacity
+              style={[styles.summaryCard, styles.summaryCardBalance]}
+              activeOpacity={0.88}
+              onPress={() => router.push('/profile/amare-balance' as any)}
+            >
+              <View style={styles.summaryTopRow}>
+                <View style={styles.summaryIconWrap}>
+                  <Ionicons name="wallet-outline" size={20} color="#064E3B" />
                 </View>
-              ))}
+                {walletLoading ? <ActivityIndicator size="small" color="#064E3B" /> : <Ionicons name="chevron-forward" size={18} color="#065F46" />}
+              </View>
+              <Text style={styles.summaryTitle}>Saldo Amare</Text>
+              <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
+              <Text style={styles.summaryHint}>Toca para recargar tu prepago</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.summaryCard, styles.summaryCardPoints]}>
+              <View style={styles.summaryTopRow}>
+                <View style={styles.summaryIconWrap}>
+                  <Ionicons name="trophy-outline" size={20} color="#7C2D12" />
+                </View>
+                {walletLoading ? <ActivityIndicator size="small" color="#7C2D12" /> : null}
+              </View>
+              <Text style={styles.summaryTitle}>Puntos Amare</Text>
+              <Text style={styles.summaryValue}>{Number(wallet?.points ?? 0)}</Text>
+              <Text style={styles.summaryHint}>1 punto = 1 peso. Puedes usarlos al pagar.</Text>
             </View>
-          ) : null}
+          </View>
         </View>
 
         <View style={styles.menuContainer}>
@@ -395,11 +352,15 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   rewardsSummaryGrid: {
+    gap: 14,
+  },
+  summaryCardsRow: {
     flexDirection: 'row',
     gap: 12,
   },
   summaryCard: {
     flex: 1,
+    minWidth: 0,
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
@@ -431,85 +392,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#111827',
+    lineHeight: 19,
   },
   summaryValue: {
     marginTop: 8,
-    fontSize: 23,
+    fontSize: 24,
     fontWeight: '900',
     color: '#111827',
+    lineHeight: 30,
   },
   summaryHint: {
     marginTop: 4,
     fontSize: 12,
     color: '#4B5563',
     fontWeight: '600',
-  },
-  walletHistory: {
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#BBF7D0',
-    gap: 10,
-  },
-  walletHistoryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  walletHistoryTitle: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#065F46',
-    textTransform: 'uppercase',
-  },
-  walletHistoryCount: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    overflow: 'hidden',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    backgroundColor: '#BBF7D0',
-    color: '#065F46',
-    fontSize: 11,
-    fontWeight: '900',
-    paddingTop: 3,
-  },
-  walletTxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-  walletTxIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 11,
-    backgroundColor: '#D1FAE5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  walletTxCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  walletTxTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#064E3B',
-  },
-  walletTxMeta: {
-    marginTop: 1,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#047857',
-  },
-  walletTxAmount: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#047857',
-  },
-  walletTxAmountNegative: {
-    color: '#9F1239',
+    lineHeight: 16,
   },
   menuContainer: {
     gap: 20,

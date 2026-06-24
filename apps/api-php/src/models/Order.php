@@ -241,10 +241,20 @@ class Order
     {
         try {
             $pdo = Database::getInstance();
-            $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE :column");
-            $stmt->execute([':column' => $column]);
+            $stmt = $pdo->prepare(
+                'SELECT COLUMN_TYPE
+                   FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = :table
+                    AND COLUMN_NAME = :column
+                  LIMIT 1'
+            );
+            $stmt->execute([
+                ':table' => $table,
+                ':column' => $column,
+            ]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            $type = strtolower((string)($row['Type'] ?? ''));
+            $type = strtolower((string)($row['COLUMN_TYPE'] ?? ''));
 
             if (!str_starts_with($type, 'enum(')) {
                 return true;

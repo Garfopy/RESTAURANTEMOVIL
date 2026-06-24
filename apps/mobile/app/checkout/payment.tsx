@@ -507,11 +507,11 @@ export default function PaymentScreen() {
         {selectedMethod === 'amare' ? (
           <View style={styles.rewardsBox}>
             <View style={styles.rewardsHeader}>
-              <View>
+              <View style={styles.rewardsHeaderCopy}>
                 <Text style={styles.rewardsTitle}>Saldo Amare</Text>
                 <Text style={styles.rewardsSubtitle}>Tu prepago aplica 10% de descuento en este pedido</Text>
               </View>
-              <Text style={styles.rewardsBalance}>
+              <Text style={styles.rewardsBalance} numberOfLines={1} adjustsFontSizeToFit>
                 ${Number(rewardsWallet?.balance_mxn ?? rewardsQuote?.balance_mxn ?? 0).toFixed(2)}
               </Text>
             </View>
@@ -701,13 +701,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  rewardsHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   rewardsTitle: { fontSize: 16, fontWeight: '800', color: '#064E3B' },
-  rewardsSubtitle: { marginTop: 2, fontSize: 12, fontWeight: '600', color: '#047857' },
-  rewardsBalance: { fontSize: 18, fontWeight: '900', color: '#065F46' },
+  rewardsSubtitle: { marginTop: 2, fontSize: 12, lineHeight: 17, fontWeight: '600', color: '#047857' },
+  rewardsBalance: {
+    flexShrink: 0,
+    maxWidth: 132,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+    color: '#065F46',
+    textAlign: 'right',
+  },
   rewardsRows: { gap: 7 },
   rewardsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  rewardsLabel: { fontSize: 13, fontWeight: '600', color: '#047857' },
-  rewardsValue: { fontSize: 13, fontWeight: '800', color: '#064E3B' },
+  rewardsLabel: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: '#047857' },
+  rewardsValue: { flexShrink: 0, fontSize: 13, fontWeight: '800', color: '#064E3B', textAlign: 'right' },
   rewardsWarning: { fontSize: 12, fontWeight: '700', color: Colors.error || '#DC2626' },
   totalBox: {
     flexDirection: 'row',
