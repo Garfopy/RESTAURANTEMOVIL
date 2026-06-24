@@ -895,6 +895,7 @@ class SocialController
         $recipientUserId = (int)($input['recipient_user_id'] ?? 0);
         $requestKey = trim((string)($input['request_key'] ?? ''));
         $giftType = $this->sanitizeGiftType($input['gift_type'] ?? null);
+        $paymentMode = strtolower(trim((string)($input['payment_mode'] ?? 'account')));
 
         $errors = [];
         if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal válida'];
@@ -904,7 +905,15 @@ class SocialController
         if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
             $errors['request_key'] = ['La clave de solicitud no es válida'];
         }
+        if (!in_array($paymentMode, ['account', 'stripe'], true)) {
+            $errors['payment_mode'] = ['Selecciona una forma de pago valida'];
+        }
         if ($errors) Response::validationError($errors);
+
+        if ($paymentMode === 'stripe') {
+            $this->createGiftStripePayment();
+            return;
+        }
 
         foreach (['social_gift_orders', 'social_gift_account_products', 'rest_pedidos', 'rest_pedido_items'] as $table) {
             if (!$this->tableExists($table)) {
@@ -1010,6 +1019,8 @@ class SocialController
                 $pdo,
                 $restaurantId,
                 (int)$senderMesa['id'],
+                (int)$user->id,
+                (string)($sender['nombre'] ?? 'Comensal'),
                 $giftId,
                 $giftProductId,
                 $giftProduct,
@@ -1017,19 +1028,34 @@ class SocialController
                 (string)($recipient['nombre'] ?? 'Comensal'),
                 $recipientMesaLabel
             );
+            error_log('SocialController::createGiftPayment ACCOUNT OK gift_id=' . $giftId .
+                ' pedido_id=' . ($account['pedido_id'] ?? 0) .
+                ' pedido_item_id=' . ($account['pedido_item_id'] ?? 0) .
+                ' consumo_id=' . (string)($account['consumo_id'] ?? ''));
             $folio = $this->buildGiftFolio($giftId);
-            $update = $pdo->prepare(
-                'UPDATE social_gift_orders
-                    SET folio = :folio, pedido_id = :order_id, pedido_item_id = :item_id,
-                        cargado_cuenta_at = NOW(), updated_at = NOW()
-                  WHERE id = :id'
-            );
-            $update->execute([
+            $giftUpdateSet = [
+                'folio = :folio',
+                'pedido_id = :order_id',
+                'pedido_item_id = :item_id',
+                'cargado_cuenta_at = NOW()',
+                'updated_at = NOW()',
+            ];
+            $giftUpdateParams = [
                 ':folio' => $folio,
                 ':order_id' => $account['pedido_id'],
                 ':item_id' => $account['pedido_item_id'],
                 ':id' => $giftId,
-            ]);
+            ];
+            if (in_array('consumo_id', $giftColumns, true) && !empty($account['consumo_id'])) {
+                $giftUpdateSet[] = 'consumo_id = :consumo_id';
+                $giftUpdateParams[':consumo_id'] = $account['consumo_id'];
+            }
+            $update = $pdo->prepare(
+                'UPDATE social_gift_orders
+                    SET ' . implode(', ', $giftUpdateSet) . '
+                  WHERE id = :id'
+            );
+            $update->execute($giftUpdateParams);
             $read = $pdo->prepare('SELECT * FROM social_gift_orders WHERE id = :id');
             $read->execute([':id' => $giftId]);
             $gift = $read->fetch();
@@ -1046,12 +1072,18 @@ class SocialController
         } catch (\Throwable $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             error_log('SocialController::createGiftPayment ERROR: ' . $exception->getMessage());
+            error_log('SocialController::createGiftPayment CONTEXT restaurant_id=' . $restaurantId .
+                ' sender_user_id=' . (int)$user->id .
+                ' recipient_user_id=' . $recipientUserId .
+                ' gift_product_id=' . $giftProductId .
+                ' payment_mode=' . $paymentMode .
+                ' request_key=' . $requestKey);
             error_log('SocialController::createGiftPayment TRACE: ' . $exception->getTraceAsString());
             Response::serverError('No se pudo cargar el regalo a la cuenta.');
         }
     }
 
-    private function createGiftStripePaymentLegacy(): void
+    private function createGiftStripePayment(): void
     {
         $user = AuthMiddleware::authenticate();
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -1059,6 +1091,7 @@ class SocialController
         $giftProductId = (int)($input['gift_product_id'] ?? 0);
         $recipientUserId = (int)($input['recipient_user_id'] ?? 0);
         $requestKey = trim((string)($input['request_key'] ?? ''));
+        $giftType = $this->sanitizeGiftType($input['gift_type'] ?? null);
 
         $errors = [];
         if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal válida'];
@@ -1089,6 +1122,8 @@ class SocialController
             Response::error('Activa tu modo social en la sucursal actual antes de enviar regalos.', 400);
         }
         if ($senderMesa === null) Response::error('Necesitas seleccionar tu mesa antes de enviar un regalo.', 400);
+        $senderMesaRow = $this->resolveMesaForRestaurant($restaurantId, $senderMesa);
+        if ($senderMesaRow === null) Response::error('No encontramos tu mesa en la sucursal actual.', 409);
 
         $recipient = $this->fetchSocialProfile($recipientUserId);
         if (!$recipient || !(bool)($recipient['is_social_active'] ?? false) || (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId) {
@@ -1099,7 +1134,7 @@ class SocialController
         $mesa = $this->resolveMesaForRestaurant($restaurantId, $recipientMesa);
         if ($mesa === null) Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
 
-        $giftProduct = $this->findGiftProduct($giftProductId);
+        $giftProduct = $this->findGiftProduct($giftProductId, $restaurantId, $giftType);
         if ($giftProduct === null) Response::notFound('Regalo no encontrado');
         $amountCents = (int)round((float)($giftProduct['precio'] ?? 0) * 100);
         if ($amountCents <= 0) Response::error('Este regalo no tiene un precio válido.', 409);
@@ -1122,12 +1157,12 @@ class SocialController
                 $pdo->beginTransaction();
                 $giftId = Database::execute(
                     "INSERT INTO social_gift_orders (
-                        restaurante_id, mesa_id, gift_product_id, sender_user_id, recipient_user_id,
+                        restaurante_id, mesa_id, sender_mesa_id, gift_product_id, sender_user_id, recipient_user_id,
                         sender_nombre, recipient_nombre, sender_mesa, recipient_mesa,
                         gift_nombre, gift_descripcion, gift_precio, gift_imagen,
                         status, moneda, payment_request_key, created_at, updated_at
                     ) VALUES (
-                        :restaurant_id, :table_id, :product_id, :sender_id, :recipient_id,
+                        :restaurant_id, :table_id, :sender_table_id, :product_id, :sender_id, :recipient_id,
                         :sender_name, :recipient_name, :sender_table, :recipient_table,
                         :gift_name, :gift_description, :gift_price, :gift_image,
                         'pendiente_pago', 'MXN', :request_key, NOW(), NOW()
@@ -1135,6 +1170,7 @@ class SocialController
                     [
                         ':restaurant_id' => $restaurantId,
                         ':table_id' => (int)$mesa['id'],
+                        ':sender_table_id' => (int)$senderMesaRow['id'],
                         ':product_id' => $giftProductId,
                         ':sender_id' => (int)$user->id,
                         ':recipient_id' => $recipientUserId,
@@ -1166,16 +1202,41 @@ class SocialController
         try {
             Stripe::setApiKey($this->getStripeSecret());
             $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
-            $intent = $intentId !== '' ? PaymentIntent::retrieve($intentId) : PaymentIntent::create([
-                'amount' => $amountCents,
-                'currency' => 'mxn',
-                'description' => 'Regalo social ' . ($gift['folio'] ?? ''),
-                'metadata' => [
-                    'gift_order_id' => (string)$gift['id'],
-                    'user_id' => (string)$user->id,
-                ],
-                'automatic_payment_methods' => ['enabled' => true],
-            ], ['idempotency_key' => 'social_gift_' . $requestKey]);
+            $intent = null;
+            if ($intentId !== '') {
+                try {
+                    $intent = PaymentIntent::retrieve($intentId);
+                } catch (\Stripe\Exception\InvalidRequestException $exception) {
+                    $message = (string)$exception->getMessage();
+                    if (stripos($message, 'No such payment_intent') === false) {
+                        throw $exception;
+                    }
+                    Database::rowCount(
+                        "UPDATE social_gift_orders
+                            SET stripe_payment_intent_id = NULL,
+                                status = IF(status = 'pago_fallido', 'pendiente_pago', status),
+                                updated_at = NOW()
+                          WHERE id = :id",
+                        [':id' => (int)$gift['id']]
+                    );
+                    $intentId = '';
+                }
+            }
+            if ($intent === null) {
+                $intent = PaymentIntent::create([
+                    'amount' => $amountCents,
+                    'currency' => 'mxn',
+                    'description' => 'Regalo social ' . ($gift['folio'] ?? ''),
+                    'metadata' => [
+                        'gift_order_id' => (string)$gift['id'],
+                        'user_id' => (string)$user->id,
+                    ],
+                    'automatic_payment_methods' => ['enabled' => true],
+                ], ['idempotency_key' => 'social_gift_' . $requestKey]);
+                error_log('SocialController::createGiftPayment STRIPE CREATED gift_id=' . (int)$gift['id'] .
+                    ' payment_intent_id=' . $intent->id .
+                    ' request_key=' . $requestKey);
+            }
 
             if ((int)$intent->amount !== $amountCents || strtolower((string)$intent->currency) !== 'mxn') {
                 throw new \RuntimeException('El importe del intento no coincide');
@@ -1186,6 +1247,7 @@ class SocialController
                   WHERE id = :id",
                 [':intent_id' => $intent->id, ':id' => (int)$gift['id']]
             );
+            $gift['stripe_payment_intent_id'] = $intent->id;
             Response::success([
                 'gift' => $this->giftPaymentResponse($gift),
                 'client_secret' => $intent->client_secret,
@@ -1198,6 +1260,10 @@ class SocialController
                 [':id' => (int)$gift['id']]
             );
             error_log('SocialController::createGiftPayment STRIPE ERROR: ' . $exception->getMessage());
+            error_log('SocialController::createGiftPayment STRIPE CONTEXT gift_id=' . (int)($gift['id'] ?? 0) .
+                ' payment_intent_id=' . (string)($gift['stripe_payment_intent_id'] ?? '') .
+                ' request_key=' . $requestKey .
+                ' sender_user_id=' . (int)$user->id);
             Response::serverError('No se pudo iniciar el pago del regalo.');
         }
     }
@@ -1225,6 +1291,61 @@ class SocialController
             if ($intent->status !== 'succeeded') {
                 Response::error('Stripe aún no confirma el pago del regalo.', 409);
             }
+            if (empty($gift['pedido_id']) || empty($gift['pedido_item_id'])) {
+                $pdo = Database::getInstance();
+                try {
+                    $pdo->beginTransaction();
+                    $delivery = $this->chargeGiftToTableAccount(
+                        $pdo,
+                        (int)$gift['restaurante_id'],
+                        (int)($gift['sender_mesa_id'] ?? $gift['mesa_id'] ?? 0),
+                        (int)$user->id,
+                        (string)($gift['sender_nombre'] ?? 'Comensal'),
+                        $giftId,
+                        (int)$gift['gift_product_id'],
+                        [
+                            'nombre' => $gift['gift_nombre'] ?? 'Regalo',
+                            'descripcion' => $gift['gift_descripcion'] ?? null,
+                            'imagen' => $gift['gift_imagen'] ?? null,
+                        ],
+                        (float)$gift['gift_precio'],
+                        (string)($gift['recipient_nombre'] ?? 'Comensal'),
+                        (string)($gift['recipient_mesa'] ?? ''),
+                        false,
+                        $intentId
+                    );
+
+                    $giftUpdateSet = [
+                        'pedido_id = :order_id',
+                        'pedido_item_id = :item_id',
+                        'updated_at = NOW()',
+                    ];
+                    $giftUpdateParams = [
+                        ':order_id' => $delivery['pedido_id'],
+                        ':item_id' => $delivery['pedido_item_id'],
+                        ':id' => $giftId,
+                    ];
+                    if (!empty($delivery['consumo_id']) && in_array('consumo_id', $this->getTableColumns('social_gift_orders'), true)) {
+                        $giftUpdateSet[] = 'consumo_id = :consumo_id';
+                        $giftUpdateParams[':consumo_id'] = $delivery['consumo_id'];
+                    }
+                    $updateGiftOrder = $pdo->prepare(
+                        'UPDATE social_gift_orders
+                            SET ' . implode(', ', $giftUpdateSet) . '
+                          WHERE id = :id'
+                    );
+                    $updateGiftOrder->execute($giftUpdateParams);
+                    $pdo->commit();
+                } catch (\Throwable $exception) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    error_log('SocialController::confirmGiftPayment ORDER ERROR: ' . $exception->getMessage());
+                    error_log('SocialController::confirmGiftPayment ORDER TRACE: ' . $exception->getTraceAsString());
+                    Response::serverError('Stripe cobro el regalo, pero no pudimos registrarlo en pedidos.');
+                }
+            }
+
             Database::rowCount(
                 "UPDATE social_gift_orders
                     SET status = IF(status IN ('pendiente_pago','pago_fallido'), 'listo', status),
@@ -1234,6 +1355,15 @@ class SocialController
             );
             $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
             Response::success($this->giftPaymentResponse($paidGift), 'Regalo pagado y enviado');
+        } catch (\Stripe\Exception\InvalidRequestException $exception) {
+            if (stripos((string)$exception->getMessage(), 'No such payment_intent') !== false) {
+                Response::error(
+                    'Stripe no encuentra este intento de pago. Suele pasar cuando la app y el backend usan cuentas test distintas o cuando cambiaste llaves. Abre de nuevo el modal e intenta otra vez.',
+                    409
+                );
+            }
+            error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo verificar el pago con Stripe.');
         } catch (\Stripe\Exception\ApiErrorException $exception) {
             error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo verificar el pago con Stripe.');
@@ -1250,54 +1380,124 @@ class SocialController
     }
 
     /**
-     * @return array{pedido_id:int,pedido_item_id:int,mesa_id:int,total_agregado:float}
+     * @return array{pedido_id:int,pedido_item_id:int,mesa_id:int,total_agregado:float,consumo_id:?string}
      */
     private function chargeGiftToTableAccount(
         \PDO $pdo,
         int $restaurantId,
         int $tableId,
+        int $senderUserId,
+        string $senderName,
         int $giftId,
         int $giftProductId,
         array $giftProduct,
         float $price,
         string $recipientName,
-        string $recipientTable
+        string $recipientTable,
+        bool $openAccount = true,
+        ?string $paymentIntentId = null
     ): array {
         $orderColumns = $this->getTableColumns('rest_pedidos');
-        $where = [
-            'restaurante_id = :restaurant_id',
-            'mesa_id = :table_id',
-            "tipo_pedido IN ('eat_in','dine_in')",
-        ];
-        if (in_array('cuenta_abierta', $orderColumns, true)) {
-            $where[] = 'cuenta_abierta = 1';
-        } else {
-            $where[] = "estado NOT IN ('entregado','cancelado')";
-        }
-        $orderStmt = $pdo->prepare(
-            'SELECT id FROM rest_pedidos WHERE ' . implode(' AND ', $where) .
-            ' ORDER BY created_at DESC, id DESC LIMIT 1 FOR UPDATE'
-        );
-        $orderStmt->execute([':restaurant_id' => $restaurantId, ':table_id' => $tableId]);
-        $orderId = (int)($orderStmt->fetchColumn() ?: 0);
+        $dishColumns = $this->getTableColumns('rest_platillos');
+        $orderRow = null;
+        $consumoId = null;
 
-        if ($orderId <= 0) {
-            throw new \DomainException('Tu mesa aún no tiene una cuenta abierta. Solicita al mesero abrirla antes de enviar el regalo.');
+        if ($openAccount) {
+            $selectFields = ['id'];
+            if (in_array('consumo_id', $orderColumns, true)) {
+                $selectFields[] = 'consumo_id';
+            }
+            $where = [
+                'restaurante_id = :restaurant_id',
+                'mesa_id = :table_id',
+                "tipo_pedido IN ('eat_in','dine_in')",
+            ];
+            if (in_array('cuenta_abierta', $orderColumns, true)) {
+                $where[] = 'cuenta_abierta = 1';
+            } else {
+                $where[] = "estado NOT IN ('entregado','cancelado')";
+            }
+            $orderSort = in_array('created_at', $orderColumns, true)
+                ? 'created_at DESC, id DESC'
+                : 'id DESC';
+            $baseSql = 'SELECT ' . implode(', ', $selectFields) . ' FROM rest_pedidos WHERE ' . implode(' AND ', $where);
+            $baseParams = [':restaurant_id' => $restaurantId, ':table_id' => $tableId];
+
+            if (in_array('mobile_usuario_id', $orderColumns, true)) {
+                $senderOrderStmt = $pdo->prepare(
+                    $baseSql . ' AND mobile_usuario_id = :user_id ORDER BY ' . $orderSort . ' LIMIT 1 FOR UPDATE'
+                );
+                $senderOrderStmt->execute($baseParams + [':user_id' => $senderUserId]);
+                $orderRow = $senderOrderStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+            }
+
+            if ($orderRow === null) {
+                $orderStmt = $pdo->prepare(
+                    $baseSql . ' ORDER BY ' . $orderSort . ' LIMIT 1 FOR UPDATE'
+                );
+                $orderStmt->execute($baseParams);
+                $orderRow = $orderStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+            }
+
+            $anchorOrderId = (int)($orderRow['id'] ?? 0);
+            $consumoId = isset($orderRow['consumo_id']) && is_string($orderRow['consumo_id']) && trim($orderRow['consumo_id']) !== ''
+                ? trim($orderRow['consumo_id'])
+                : null;
+            error_log('SocialController::chargeGiftToTableAccount ORDER LOOKUP restaurant_id=' . $restaurantId .
+                ' table_id=' . $tableId .
+                ' sender_user_id=' . $senderUserId .
+                ' anchor_pedido_id=' . $anchorOrderId .
+                ' consumo_id=' . (string)($consumoId ?? ''));
+
+            if ($consumoId === null && in_array('consumo_id', $orderColumns, true)) {
+                $consumoId = $this->resolveOpenConsumptionIdForGift($pdo, $restaurantId, $senderUserId, $tableId);
+            }
         }
+
+        $orderResult = $this->createGiftChargeOrder(
+            $pdo,
+            $restaurantId,
+            $tableId,
+            $senderUserId,
+            $senderName,
+            $consumoId,
+            $price,
+            $recipientName,
+            $recipientTable,
+            $openAccount,
+            $paymentIntentId
+        );
+        $orderId = (int)$orderResult['pedido_id'];
+        $consumoId = $orderResult['consumo_id'];
+        error_log('SocialController::chargeGiftToTableAccount ORDER CREATED pedido_id=' . $orderId .
+            ' consumo_id=' . (string)($consumoId ?? ''));
 
         $mappingStmt = $pdo->prepare(
-            'SELECT map.platillo_id
-               FROM social_gift_account_products map
-               JOIN rest_platillos p ON p.id = map.platillo_id AND p.restaurante_id = map.restaurante_id
-              WHERE map.restaurante_id = :restaurant_id AND map.gift_product_id = :gift_product_id
-              LIMIT 1 FOR UPDATE'
+            'SELECT platillo_id
+               FROM social_gift_account_products
+              WHERE restaurante_id = :restaurant_id AND gift_product_id = :gift_product_id
+               LIMIT 1 FOR UPDATE'
         );
         $mappingStmt->execute([':restaurant_id' => $restaurantId, ':gift_product_id' => $giftProductId]);
         $dishId = (int)($mappingStmt->fetchColumn() ?: 0);
+        if ($dishId <= 0) {
+            $existingDishStmt = $pdo->prepare(
+                'SELECT id
+                   FROM rest_platillos
+                  WHERE restaurante_id = :restaurant_id AND codigo = :code
+                  LIMIT 1 FOR UPDATE'
+            );
+            $existingDishStmt->execute([
+                ':restaurant_id' => $restaurantId,
+                ':code' => 'SG-' . $giftProductId,
+            ]);
+            $dishId = (int)($existingDishStmt->fetchColumn() ?: 0);
+        }
         $dishData = [
             'restaurante_id' => $restaurantId,
             'categoria_id' => null,
             'codigo' => 'SG-' . $giftProductId,
+            'es_armado' => 0,
             'nombre' => 'Regalo: ' . (string)($giftProduct['nombre'] ?? 'Detalle social'),
             'descripcion' => $giftProduct['descripcion'] ?? 'Regalo enviado desde el modo social',
             'precio' => $price,
@@ -1307,9 +1507,47 @@ class SocialController
             'activo' => 0,
             'created_at' => date('Y-m-d H:i:s'),
         ];
+        $dishWasExisting = $dishId > 0;
         if ($dishId <= 0) {
             $dishId = $this->insertDynamicRow($pdo, 'rest_platillos', $dishData);
             if ($dishId <= 0) throw new \RuntimeException('No se pudo crear la partida contable del regalo.');
+            error_log('SocialController::chargeGiftToTableAccount DISH CREATED dish_id=' . $dishId .
+                ' gift_product_id=' . $giftProductId .
+                ' code=' . $dishData['codigo']);
+        }
+        if ($dishWasExisting) {
+            $set = ['nombre = :name', 'descripcion = :description', 'precio = :price'];
+            $params = [
+                ':name' => $dishData['nombre'],
+                ':description' => $dishData['descripcion'],
+                ':price' => $price,
+                ':id' => $dishId,
+            ];
+            if (in_array('imagen', $dishColumns, true)) {
+                $set[] = 'imagen = :image';
+                $params[':image'] = $dishData['imagen'];
+            }
+            if (in_array('disponible', $dishColumns, true)) {
+                $set[] = 'disponible = 0';
+            }
+            if (in_array('activo', $dishColumns, true)) {
+                $set[] = 'activo = 0';
+            }
+            $whereDish = ['id = :id'];
+            if (in_array('restaurante_id', $dishColumns, true)) {
+                $whereDish[] = 'restaurante_id = :restaurant_id';
+                $params[':restaurant_id'] = $restaurantId;
+            }
+            $updateDish = $pdo->prepare(
+                'UPDATE rest_platillos SET ' . implode(', ', $set) .
+                ' WHERE ' . implode(' AND ', $whereDish)
+            );
+            $updateDish->execute($params);
+            error_log('SocialController::chargeGiftToTableAccount DISH UPDATED dish_id=' . $dishId .
+                ' gift_product_id=' . $giftProductId);
+        }
+
+        if ($dishId > 0) {
             $mapping = $pdo->prepare(
                 'INSERT INTO social_gift_account_products
                     (restaurante_id, gift_product_id, platillo_id, created_at)
@@ -1321,48 +1559,229 @@ class SocialController
                 ':gift_product_id' => $giftProductId,
                 ':dish_id' => $dishId,
             ]);
-        } else {
-            $updateDish = $pdo->prepare(
-                'UPDATE rest_platillos
-                    SET nombre = :name, descripcion = :description, precio = :price,
-                        imagen = :image, disponible = 0, activo = 0
-                  WHERE id = :id AND restaurante_id = :restaurant_id'
-            );
-            $updateDish->execute([
-                ':name' => $dishData['nombre'],
-                ':description' => $dishData['descripcion'],
-                ':price' => $price,
-                ':image' => $dishData['imagen'],
-                ':id' => $dishId,
-                ':restaurant_id' => $restaurantId,
-            ]);
+            error_log('SocialController::chargeGiftToTableAccount MAPPING UPSERT restaurant_id=' . $restaurantId .
+                ' gift_product_id=' . $giftProductId .
+                ' dish_id=' . $dishId);
         }
 
         $notes = 'Regalo para ' . $recipientName . ' - ' . $this->formatMesaLabel($recipientTable);
+        $notesPayload = json_encode([
+            'notas' => $notes,
+            'extras' => [],
+        ], JSON_UNESCAPED_UNICODE);
+        if ($notesPayload === false) {
+            $notesPayload = $notes;
+        }
+        if (strlen($notesPayload) > 255) {
+            $notesPayload = substr($notes, 0, 255);
+        }
         $itemId = $this->insertDynamicRow($pdo, 'rest_pedido_items', [
             'pedido_id' => $orderId,
             'platillo_id' => $dishId,
             'cantidad' => 1,
             'precio_unit' => $price,
             'subtotal' => $price,
-            'notas' => $notes,
-            'estado' => 'entregado',
+            'notas' => $notesPayload,
+            'estado' => 'pendiente',
             'origen' => 'menu',
         ]);
         if ($itemId <= 0) throw new \RuntimeException('No se pudo agregar el regalo a la cuenta.');
+        error_log('SocialController::chargeGiftToTableAccount ITEM CREATED pedido_item_id=' . $itemId .
+            ' pedido_id=' . $orderId .
+            ' dish_id=' . $dishId .
+            ' price=' . $price);
 
-        $totalUpdate = $pdo->prepare(
-            'UPDATE rest_pedidos
-                SET subtotal = subtotal + :subtotal, total = total + :total
-              WHERE id = :id'
-        );
-        $totalUpdate->execute([':subtotal' => $price, ':total' => $price, ':id' => $orderId]);
         return [
             'pedido_id' => $orderId,
             'pedido_item_id' => $itemId,
             'mesa_id' => $tableId,
             'total_agregado' => $price,
+            'consumo_id' => $consumoId,
         ];
+    }
+
+    /**
+     * @return array{pedido_id:int,consumo_id:?string}
+     */
+    private function createGiftChargeOrder(
+        \PDO $pdo,
+        int $restaurantId,
+        int $tableId,
+        int $senderUserId,
+        string $senderName,
+        ?string $consumoId,
+        float $price,
+        string $recipientName,
+        string $recipientTable,
+        bool $openAccount = true,
+        ?string $paymentIntentId = null
+    ): array {
+        $orderColumns = $this->getTableColumns('rest_pedidos');
+        $notes = 'Regalo social para ' . $recipientName . ' - ' . $this->formatMesaLabel($recipientTable);
+        $finalConsumoId = null;
+        if ($openAccount && in_array('consumo_id', $orderColumns, true)) {
+            $finalConsumoId = $consumoId ?: $this->resolveOpenConsumptionIdForGift($pdo, $restaurantId, $senderUserId, $tableId);
+        }
+        $orderData = [
+            'restaurante_id' => $restaurantId,
+            'mobile_usuario_id' => $senderUserId,
+            'folio' => 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10),
+            'estado' => 'listo',
+            'subtotal' => $price,
+            'total' => $price,
+            'tipo_pedido' => 'eat_in',
+            'pedido_origen' => 'cliente',
+            'cliente_nombre' => substr($senderName, 0, 120),
+            'notas' => $notes,
+            'cuenta_abierta' => $openAccount ? 1 : 0,
+            'mesa_id' => $tableId,
+            'consumo_id' => $finalConsumoId,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        if (in_array('tipo_origen', $orderColumns, true)) {
+            $orderData['tipo_origen'] = 'menu';
+        }
+        if ($paymentIntentId !== null) {
+            if (in_array('stripe_payment_intent_id', $orderColumns, true)) {
+                $orderData['stripe_payment_intent_id'] = $paymentIntentId;
+            } elseif (in_array('payment_intent_id', $orderColumns, true)) {
+                $orderData['payment_intent_id'] = $paymentIntentId;
+            }
+            if (in_array('metodo_pago', $orderColumns, true)) {
+                $orderData['metodo_pago'] = 'tarjeta';
+            } elseif (in_array('payment_method', $orderColumns, true)) {
+                $orderData['payment_method'] = 'tarjeta';
+            }
+        }
+
+        $orderId = $this->insertDynamicRow($pdo, 'rest_pedidos', $orderData);
+        if ($orderId <= 0) {
+            throw new \RuntimeException('No se pudo crear el pedido del regalo en la cuenta.');
+        }
+
+        $this->markTableOccupiedForGift($pdo, $tableId);
+
+        return [
+            'pedido_id' => $orderId,
+            'consumo_id' => $finalConsumoId,
+        ];
+    }
+
+    private function createOpenGiftAccount(
+        \PDO $pdo,
+        int $restaurantId,
+        int $tableId,
+        int $senderUserId,
+        string $senderName
+    ): int {
+        $orderColumns = $this->getTableColumns('rest_pedidos');
+        $accountData = [
+            'restaurante_id' => $restaurantId,
+            'mobile_usuario_id' => $senderUserId,
+            'folio' => 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10),
+            'estado' => 'pendiente',
+            'subtotal' => 0,
+            'total' => 0,
+            'tipo_pedido' => 'eat_in',
+            'pedido_origen' => 'cliente',
+            'cliente_nombre' => substr($senderName, 0, 120),
+            'notas' => 'Cuenta abierta automaticamente para regalo social',
+            'cuenta_abierta' => 1,
+            'mesa_id' => $tableId,
+            'consumo_id' => in_array('consumo_id', $orderColumns, true)
+                ? $this->resolveOpenConsumptionIdForGift($pdo, $restaurantId, $senderUserId, $tableId)
+                : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        if (in_array('tipo_origen', $orderColumns, true)) {
+            $accountData['tipo_origen'] = 'menu';
+        }
+
+        $accountId = $this->insertDynamicRow($pdo, 'rest_pedidos', $accountData);
+
+        if ($accountId <= 0) {
+            throw new \RuntimeException('No se pudo abrir una cuenta para cargar el regalo.');
+        }
+
+        $this->markTableOccupiedForGift($pdo, $tableId);
+
+        return $accountId;
+    }
+
+    private function resolveOpenConsumptionIdForGift(\PDO $pdo, int $restaurantId, int $senderUserId, int $tableId): string
+    {
+        $orderColumns = $this->getTableColumns('rest_pedidos');
+        $where = [
+            'restaurante_id = :restaurant_id',
+            'mesa_id = :table_id',
+            "tipo_pedido = 'eat_in'",
+            'consumo_id IS NOT NULL',
+            "consumo_id <> ''",
+        ];
+        if (in_array('cuenta_abierta', $orderColumns, true)) {
+            $where[] = 'cuenta_abierta = 1';
+        }
+        if (in_array('mobile_usuario_id', $orderColumns, true)) {
+            $where[] = 'mobile_usuario_id = :user_id';
+        }
+        if (in_array('salida_qr_generado_at', $orderColumns, true)) {
+            $where[] = 'salida_qr_generado_at IS NULL';
+        }
+        if (in_array('salida_validado_at', $orderColumns, true)) {
+            $where[] = 'salida_validado_at IS NULL';
+        }
+
+        $existing = $pdo->prepare(
+            'SELECT consumo_id FROM rest_pedidos WHERE ' . implode(' AND ', $where) .
+            ' ORDER BY id DESC LIMIT 1'
+        );
+        $params = [
+            ':restaurant_id' => $restaurantId,
+            ':table_id' => $tableId,
+        ];
+        if (in_array('mobile_usuario_id', $orderColumns, true)) {
+            $params[':user_id'] = $senderUserId;
+        }
+        $existing->execute($params);
+        $consumoId = $existing->fetchColumn();
+        if (is_string($consumoId) && trim($consumoId) !== '') {
+            return trim($consumoId);
+        }
+
+        return 'CON-' . date('Ymd') . '-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10);
+    }
+
+    private function markTableOccupiedForGift(\PDO $pdo, int $tableId): void
+    {
+        if ($tableId <= 0 || !$this->tableExists('rest_mesas')) {
+            return;
+        }
+
+        $columns = $this->getTableColumns('rest_mesas');
+        $set = [];
+        $params = [':id' => $tableId];
+
+        if (in_array('ocupada', $columns, true)) {
+            $set[] = 'ocupada = :ocupada';
+            $params[':ocupada'] = 1;
+        }
+        if (in_array('disponible', $columns, true)) {
+            $set[] = 'disponible = :disponible';
+            $params[':disponible'] = 0;
+        }
+        if (in_array('estado', $columns, true)) {
+            $set[] = 'estado = :estado';
+            $params[':estado'] = 'ocupada';
+        }
+
+        if (!$set) {
+            return;
+        }
+
+        $statement = $pdo->prepare(
+            'UPDATE rest_mesas SET ' . implode(', ', $set) . ' WHERE id = :id'
+        );
+        $statement->execute($params);
     }
 
     private function insertDynamicRow(\PDO $pdo, string $table, array $data): int

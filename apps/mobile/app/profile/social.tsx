@@ -30,8 +30,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { CardField, useStripe } from '@stripe/stripe-react-native';
 import InputField from '../../components/ui/InputField';
+import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../../constants/stripe';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
+import {
+  confirmSocialGiftPayment,
+  createSocialGiftPayment,
+  type GiftCheckoutMode,
+  type SocialGiftOrder,
+} from '../../services/social-gifts.service';
 import { Colors, Shadows } from '../../theme';
 import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
@@ -364,6 +372,18 @@ function formatMatchDate(value?: string | null): string | null {
   return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
 }
 
+function summarizeStripeSecret(secret?: string): string | null {
+  if (!secret) return null;
+  if (secret.length <= 16) return secret;
+  return `${secret.slice(0, 10)}...${secret.slice(-6)}`;
+}
+
+function summarizeStripeKey(key?: string): string | null {
+  if (!key) return null;
+  if (key.length <= 14) return key;
+  return `${key.slice(0, 12)}...${key.slice(-4)}`;
+}
+
 function unwrapApiData<T>(payload: ApiEnvelope<T> | T): T {
   if (payload && typeof payload === 'object' && 'data' in payload && payload.data !== undefined) {
     return payload.data as T;
@@ -520,6 +540,7 @@ export default function SocialProfileScreen() {
   const router = useRouter();
   const { activateSocial } = useLocalSearchParams<{ activateSocial?: string }>();
   const { width, height } = useWindowDimensions();
+  const { confirmPayment: stripeConfirm } = useStripe();
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const selectedBranch = useBranchStore((state) => state.seleccionada);
@@ -544,6 +565,8 @@ export default function SocialProfileScreen() {
   const [likingUserId, setLikingUserId] = useState<number | null>(null);
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
   const [giftSending, setGiftSending] = useState(false);
+  const [giftCheckoutMode, setGiftCheckoutMode] = useState<GiftCheckoutMode>('account');
+  const [giftCardComplete, setGiftCardComplete] = useState(false);
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
@@ -605,6 +628,11 @@ export default function SocialProfileScreen() {
       : currentDinerBase;
   const detailDiner = focusedDiner ?? currentDiner;
   const selectedGift = giftProducts.find((item) => item.id === selectedGiftId) ?? null;
+  const stripeAvailable = STRIPE_IS_CONFIGURED;
+  const canSubmitGift = Boolean(selectedGift) &&
+    !giftProductsLoading &&
+    !giftSending &&
+    (giftCheckoutMode === 'account' || (stripeAvailable && giftCardComplete));
   const detailPhotos = detailDiner
     ? normalizePhotoList(detailDiner.social_photos, detailDiner.foto_url)
     : [];
@@ -619,6 +647,12 @@ export default function SocialProfileScreen() {
   const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
   const canDiscover = Boolean(modoSocial && selectedBranch?.id);
   const canUseSocialActions = canDiscover;
+
+  useEffect(() => {
+    if (!stripeAvailable && giftCheckoutMode === 'stripe') {
+      setGiftCheckoutMode('account');
+    }
+  }, [giftCheckoutMode, stripeAvailable]);
 
   useEffect(() => {
     if (!canDiscover && socialView === 'discover') {
@@ -1624,9 +1658,151 @@ export default function SocialProfileScreen() {
 
   function closeGiftSelector() {
     if (giftSending) return;
+    resetGiftComposer();
+  }
+
+  function resetGiftComposer() {
     setGiftsVisible(false);
     setFocusedDiner(null);
+    setGiftCheckoutMode('account');
+    setGiftCardComplete(false);
     giftRequestKeyRef.current = null;
+  }
+
+  function getGiftRequestKey() {
+    giftRequestKeyRef.current ??= `gift_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+    return giftRequestKeyRef.current;
+  }
+
+  function selectGiftCheckoutMode(mode: GiftCheckoutMode) {
+    if (giftSending) return;
+    giftRequestKeyRef.current = null;
+    setGiftCardComplete(false);
+    setGiftCheckoutMode(mode);
+  }
+
+  function showGiftSentAlert(gift: SocialGiftOrder, paymentMode: GiftCheckoutMode) {
+    const giftName = gift.gift_nombre ?? selectedGift?.nombre ?? 'tu regalo';
+    const recipientName = gift.recipient_nombre ?? detailDiner?.nombre ?? 'el comensal';
+    const mesaLabel = gift.mesa_label ?? (detailDiner?.mesa ? `Mesa ${detailDiner.mesa}` : 'la mesa del comensal');
+    const folio = gift.folio;
+    const amount = Number(gift.gift_precio ?? selectedGift?.precio ?? 0).toFixed(2);
+    const message =
+      paymentMode === 'stripe'
+        ? `Cobramos $${amount} con Stripe y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
+        : `Agregamos $${amount} a la cuenta de tu mesa y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`;
+
+    resetGiftComposer();
+    Alert.alert('Regalo enviado', message);
+  }
+
+  async function sendGiftToAccount() {
+    const gift = selectedGift;
+    const diner = detailDiner;
+    if (!gift || !diner || !selectedBranch?.id) {
+      throw new Error('Faltan datos para enviar el regalo.');
+    }
+
+    const payload = await createSocialGiftPayment({
+      restaurant_id: selectedBranch.id,
+      recipient_user_id: diner.user_id,
+      gift_product_id: gift.id,
+      gift_type: gift.tipo ?? 'gift',
+      request_key: getGiftRequestKey(),
+      payment_mode: 'account',
+    });
+
+    if (!payload?.gift?.id || !payload.charged_to_account) {
+      throw new Error('No se pudo cargar el regalo a tu cuenta.');
+    }
+
+    showGiftSentAlert(payload.gift, 'account');
+  }
+
+  async function sendGiftWithStripe() {
+    const gift = selectedGift;
+    const diner = detailDiner;
+    if (!gift || !diner || !selectedBranch?.id) {
+      throw new Error('Faltan datos para enviar el regalo.');
+    }
+    if (!stripeAvailable) {
+      throw new Error('Stripe no esta configurado en esta app. Agrega EXPO_PUBLIC_STRIPE_KEY para usar pago inmediato.');
+    }
+    if (!giftCardComplete) {
+      throw new Error('Completa los datos de tu tarjeta antes de pagar el regalo.');
+    }
+
+    const requestKey = getGiftRequestKey();
+    console.log('[SocialGift][Stripe] Iniciando pago', {
+      restaurantId: selectedBranch.id,
+      recipientUserId: diner.user_id,
+      giftProductId: gift.id,
+      requestKey,
+      stripeAvailable,
+      giftCardComplete,
+      publishableKeyPreview: summarizeStripeKey(STRIPE_PUBLISHABLE_KEY),
+    });
+
+    const payload = await createSocialGiftPayment({
+      restaurant_id: selectedBranch.id,
+      recipient_user_id: diner.user_id,
+      gift_product_id: gift.id,
+      gift_type: gift.tipo ?? 'gift',
+      request_key: requestKey,
+      payment_mode: 'stripe',
+    });
+
+    console.log('[SocialGift][Stripe] Backend preparo pago', {
+      giftId: payload?.gift?.id ?? null,
+      status: payload?.gift?.status ?? null,
+      paymentIntentId: payload?.payment_intent_id ?? null,
+      clientSecretPreview: summarizeStripeSecret(payload?.client_secret),
+      requestKey,
+    });
+
+    if (!payload?.gift?.id || !payload.client_secret || !payload.payment_intent_id) {
+      console.error('[SocialGift][Stripe] Respuesta incompleta al preparar pago', payload);
+      throw new Error('No se pudo preparar el cobro del regalo con Stripe.');
+    }
+
+    console.log('[SocialGift][Stripe] Confirmando tarjeta en Stripe', {
+      giftId: payload.gift.id,
+      paymentIntentId: payload.payment_intent_id,
+      requestKey,
+    });
+    const { error } = await stripeConfirm(payload.client_secret, {
+      paymentMethodType: 'Card',
+    });
+    if (error) {
+      console.error('[SocialGift][Stripe] Stripe confirmPayment fallo', {
+        message: error.message,
+        code: 'code' in error ? (error as { code?: string }).code ?? null : null,
+        declineCode: 'declineCode' in error ? (error as { declineCode?: string }).declineCode ?? null : null,
+        localizedMessage:
+          'localizedMessage' in error
+            ? (error as { localizedMessage?: string }).localizedMessage ?? null
+            : null,
+        stripeError: error,
+        paymentIntentId: payload.payment_intent_id,
+        requestKey,
+      });
+      throw new Error(error.message || 'Stripe no pudo confirmar el pago.');
+    }
+
+    console.log('[SocialGift][Stripe] Stripe confirmo la tarjeta, verificando backend', {
+      giftId: payload.gift.id,
+      paymentIntentId: payload.payment_intent_id,
+      requestKey,
+    });
+    const paidGift = await confirmSocialGiftPayment(payload.gift.id);
+    console.log('[SocialGift][Stripe] Backend confirmo regalo pagado', {
+      giftId: paidGift?.id ?? payload.gift.id,
+      status: paidGift?.status ?? null,
+      pedidoId: paidGift?.pedido_id ?? null,
+      pedidoItemId: paidGift?.pedido_item_id ?? null,
+      requestKey,
+    });
+    showGiftSentAlert(paidGift, 'stripe');
   }
 
   async function handleSendGift() {
@@ -1642,42 +1818,21 @@ export default function SocialProfileScreen() {
 
     try {
       setGiftSending(true);
-      giftRequestKeyRef.current ??= `gift_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
-      const response = await apiClient.post<ApiEnvelope<{
-        gift: {
-          id: number;
-          folio?: string;
-          mesa_label?: string;
-          gift_nombre: string;
-          recipient_nombre: string;
-        };
-        charged_to_account: boolean;
-      }>>('/social-gifts', {
-        restaurant_id: selectedBranch.id,
-        recipient_user_id: detailDiner.user_id,
-        gift_product_id: selectedGift.id,
-        gift_type: selectedGift.tipo ?? 'gift',
-        request_key: giftRequestKeyRef.current,
-      });
-      const payload = unwrapApiData(response.data);
-      const result = payload?.gift;
-      if (!result?.id || !payload?.charged_to_account) {
-        throw new Error('No se pudo cargar el regalo a tu cuenta.');
+      if (giftCheckoutMode === 'stripe') {
+        await sendGiftWithStripe();
+      } else {
+        await sendGiftToAccount();
       }
-      const giftName = result?.gift_nombre ?? selectedGift.nombre;
-      const recipientName = result?.recipient_nombre ?? detailDiner.nombre;
-      const mesaLabel = result?.mesa_label ?? (detailDiner.mesa ? `Mesa ${detailDiner.mesa}` : 'la mesa del comensal');
-      const folio = result?.folio;
-
-      setGiftsVisible(false);
-      setFocusedDiner(null);
-      giftRequestKeyRef.current = null;
-      Alert.alert(
-        'Regalo enviado',
-        `Agregamos $${selectedGift.precio.toFixed(2)} a la cuenta de tu mesa y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
-      );
     } catch (error) {
-      Alert.alert('No se pudo enviar', getApiError(error));
+      if (giftCheckoutMode === 'stripe') {
+        console.error('[SocialGift][Stripe] Flujo de pago fallo', {
+          requestKey: giftRequestKeyRef.current,
+          message: getApiError(error),
+          error,
+        });
+        giftRequestKeyRef.current = null;
+      }
+      Alert.alert(giftCheckoutMode === 'stripe' ? 'No se pudo cobrar el regalo' : 'No se pudo enviar', getApiError(error));
     } finally {
       setGiftSending(false);
     }
@@ -2996,25 +3151,104 @@ export default function SocialProfileScreen() {
             </ScrollView>
 
             {selectedGift ? (
-              <View style={styles.giftPaymentBox}>
-                <View style={styles.giftPaymentHeading}>
-                  <View>
-                    <Text style={styles.giftPaymentLabel}>Se carga a tu cuenta</Text>
-                  <Text style={styles.giftPaymentHint}>Pagarás este regalo al cerrar la cuenta de tu mesa.</Text>
+              <View style={styles.giftPaymentSection}>
+                <View style={styles.giftPaymentModes}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => selectGiftCheckoutMode('account')}
+                    style={[styles.giftPaymentModeCard, giftCheckoutMode === 'account' && styles.giftPaymentModeCardActive]}
+                  >
+                    <Ionicons name="receipt-outline" size={18} color={giftCheckoutMode === 'account' ? Colors.primary : Colors.textSecondary} />
+                    <View style={styles.giftPaymentModeTextWrap}>
+                      <Text style={[styles.giftPaymentModeTitle, giftCheckoutMode === 'account' && styles.giftPaymentModeTitleActive]}>
+                        Agregar a mi cuenta
+                      </Text>
+                      <Text style={styles.giftPaymentModeDescription}>
+                        Se suma a tu mesa y lo pagas al cerrar la cuenta.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => stripeAvailable && selectGiftCheckoutMode('stripe')}
+                    style={[
+                      styles.giftPaymentModeCard,
+                      giftCheckoutMode === 'stripe' && styles.giftPaymentModeCardActive,
+                      !stripeAvailable && styles.giftPaymentModeCardDisabled,
+                    ]}
+                    disabled={!stripeAvailable}
+                  >
+                    <Ionicons name="card-outline" size={18} color={giftCheckoutMode === 'stripe' ? Colors.primary : Colors.textSecondary} />
+                    <View style={styles.giftPaymentModeTextWrap}>
+                      <Text style={[styles.giftPaymentModeTitle, giftCheckoutMode === 'stripe' && styles.giftPaymentModeTitleActive]}>
+                        Pagar ahora
+                      </Text>
+                      <Text style={styles.giftPaymentModeDescription}>
+                        Cobra el regalo al instante con Stripe.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.giftPaymentBox}>
+                  <View style={styles.giftPaymentHeading}>
+                    <View>
+                      <Text style={styles.giftPaymentLabel}>
+                        {giftCheckoutMode === 'stripe' ? 'Pago inmediato con Stripe' : 'Se carga a tu cuenta'}
+                      </Text>
+                      <Text style={styles.giftPaymentHint}>
+                        {giftCheckoutMode === 'stripe'
+                          ? 'Captura tu tarjeta para cobrar este regalo antes de enviarlo.'
+                          : 'Pagarás este regalo al cerrar la cuenta de tu mesa.'}
+                      </Text>
+                    </View>
+                    <Text style={styles.giftPaymentTotal}>${selectedGift.precio.toFixed(2)}</Text>
                   </View>
-                  <Text style={styles.giftPaymentTotal}>${selectedGift.precio.toFixed(2)}</Text>
+
+                  {giftCheckoutMode === 'stripe' ? (
+                    stripeAvailable ? (
+                      <View style={styles.giftStripeCardWrap}>
+                        <CardField
+                          postalCodeEnabled={false}
+                          placeholders={{ number: '4242 4242 4242 4242' }}
+                          cardStyle={{
+                            backgroundColor: Colors.white,
+                            textColor: Colors.text,
+                            placeholderColor: Colors.textMuted,
+                            borderRadius: 12,
+                          }}
+                          style={styles.giftStripeCardField}
+                          onCardChange={(card) => setGiftCardComplete(Boolean(card.complete))}
+                        />
+                        <Text style={styles.giftStripeNote}>Pago seguro procesado por Stripe.</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.giftStripeWarning}>
+                        Configura EXPO_PUBLIC_STRIPE_KEY en la app y STRIPE_SECRET_KEY en el backend para habilitar esta opcion.
+                      </Text>
+                    )
+                  ) : null}
                 </View>
               </View>
             ) : null}
 
             <TouchableOpacity
-              style={[styles.saveButton, (!selectedGift || giftProductsLoading || giftSending) && styles.saveButtonDisabled]}
+              style={[styles.saveButton, !canSubmitGift && styles.saveButtonDisabled]}
               activeOpacity={0.85}
               onPress={handleSendGift}
-              disabled={!selectedGift || giftProductsLoading || giftSending}
+              disabled={!canSubmitGift}
             >
               {giftSending ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="gift-outline" size={18} color={Colors.white} />}
-              <Text style={styles.saveButtonText}>{giftSending ? 'Enviando...' : `Enviar y cargar a cuenta${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`}</Text>
+              <Text style={styles.saveButtonText}>
+                {giftSending
+                  ? giftCheckoutMode === 'stripe'
+                    ? 'Procesando pago...'
+                    : 'Enviando...'
+                  : giftCheckoutMode === 'stripe'
+                    ? `Pagar y enviar${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`
+                    : `Enviar y cargar a cuenta${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3836,11 +4070,74 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 6,
   },
+  giftPaymentSection: {
+    marginTop: 12,
+    gap: 10,
+  },
+  giftPaymentModes: {
+    gap: 8,
+  },
+  giftPaymentModeCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  giftPaymentModeCardActive: {
+    borderColor: Colors.primary,
+    backgroundColor: '#F5F7FF',
+  },
+  giftPaymentModeCardDisabled: {
+    opacity: 0.5,
+  },
+  giftPaymentModeTextWrap: {
+    flex: 1,
+  },
+  giftPaymentModeTitle: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  giftPaymentModeTitleActive: {
+    color: Colors.primary,
+  },
+  giftPaymentModeDescription: {
+    marginTop: 2,
+    color: '#64748B',
+    fontSize: 11,
+    lineHeight: 15,
+  },
   giftPaymentBox: { marginTop: 12, padding: 12, borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
   giftPaymentHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   giftPaymentLabel: { color: '#111827', fontSize: 13, fontWeight: '800' },
   giftPaymentHint: { marginTop: 2, maxWidth: 230, color: '#64748B', fontSize: 10, lineHeight: 14 },
   giftPaymentTotal: { color: Colors.primary, fontSize: 18, fontWeight: '900' },
+  giftStripeCardWrap: {
+    marginTop: 12,
+    gap: 8,
+  },
+  giftStripeCardField: {
+    width: '100%',
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+  },
+  giftStripeNote: {
+    fontSize: 12,
+    color: Colors.success,
+    textAlign: 'center',
+  },
+  giftStripeWarning: {
+    marginTop: 12,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#B45309',
+  },
   giftPrice: {
     fontSize: 15,
     fontWeight: '800',
