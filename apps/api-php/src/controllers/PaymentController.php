@@ -12,6 +12,7 @@ use Stripe\Stripe;
 use Stripe\PaymentIntent;
 use Stripe\Webhook;
 use Amare\Api\Models\Order;
+use Amare\Api\Services\RewardsService;
 
 class PaymentController
 {
@@ -119,8 +120,32 @@ class PaymentController
             switch ($event->type) {
                 case 'payment_intent.succeeded':
                     $paymentIntent = $event->data->object;
+                    $rewardsAction = (string)($paymentIntent->metadata['rewards_action'] ?? '');
                     $orderId = (int) ($paymentIntent->metadata['order_id'] ?? 0);
                     $giftOrderId = (int) ($paymentIntent->metadata['gift_order_id'] ?? 0);
+                    if ($rewardsAction === 'wallet_topup') {
+                        $topupUserId = (int)($paymentIntent->metadata['user_id'] ?? 0);
+                        $topupAmount = round(((int)($paymentIntent->amount_received ?: $paymentIntent->amount)) / 100, 2);
+                        if ($topupUserId > 0) {
+                            $pdo = Database::getInstance();
+                            $pdo->beginTransaction();
+                            try {
+                                (new RewardsService())->applyTopup(
+                                    $pdo,
+                                    $topupUserId,
+                                    $topupAmount,
+                                    $paymentIntent->id,
+                                    'Recarga de Saldo Amare con Stripe'
+                                );
+                                $pdo->commit();
+                            } catch (\Throwable $exception) {
+                                if ($pdo->inTransaction()) {
+                                    $pdo->rollBack();
+                                }
+                                throw $exception;
+                            }
+                        }
+                    }
                     if ($orderId > 0) {
                         Order::updatePaymentMethod($orderId, 'card', $paymentIntent->id);
                     }

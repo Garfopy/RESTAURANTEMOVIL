@@ -50,12 +50,13 @@ class OrderController
                 $reward = (new RewardsService())->charge(
                     $pdo,
                     (int)$user->id,
-                    (float)($order['total'] ?? $order['subtotal'] ?? 0),
+                    (float)($order['subtotal'] ?? $order['total'] ?? 0),
                     !empty($input['use_points']),
                     'food',
                     'order',
                     $id,
-                    'Pago de alimentos con Saldo Amare'
+                    'Pago de alimentos con Saldo Amare',
+                    is_array($order['items'] ?? null) ? $order['items'] : []
                 );
                 Order::applyRewardsPayment($id, $reward);
                 $pdo->commit();
@@ -90,7 +91,37 @@ class OrderController
         }
 
         // Actualizar pedido con método de pago
-        Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
+        $reward = null;
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
+            $reward = (new RewardsService())->awardPoints(
+                $pdo,
+                (int)$user->id,
+                (float)($order['subtotal'] ?? $order['total'] ?? 0),
+                !empty($input['use_points']),
+                'food',
+                'order',
+                $id,
+                'Puntos generados por compra de alimentos'
+            );
+            if (empty($reward['already_applied'])) {
+                Order::applyExternalRewardsSummary($id, $reward, $metodo !== 'cash');
+            }
+            $pdo->commit();
+        } catch (\DomainException $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            Response::error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('OrderController::confirmPayment reward ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo confirmar el pago del pedido.');
+        }
 
         $order = Order::findById($id, $user->id);
         $exitPass = null;
@@ -108,6 +139,7 @@ class OrderController
             'pedido_id' => $order['id'],
             'folio' => $order['folio'],
             'metodo_pago' => $metodo,
+            'reward' => $reward,
             'exit_pass' => $exitPass,
         ], 'Pago confirmado exitosamente');
     }

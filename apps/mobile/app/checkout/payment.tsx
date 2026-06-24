@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
   Alert,
-  ScrollView,
   Platform,
+  ScrollView,
+  StyleSheet,
   Switch,
+  Text,
+  TouchableOpacity,
   useWindowDimensions,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
@@ -20,7 +20,7 @@ import { confirmPayment, createOrder, createPaymentIntent } from '../../services
 import { getApiError } from '../../services/api';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { Button } from '../../components/ui/Button';
-import { Colors, Spacing, Typography, Shadows } from '../../theme';
+import { Colors, Shadows, Spacing, Typography } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash' | 'amare';
@@ -37,33 +37,12 @@ const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
 const walletIcon = isIOS ? 'logo-apple' : 'logo-google';
 
 const ALL_PAYMENT_METHODS: PaymentMethodDef[] = [
-  {
-    id: 'card',
-    label: 'Tarjeta',
-    icon: 'card-outline',
-    iconActive: 'card',
-  },
-  {
-    id: 'wallet',
-    label: walletName,
-    icon: walletIcon,
-    iconActive: walletIcon,
-  },
-  {
-    id: 'cash',
-    label: 'Efectivo',
-    icon: 'cash-outline',
-    iconActive: 'cash',
-  },
-  {
-    id: 'amare',
-    label: 'Saldo Amare',
-    icon: 'sparkles-outline',
-    iconActive: 'sparkles',
-  },
+  { id: 'card', label: 'Tarjeta', icon: 'card-outline', iconActive: 'card' },
+  { id: 'wallet', label: walletName, icon: walletIcon, iconActive: walletIcon },
+  { id: 'cash', label: 'Efectivo', icon: 'cash-outline', iconActive: 'cash' },
+  { id: 'amare', label: 'Saldo Amare', icon: 'sparkles-outline', iconActive: 'sparkles' },
 ];
 
-/** Convierte un MetodoPagoHabilitado de la BD al id de PaymentMethod de la UI */
 function dbMethodToUI(m: MetodoPagoHabilitado): PaymentMethod {
   if (m === 'apple_pay' || m === 'google_pay') return 'wallet';
   return m as PaymentMethod;
@@ -73,20 +52,31 @@ export default function PaymentScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
-  const { clientSecret, intentId, restauranteId, tipoPedido, direccionId, direccionEntrega, mesaId, mesaLabel, orderId, amount, folio } =
-    useLocalSearchParams<{
-      clientSecret: string;
-      intentId: string;
-      restauranteId: string;
-      tipoPedido: string;
-      direccionId?: string;
-      direccionEntrega?: string;
-      mesaId?: string;
-      mesaLabel?: string;
-      orderId?: string;
-      amount?: string;
-      folio?: string;
-    }>();
+  const {
+    clientSecret,
+    intentId,
+    restauranteId,
+    tipoPedido,
+    direccionId,
+    direccionEntrega,
+    mesaId,
+    mesaLabel,
+    orderId,
+    amount,
+    folio,
+  } = useLocalSearchParams<{
+    clientSecret: string;
+    intentId: string;
+    restauranteId: string;
+    tipoPedido: string;
+    direccionId?: string;
+    direccionEntrega?: string;
+    mesaId?: string;
+    mesaLabel?: string;
+    orderId?: string;
+    amount?: string;
+    folio?: string;
+  }>();
 
   const { items, total, clear, restauranteId: cartRestaurantId } = useCartStore();
   const selectedBranchId = useBranchStore((s) => s.seleccionada?.id);
@@ -96,44 +86,45 @@ export default function PaymentScreen() {
     selectedBranchId ||
     items[0]?.platillo?.restaurante_id ||
     null;
+
   const existingOrderId = typeof orderId === 'string' && orderId !== '' ? Number(orderId) : null;
-  const paymentAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : total;
+  const parsedAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : NaN;
+  const paymentAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : total;
+
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
+  const [useRewardsPoints, setUseRewardsPoints] = useState(false);
   const [rewardsWallet, setRewardsWallet] = useState<RewardsWallet | null>(null);
   const [rewardsQuote, setRewardsQuote] = useState<RewardsQuote | null>(null);
-  const [useRewardsPoints, setUseRewardsPoints] = useState(false);
   const [rewardsLoading, setRewardsLoading] = useState(false);
-  const config = useBranchConfigStore((state) => state.branchId === resolvedRestaurantId ? state.config : null);
+
+  const config = useBranchConfigStore((state) => (state.branchId === resolvedRestaurantId ? state.config : null));
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
 
-  // Métodos habilitados según la BD, mapeados a los IDs de la UI (deduplicado por si apple_pay y google_pay comparten 'wallet')
   const enabledMethodIds: PaymentMethod[] = config
     ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
     : ['card', 'cash', 'amare'];
 
-  // Solo mostramos los métodos que están habilitados
-  const enabledMethods = ALL_PAYMENT_METHODS.filter((m) =>
-    enabledMethodIds.includes(m.id)
-  );
+  const enabledMethods = ALL_PAYMENT_METHODS.filter((method) => enabledMethodIds.includes(method.id));
 
-  // Cargar configuración al montar
   useEffect(() => {
-    if (resolvedRestaurantId) {
-      void refreshBranchConfig(Number(resolvedRestaurantId)).catch((err) =>
-        console.error('Error al cargar configuración:', err)
-      );
-    }
+    if (!resolvedRestaurantId) return;
+    void refreshBranchConfig(Number(resolvedRestaurantId)).catch((err) =>
+      console.error('Error al cargar configuracion:', err)
+    );
   }, [refreshBranchConfig, resolvedRestaurantId]);
 
   useEffect(() => {
     if (!config) return;
     const ids = [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])];
-    if (!ids.includes(selectedMethod)) setSelectedMethod(ids[0] ?? 'cash');
+    if (!ids.includes(selectedMethod)) {
+      setSelectedMethod(ids[0] ?? 'cash');
+    }
   }, [config, selectedMethod]);
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadRewards() {
       try {
         const wallet = await getRewardsWallet();
@@ -142,22 +133,36 @@ export default function PaymentScreen() {
         console.warn('No se pudo cargar Saldo Amare', error);
       }
     }
+
     void loadRewards();
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const rewardsPaymentMode = selectedMethod === 'amare' ? 'wallet' : 'external';
+
   useEffect(() => {
     let cancelled = false;
+
     async function loadQuote() {
       if (paymentAmount <= 0) {
         setRewardsQuote(null);
         return;
       }
+
       setRewardsLoading(true);
       try {
-        const quote = await quoteRewards({ context: 'food', amount: paymentAmount, use_points: useRewardsPoints });
+        const quote = await quoteRewards({
+          context: 'food',
+          amount: paymentAmount,
+          use_points: useRewardsPoints,
+          payment_mode: rewardsPaymentMode,
+          items: items.map((item) => ({
+            quantity: item.cantidad,
+            unit_price: item.precio_unitario,
+          })),
+        });
         if (!cancelled) setRewardsQuote(quote);
       } catch (error) {
         console.warn('No se pudo cotizar Saldo Amare', error);
@@ -166,26 +171,35 @@ export default function PaymentScreen() {
         if (!cancelled) setRewardsLoading(false);
       }
     }
+
     void loadQuote();
     return () => {
       cancelled = true;
     };
-  }, [paymentAmount, useRewardsPoints]);
+  }, [items, paymentAmount, rewardsPaymentMode, useRewardsPoints]);
 
-  // Cálculo dinámico del ancho de cada card según cuántas hay
+  const availablePoints = Number(rewardsWallet?.points ?? rewardsQuote?.points ?? 0);
+  const walletBalance = Number(rewardsWallet?.balance_mxn ?? rewardsQuote?.balance_mxn ?? 0);
+  const methodDiscount = selectedMethod === 'amare' ? Math.round(paymentAmount * 0.1 * 100) / 100 : 0;
+  const totalAfterMethodDiscount = Math.max(0, Math.round((paymentAmount - methodDiscount) * 100) / 100);
+  const pointsApplied = useRewardsPoints ? Math.min(availablePoints, Math.floor(totalAfterMethodDiscount)) : 0;
+  const pointsDiscount = pointsApplied;
+  const effectivePaymentAmount = Math.max(0, Math.round((totalAfterMethodDiscount - pointsDiscount) * 100) / 100);
+  const pointsEarned = selectedMethod === 'amare' ? 0 : Math.max(0, Math.round(effectivePaymentAmount * 0.05));
+  const walletPreviewDiscount = Math.round(paymentAmount * 0.1 * 100) / 100;
+  const walletPreviewTotalAfterDiscount = Math.max(0, Math.round((paymentAmount - walletPreviewDiscount) * 100) / 100);
+  const walletPreviewPoints = useRewardsPoints ? Math.min(availablePoints, Math.floor(walletPreviewTotalAfterDiscount)) : 0;
+  const walletPreviewTotal = Math.max(0, Math.round((walletPreviewTotalAfterDiscount - walletPreviewPoints) * 100) / 100);
+  const canPayWithAmare = walletBalance >= walletPreviewTotal;
+
   function getCardWidth() {
     const count = enabledMethods.length;
     const containerPadding = Spacing.base * 2;
     const gap = 10;
     const available = width - containerPadding;
 
-    if (count === 1) {
-      return Math.min(available * 0.55, 200);
-    }
-    if (count === 2) {
-      return (available - gap) / 2;
-    }
-    // 3 métodos
+    if (count === 1) return Math.min(available * 0.55, 200);
+    if (count === 2) return (available - gap) / 2;
     return (available - gap * (count - 1)) / count;
   }
 
@@ -193,32 +207,26 @@ export default function PaymentScreen() {
     setLoading(true);
     try {
       if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
-        throw new Error('No se detectó la sucursal del pedido. Regresa al carrito e intenta de nuevo.');
+        throw new Error('No se detecto la sucursal del pedido. Regresa al carrito e intenta de nuevo.');
       }
 
       if (selectedMethod === 'cash') {
         const order = existingOrderId ? null : await createOrderBackend('cash');
         const targetOrderId = existingOrderId ?? order!.id;
-        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId ?? '', metodo: 'cash' });
+        const confirmation = await confirmPayment({
+          pedido_id: targetOrderId,
+          payment_intent_id: intentId ?? '',
+          metodo: 'cash',
+          use_points: useRewardsPoints,
+        });
         if (!existingOrderId) clear();
-        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
-          router.replace({
-            pathname: '/checkout/exit-pass',
-            params: {
-              orderId: String(targetOrderId),
-              payload: confirmation.exit_pass.payload,
-              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
-            },
-          });
-          return;
-        }
-        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
+        await refreshRewardsWallet();
+        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
         return;
       }
 
       if (selectedMethod === 'amare') {
-        if (!rewardsQuote?.can_pay) {
+        if (!canPayWithAmare) {
           throw new Error('Tu Saldo Amare no alcanza para cubrir este pago.');
         }
         const order = existingOrderId ? null : await createOrderBackend('amare_wallet');
@@ -229,27 +237,13 @@ export default function PaymentScreen() {
           use_points: useRewardsPoints,
         });
         if (!existingOrderId) clear();
-        const wallet = await getRewardsWallet().catch(() => null);
-        if (wallet) setRewardsWallet(wallet);
-        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
-          router.replace({
-            pathname: '/checkout/exit-pass',
-            params: {
-              orderId: String(targetOrderId),
-              payload: confirmation.exit_pass.payload,
-              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
-            },
-          });
-          return;
-        }
-        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
+        await refreshRewardsWallet();
+        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
         return;
       }
 
       if (selectedMethod === 'card') {
-        const paymentIntent = await resolvePaymentIntent();
-
+        const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
         const { error } = await stripeConfirm(paymentIntent.clientSecret, {
           paymentMethodType: 'Card',
         });
@@ -261,72 +255,84 @@ export default function PaymentScreen() {
 
         const order = existingOrderId ? null : await createOrderBackend('card', paymentIntent.intentId);
         const targetOrderId = existingOrderId ?? order!.id;
-        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: paymentIntent.intentId, metodo: 'card' });
-
+        const confirmation = await confirmPayment({
+          pedido_id: targetOrderId,
+          payment_intent_id: paymentIntent.intentId,
+          metodo: 'card',
+          use_points: useRewardsPoints,
+        });
         if (!existingOrderId) clear();
-        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
-          router.replace({
-            pathname: '/checkout/exit-pass',
-            params: {
-              orderId: String(targetOrderId),
-              payload: confirmation.exit_pass.payload,
-              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
-            },
-          });
-          return;
-        }
-        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
+        await refreshRewardsWallet();
+        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
         return;
       }
 
       if (selectedMethod === 'wallet') {
-        const paymentIntent = await resolvePaymentIntent();
+        const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
         const walletMethod = isIOS ? 'apple_pay' : 'google_pay';
         const order = existingOrderId ? null : await createOrderBackend(walletMethod, paymentIntent.intentId);
         const targetOrderId = existingOrderId ?? order!.id;
-        // TODO: Integrar Apple Pay / Google Pay con Stripe o pasarela nativa
-        const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: paymentIntent.intentId, metodo: walletMethod });
+        const confirmation = await confirmPayment({
+          pedido_id: targetOrderId,
+          payment_intent_id: paymentIntent.intentId,
+          metodo: walletMethod,
+          use_points: useRewardsPoints,
+        });
         if (!existingOrderId) clear();
-        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
-          router.replace({
-            pathname: '/checkout/exit-pass',
-            params: {
-              orderId: String(targetOrderId),
-              payload: confirmation.exit_pass.payload,
-              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
-            },
-          });
-          return;
-        }
-        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
-        return;
+        await refreshRewardsWallet();
+        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
       }
     } catch (err: any) {
       Alert.alert('Error', getApiError(err) || err.message || 'No se pudo procesar el pago.');
-      console.error('🔴 Error detallado en handlePay:', err);
+      console.error('Error detallado en handlePay:', err);
     } finally {
       setLoading(false);
     }
   }
 
-  async function resolvePaymentIntent(): Promise<{ clientSecret: string; intentId: string }> {
-    if (clientSecret && intentId) {
+  async function refreshRewardsWallet() {
+    const wallet = await getRewardsWallet().catch(() => null);
+    if (wallet) {
+      setRewardsWallet(wallet);
+    }
+  }
+
+  async function finishOrderFlow(targetOrderId: number, exitPass: any, orderFolio?: string | null) {
+    if (tipoPedido === 'eat_in' && exitPass) {
+      router.replace({
+        pathname: '/checkout/exit-pass',
+        params: {
+          orderId: String(targetOrderId),
+          payload: exitPass.payload,
+          folio: exitPass.folio || folio || orderFolio || '',
+          mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+        },
+      });
+      return;
+    }
+
+    router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
+  }
+
+  async function resolvePaymentIntent(amountToCharge: number): Promise<{ clientSecret: string; intentId: string }> {
+    if (clientSecret && intentId && Math.abs(amountToCharge - paymentAmount) < 0.01) {
       return { clientSecret, intentId };
     }
 
+    const shouldPriceItemsOnServer = Math.abs(amountToCharge - paymentAmount) < 0.01;
     const paymentIntent = await createPaymentIntent({
       order_id: existingOrderId ?? undefined,
-      amount: paymentAmount,
+      amount: amountToCharge,
       currency: 'mxn',
-      restaurante_id: existingOrderId ? undefined : Number(resolvedRestaurantId),
-      items: existingOrderId ? undefined : items.map((item) => ({
-        product_id: item.platillo.id,
-        quantity: item.cantidad,
-        origen: 'menu',
-        modificadores: item.modificadores_seleccionados,
-      })),
+      restaurante_id: existingOrderId || !shouldPriceItemsOnServer ? undefined : Number(resolvedRestaurantId),
+      items: existingOrderId || !shouldPriceItemsOnServer
+        ? undefined
+        : items.map((item) => ({
+            product_id: item.platillo.id,
+            quantity: item.cantidad,
+            origen: 'menu',
+            modificadores: item.modificadores_seleccionados,
+          })),
     });
 
     return {
@@ -335,32 +341,33 @@ export default function PaymentScreen() {
     };
   }
 
-  async function createOrderBackend(metodo_pago: string, paymentIntentId?: string) {
+  async function createOrderBackend(metodoPago: string, paymentIntentId?: string) {
     return await createOrder({
       restaurante_id: Number(resolvedRestaurantId),
       tipo_pedido: tipoPedido as never,
       direccion_id: typeof direccionId === 'string' && direccionId !== '' ? Number(direccionId) : undefined,
-      direccion_entrega: typeof direccionEntrega === 'string' && direccionEntrega !== '' ? direccionEntrega : undefined,
+      direccion_entrega:
+        typeof direccionEntrega === 'string' && direccionEntrega !== '' ? direccionEntrega : undefined,
       mesa_id: typeof mesaId === 'string' && mesaId !== '' ? Number(mesaId) : undefined,
-      items: items.map((i) => ({
-        platillo_id: i.platillo.id,
-        cantidad: i.cantidad,
-        precio_unit: i.precio_unitario,
-        notas: i.notas,
-        modificadores: i.modificadores_seleccionados.map((m) => ({
-          modificador_id: m.modificador_id,
-          modificador_nombre: m.modificador_nombre,
-          opciones: m.opciones.map((o) => ({
-            opcion_id: o.opcion_id,
-            opcion_nombre: o.opcion_nombre,
-            precio_extra: o.precio_extra,
-            cantidad: o.cantidad,
-            tipo_modificador: o.tipo_modificador,
+      items: items.map((item) => ({
+        platillo_id: item.platillo.id,
+        cantidad: item.cantidad,
+        precio_unit: item.precio_unitario,
+        notas: item.notas,
+        modificadores: item.modificadores_seleccionados.map((modifier) => ({
+          modificador_id: modifier.modificador_id,
+          modificador_nombre: modifier.modificador_nombre,
+          opciones: modifier.opciones.map((option) => ({
+            opcion_id: option.opcion_id,
+            opcion_nombre: option.opcion_nombre,
+            precio_extra: option.precio_extra,
+            cantidad: option.cantidad,
+            tipo_modificador: option.tipo_modificador,
           })),
         })),
       })),
       payment_intent_id: paymentIntentId || intentId || undefined,
-      notas: `Pago vía: ${metodo_pago}`,
+      notas: `Pago via: ${metodoPago}`,
     });
   }
 
@@ -372,27 +379,24 @@ export default function PaymentScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
-          accessibilityLabel="Volver atrás"
+          accessibilityLabel="Volver atras"
           accessibilityRole="button"
           testID="back-btn"
         >
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Método de Pago</Text>
+        <Text style={styles.headerTitle}>Metodo de Pago</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.sectionLabel}>Selecciona cómo quieres pagar</Text>
+        <Text style={styles.sectionLabel}>Selecciona como quieres pagar</Text>
 
-        {/* --- CONTENEDOR DE MÉTODOS DINÁMICO --- */}
-        <View style={[
-          styles.methodsContainer,
-          count === 1 && styles.methodsContainerCentered,
-        ]}>
+        <View style={[styles.methodsContainer, count === 1 && styles.methodsContainerCentered]}>
           {enabledMethods.map((method) => {
             const isSelected = selectedMethod === method.id;
-            const isAmareDisabled = method.id === 'amare' && Boolean(rewardsQuote && !rewardsQuote.can_pay);
+            const isAmareDisabled = method.id === 'amare' && !canPayWithAmare;
+
             return (
               <TouchableOpacity
                 key={method.id}
@@ -414,10 +418,7 @@ export default function PaymentScreen() {
                   size={count === 1 ? 32 : 26}
                   color={isSelected ? Colors.primary : Colors.textMuted}
                 />
-                <Text
-                  numberOfLines={2}
-                  style={[styles.methodText, isSelected && styles.methodTextActive]}
-                >
+                <Text numberOfLines={2} style={[styles.methodText, isSelected && styles.methodTextActive]}>
                   {method.label}
                 </Text>
               </TouchableOpacity>
@@ -425,8 +426,7 @@ export default function PaymentScreen() {
           })}
         </View>
 
-        {/* --- FORMULARIO DE TARJETA --- */}
-        {selectedMethod === 'card' && (
+        {selectedMethod === 'card' ? (
           <View style={styles.stripeContainer}>
             <Text style={styles.sectionLabel}>Datos de la tarjeta</Text>
             <CardField
@@ -441,18 +441,61 @@ export default function PaymentScreen() {
               style={styles.cardField}
             />
             <Text style={styles.secureNote}>
-              <Ionicons name="lock-closed-outline" size={12} color={Colors.success} />
-              {' '}Pago seguro procesado por Stripe
+              <Ionicons name="lock-closed-outline" size={12} color={Colors.success} /> Pago seguro procesado por Stripe
             </Text>
           </View>
-        )}
+        ) : null}
 
-        {selectedMethod === 'amare' && (
+        <View style={styles.pointsBox}>
+          <View style={styles.pointsHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pointsTitle}>Puntos Amare</Text>
+              <Text style={styles.pointsSubtitle}>1 punto = 1 peso. Puedes activarlos o quitarlos para este pedido.</Text>
+            </View>
+            {availablePoints > 0 ? (
+              <Switch
+                value={useRewardsPoints}
+                onValueChange={setUseRewardsPoints}
+                trackColor={{ false: '#D1D5DB', true: '#A7F3D0' }}
+                thumbColor={useRewardsPoints ? '#059669' : '#F9FAFB'}
+              />
+            ) : null}
+          </View>
+
+          <View style={styles.pointsRows}>
+            <View style={styles.pointsRow}>
+              <Text style={styles.pointsLabel}>Disponibles</Text>
+              <Text style={styles.pointsValue}>{availablePoints} pts</Text>
+            </View>
+            {useRewardsPoints ? (
+              <View style={styles.pointsRow}>
+                <Text style={styles.pointsLabel}>Aplicados</Text>
+                <Text style={styles.pointsValue}>-${pointsApplied.toFixed(2)}</Text>
+              </View>
+            ) : null}
+            {selectedMethod !== 'amare' ? (
+              <View style={styles.pointsRow}>
+                <Text style={styles.pointsLabel}>Puntos que recibes</Text>
+                <Text style={styles.pointsValue}>+{pointsEarned} pts</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {availablePoints <= 0 ? (
+            <Text style={styles.pointsHint}>Aun no tienes puntos disponibles para usar en este pedido.</Text>
+          ) : selectedMethod === 'amare' ? (
+            <Text style={styles.pointsHint}>Con Saldo Amare obtienes 10% de descuento directo.</Text>
+          ) : (
+            <Text style={styles.pointsHint}>Si no pagas con Saldo Amare, recibes 5% del total pagado en puntos.</Text>
+          )}
+        </View>
+
+        {selectedMethod === 'amare' ? (
           <View style={styles.rewardsBox}>
             <View style={styles.rewardsHeader}>
               <View>
                 <Text style={styles.rewardsTitle}>Saldo Amare</Text>
-                <Text style={styles.rewardsSubtitle}>Saldo simulado · 10% de descuento</Text>
+                <Text style={styles.rewardsSubtitle}>Tu prepago aplica 10% de descuento en este pedido</Text>
               </View>
               <Text style={styles.rewardsBalance}>
                 ${Number(rewardsWallet?.balance_mxn ?? rewardsQuote?.balance_mxn ?? 0).toFixed(2)}
@@ -466,43 +509,29 @@ export default function PaymentScreen() {
               </View>
               <View style={styles.rewardsRow}>
                 <Text style={styles.rewardsLabel}>Descuento Amare</Text>
-                <Text style={styles.rewardsValue}>-${Number(rewardsQuote?.discount_amount ?? 0).toFixed(2)}</Text>
+                <Text style={styles.rewardsValue}>-${methodDiscount.toFixed(2)}</Text>
               </View>
-              {useRewardsPoints && rewardsQuote ? (
+              {useRewardsPoints ? (
                 <View style={styles.rewardsRow}>
-                  <Text style={styles.rewardsLabel}>Puntos canjeados</Text>
-                  <Text style={styles.rewardsValue}>-{rewardsQuote.points_redeemed} pts · ${rewardsQuote.points_discount.toFixed(2)}</Text>
+                  <Text style={styles.rewardsLabel}>Puntos usados</Text>
+                  <Text style={styles.rewardsValue}>-${pointsDiscount.toFixed(2)}</Text>
                 </View>
               ) : null}
               <View style={styles.rewardsRow}>
-                <Text style={styles.rewardsLabel}>Ganarás</Text>
-                <Text style={styles.rewardsValue}>{Number(rewardsQuote?.points_earned ?? 0)} pts</Text>
+                <Text style={styles.rewardsLabel}>Saldo a usar</Text>
+                <Text style={styles.rewardsValue}>${effectivePaymentAmount.toFixed(2)}</Text>
               </View>
             </View>
 
-            <View style={styles.rewardsToggleRow}>
-              <View>
-                <Text style={styles.rewardsToggleTitle}>Usar puntos</Text>
-                <Text style={styles.rewardsToggleHint}>{Number(rewardsWallet?.points ?? rewardsQuote?.points ?? 0)} pts disponibles</Text>
-              </View>
-              <Switch
-                value={useRewardsPoints}
-                onValueChange={setUseRewardsPoints}
-                disabled={Number(rewardsWallet?.points ?? rewardsQuote?.points ?? 0) < 10}
-              />
-            </View>
-
-            {rewardsQuote && !rewardsQuote.can_pay ? (
+            {!canPayWithAmare ? (
               <Text style={styles.rewardsWarning}>Tu Saldo Amare no alcanza para cubrir este pago.</Text>
             ) : null}
           </View>
-        )}
+        ) : null}
 
         <View style={styles.totalBox}>
           <Text style={styles.totalLabel}>Total a pagar</Text>
-          <Text style={styles.totalValue}>
-            ${selectedMethod === 'amare' && rewardsQuote ? rewardsQuote.wallet_total.toFixed(2) : paymentAmount.toFixed(2)} MXN
-          </Text>
+          <Text style={styles.totalValue}>${effectivePaymentAmount.toFixed(2)} MXN</Text>
         </View>
       </ScrollView>
 
@@ -510,22 +539,22 @@ export default function PaymentScreen() {
         <Button
           label={
             selectedMethod === 'cash'
-              ? `Confirmar pago ($${paymentAmount.toFixed(2)})`
+              ? `Confirmar pago ($${effectivePaymentAmount.toFixed(2)})`
               : selectedMethod === 'amare'
-                ? `Pagar con saldo ($${(rewardsQuote?.wallet_total ?? paymentAmount).toFixed(2)})`
-                : `Pagar $${paymentAmount.toFixed(2)}`
+                ? `Pagar con saldo ($${effectivePaymentAmount.toFixed(2)})`
+                : `Pagar $${effectivePaymentAmount.toFixed(2)}`
           }
           onPress={handlePay}
           fullWidth
           size="lg"
           loading={loading}
-          disabled={selectedMethod === 'amare' && (!rewardsQuote?.can_pay || rewardsLoading)}
+          disabled={selectedMethod === 'amare' && (!canPayWithAmare || rewardsLoading)}
           accessibilityLabel={
             selectedMethod === 'cash'
-              ? `Confirmar pago por $${paymentAmount.toFixed(2)} en efectivo`
+              ? `Confirmar pago por $${effectivePaymentAmount.toFixed(2)} en efectivo`
               : selectedMethod === 'amare'
-                ? `Pagar $${(rewardsQuote?.wallet_total ?? paymentAmount).toFixed(2)} con Saldo Amare`
-                : `Pagar $${paymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`
+                ? `Pagar $${effectivePaymentAmount.toFixed(2)} con Saldo Amare`
+                : `Pagar $${effectivePaymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`
           }
           testID="payment-confirm-btn"
         />
@@ -548,7 +577,6 @@ const styles = StyleSheet.create({
   headerTitle: { ...Typography.h3, fontWeight: '700', color: Colors.text },
   content: { padding: Spacing.base, paddingBottom: 120, gap: Spacing.xl },
   sectionLabel: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 4 },
-
   methodsContainer: {
     flexDirection: 'row',
     gap: 10,
@@ -588,11 +616,65 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '700',
   },
-
   stripeContainer: { gap: Spacing.sm, marginTop: Spacing.sm },
+  cardField: {
+    width: '100%',
+    height: 56,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  secureNote: { fontSize: 12, color: Colors.success, textAlign: 'center', marginTop: 4 },
+  pointsBox: {
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+    padding: Spacing.md,
+  },
+  pointsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pointsTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#7C2D12',
+  },
+  pointsSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9A3412',
+  },
+  pointsRows: {
+    gap: 7,
+  },
+  pointsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pointsLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#9A3412',
+  },
+  pointsValue: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#7C2D12',
+  },
+  pointsHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#9A3412',
+    fontWeight: '600',
+  },
   rewardsBox: {
     gap: 12,
-    marginTop: Spacing.sm,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#D1FAE5',
@@ -612,24 +694,7 @@ const styles = StyleSheet.create({
   rewardsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   rewardsLabel: { fontSize: 13, fontWeight: '600', color: '#047857' },
   rewardsValue: { fontSize: 13, fontWeight: '800', color: '#064E3B' },
-  rewardsToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#BBF7D0',
-  },
-  rewardsToggleTitle: { fontSize: 13, fontWeight: '800', color: '#064E3B' },
-  rewardsToggleHint: { marginTop: 2, fontSize: 11, color: '#047857' },
   rewardsWarning: { fontSize: 12, fontWeight: '700', color: Colors.error || '#DC2626' },
-  cardField: {
-    width: '100%',
-    height: 56,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
   totalBox: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -640,7 +705,6 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 14, fontWeight: '600', color: Colors.textMuted },
   totalValue: { fontSize: 20, fontWeight: '800', color: Colors.primary },
-  secureNote: { fontSize: 12, color: Colors.success, textAlign: 'center', marginTop: 4 },
   footer: {
     position: 'absolute',
     bottom: 0,
