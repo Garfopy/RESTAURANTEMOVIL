@@ -3399,7 +3399,7 @@ export default function SocialProfileScreen() {
                         Saldo Amare
                       </Text>
                       <Text style={styles.giftPaymentModeDescription}>
-                        10% de descuento y puntos.
+                        Paga con tu prepago Amare y recibe 10% de descuento.
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -3419,7 +3419,7 @@ export default function SocialProfileScreen() {
                         {giftCheckoutMode === 'stripe'
                           ? 'Captura tu tarjeta para cobrar este regalo antes de enviarlo.'
                           : giftCheckoutMode === 'wallet'
-                            ? 'Usa saldo simulado, recibe 10% y gana puntos.'
+                            ? 'Usa tu saldo prepago y recibe 10% de descuento en este regalo.'
                             : 'Pagarás este regalo al cerrar la cuenta de tu mesa.'}
                       </Text>
                     </View>
@@ -3435,26 +3435,17 @@ export default function SocialProfileScreen() {
                         <Text style={styles.giftRewardsValue}>${Number(giftRewardsWallet?.balance_mxn ?? giftRewardsQuote?.balance_mxn ?? 0).toFixed(2)}</Text>
                       </View>
                       <View style={styles.giftRewardsRow}>
-                        <Text style={styles.giftRewardsLabel}>Descuento 10%</Text>
+                        <Text style={styles.giftRewardsLabel}>Descuento Amare</Text>
                         <Text style={styles.giftRewardsValue}>-${Number(giftRewardsQuote?.discount_amount ?? 0).toFixed(2)}</Text>
                       </View>
-                      {useGiftRewardsPoints && giftRewardsQuote ? (
-                        <View style={styles.giftRewardsRow}>
-                          <Text style={styles.giftRewardsLabel}>Puntos</Text>
-                          <Text style={styles.giftRewardsValue}>-{giftRewardsQuote.points_redeemed} pts</Text>
-                        </View>
-                      ) : null}
                       <View style={styles.giftRewardsRow}>
-                        <Text style={styles.giftRewardsLabel}>Ganarás</Text>
-                        <Text style={styles.giftRewardsValue}>{Number(giftRewardsQuote?.points_earned ?? 0)} pts</Text>
+                        <Text style={styles.giftRewardsLabel}>Saldo a usar</Text>
+                        <Text style={styles.giftRewardsValue}>${Number(giftRewardsQuote?.wallet_total ?? selectedGift.precio).toFixed(2)}</Text>
                       </View>
                       <View style={styles.giftRewardsToggle}>
-                        <Text style={styles.giftRewardsLabel}>Usar puntos ({Number(giftRewardsWallet?.points ?? giftRewardsQuote?.points ?? 0)})</Text>
-                        <Switch
-                          value={useGiftRewardsPoints}
-                          onValueChange={setUseGiftRewardsPoints}
-                          disabled={Number(giftRewardsWallet?.points ?? giftRewardsQuote?.points ?? 0) < 10}
-                        />
+                        <Text style={styles.giftRewardsLabel}>
+                          Si no pagas con saldo, tus compras generan 5% del total en puntos.
+                        </Text>
                       </View>
                       {giftRewardsQuote && !giftRewardsQuote.can_pay ? (
                         <Text style={styles.giftStripeWarning}>Tu Saldo Amare no alcanza para este regalo.</Text>

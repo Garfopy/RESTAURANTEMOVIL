@@ -1390,12 +1390,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 6,
   },
-  detectedBranchText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#374151',
-    lineHeight: 18,
-  },
   infoBox: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',

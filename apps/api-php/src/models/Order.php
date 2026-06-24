@@ -674,6 +674,66 @@ class Order
         return $pdo->prepare($sql)->execute($params);
     }
 
+    public static function applyExternalRewardsSummary(int $orderId, array $reward, bool $markPaid = true): bool
+    {
+        $pdo = Database::getInstance();
+        $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
+        $originalTotal = round((float)($reward['original_total'] ?? 0), 2);
+        $pointsDiscount = round((float)($reward['points_discount'] ?? 0), 2);
+        $externalTotal = round(max(0, $originalTotal - $pointsDiscount), 2);
+        $reward['discount_amount'] = 0;
+        $reward['wallet_total'] = $externalTotal;
+
+        $fields = [];
+        $params = [];
+
+        $rewardValues = [
+            'amare_wallet_used_mxn' => 0,
+            'amare_discount_mxn' => 0,
+            'amare_points_redeemed' => $reward['points_redeemed'] ?? 0,
+            'amare_points_earned' => $reward['points_earned'] ?? 0,
+        ];
+
+        foreach ($rewardValues as $column => $value) {
+            if (self::columnExists('rest_pedidos', $column)) {
+                $fields[] = "{$column} = :{$column}";
+                $params[":{$column}"] = $value;
+            }
+        }
+
+        if (count($targetOrderIds) === 1) {
+            if (self::columnExists('rest_pedidos', 'descuento')) {
+                $fields[] = 'descuento = :descuento';
+                $params[':descuento'] = (float)($reward['discount_amount'] ?? 0) + (float)($reward['points_discount'] ?? 0);
+            }
+            if (self::columnExists('rest_pedidos', 'total')) {
+                $fields[] = 'total = :total';
+                $params[':total'] = (float)($reward['wallet_total'] ?? 0);
+            }
+        }
+
+        if ($markPaid && self::columnExists('rest_pedidos', 'pagado_at')) {
+            $fields[] = 'pagado_at = NOW()';
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (empty($fields)) {
+            return true;
+        }
+
+        $placeholders = [];
+        foreach ($targetOrderIds as $index => $targetId) {
+            $key = ':id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $targetId;
+        }
+
+        $sql = 'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')';
+        return $pdo->prepare($sql)->execute($params);
+    }
+
     public static function findById(int $id, ?int $userId = null): ?array
     {
         $sql = "SELECT p.*, r.nombre AS restaurante_nombre

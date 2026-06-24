@@ -20,6 +20,16 @@ export type RewardTransaction = {
   created_at: string;
 };
 
+export type RewardsTopupOption = {
+  amount_mxn: number;
+};
+
+export type RewardsRedeemOption = {
+  points_cost: number;
+  balance_credit_mxn: number;
+  can_redeem: boolean;
+};
+
 export type RewardsWallet = {
   balance_mxn: number;
   points: number;
@@ -27,6 +37,8 @@ export type RewardsWallet = {
   discount_rate: number;
   simulated: boolean;
   transactions: RewardTransaction[];
+  topup_options: RewardsTopupOption[];
+  redeem_options: RewardsRedeemOption[];
 };
 
 export type RewardsQuote = {
@@ -43,6 +55,14 @@ export type RewardsQuote = {
   points: number;
   points_value_mxn: number;
   simulated: boolean;
+};
+
+type QuoteItem = {
+  quantity?: number;
+  cantidad?: number;
+  unit_price?: number;
+  precio_unit?: number;
+  amount?: number;
 };
 
 function unwrapEnvelope<T>(payload: ApiEnvelope<T> | T): T {
@@ -72,6 +92,18 @@ function normalizeWallet(wallet: RewardsWallet): RewardsWallet {
           points_delta: Number(tx.points_delta || 0),
           balance_after_mxn: Number(tx.balance_after_mxn || 0),
           points_after: Number(tx.points_after || 0),
+        }))
+      : [],
+    topup_options: Array.isArray(wallet.topup_options)
+      ? wallet.topup_options.map((option) => ({
+          amount_mxn: Number(option.amount_mxn || 0),
+        }))
+      : [],
+    redeem_options: Array.isArray(wallet.redeem_options)
+      ? wallet.redeem_options.map((option) => ({
+          points_cost: Number(option.points_cost || 0),
+          balance_credit_mxn: Number(option.balance_credit_mxn || 0),
+          can_redeem: Boolean(option.can_redeem),
         }))
       : [],
   };
@@ -104,11 +136,58 @@ export async function quoteRewards(params: {
   context: RewardsContext;
   amount: number;
   use_points?: boolean;
+  payment_mode?: 'wallet' | 'external';
+  items?: QuoteItem[];
 }): Promise<RewardsQuote> {
   const response = await apiClient.post<ApiEnvelope<RewardsQuote> | RewardsQuote>('/rewards/quote', {
     context: params.context,
     amount: params.amount,
     use_points: params.use_points ?? false,
+    payment_mode: params.payment_mode ?? 'wallet',
+    items: params.items ?? [],
   });
   return normalizeQuote(unwrapEnvelope(response.data));
+}
+
+export async function createRewardsTopupIntent(amountMxn: number): Promise<{
+  client_secret: string;
+  payment_intent_id: string;
+  amount_mxn: number;
+}> {
+  const response = await apiClient.post<
+    ApiEnvelope<{
+      client_secret: string;
+      payment_intent_id: string;
+      amount_mxn: number;
+    }>
+  >('/rewards/topups/create-intent', {
+    amount: amountMxn,
+  });
+
+  return unwrapEnvelope(response.data);
+}
+
+export async function confirmRewardsTopup(paymentIntentId: string): Promise<RewardsWallet> {
+  const response = await apiClient.post<
+    ApiEnvelope<{
+      wallet: RewardsWallet;
+    }>
+  >('/rewards/topups/confirm', {
+    payment_intent_id: paymentIntentId,
+  });
+
+  return normalizeWallet(unwrapEnvelope(response.data).wallet);
+}
+
+export async function redeemRewardsPoints(params: {
+  points_cost: number;
+  balance_credit_mxn: number;
+}): Promise<RewardsWallet> {
+  const response = await apiClient.post<
+    ApiEnvelope<{
+      wallet: RewardsWallet;
+    }>
+  >('/rewards/redeem', params);
+
+  return normalizeWallet(unwrapEnvelope(response.data).wallet);
 }

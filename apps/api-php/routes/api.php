@@ -67,6 +67,9 @@ $routes = [
     // Rewards routes
     ['GET', '/rewards/wallet', ['Amare\Api\Controllers\RewardsController', 'wallet']],
     ['POST', '/rewards/quote', ['Amare\Api\Controllers\RewardsController', 'quote']],
+    ['POST', '/rewards/topups/create-intent', ['Amare\Api\Controllers\RewardsController', 'createTopupIntent']],
+    ['POST', '/rewards/topups/confirm', ['Amare\Api\Controllers\RewardsController', 'confirmTopup']],
+    ['POST', '/rewards/redeem', ['Amare\Api\Controllers\RewardsController', 'redeem']],
     
     // Profile routes
     ['GET', '/profile', ['Amare\Api\Controllers\ProfileController', 'show']],

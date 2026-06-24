@@ -156,6 +156,7 @@ export async function confirmPayment(params: {
 }) {
   const { data } = await apiClient.post<{
     success: boolean;
+    message?: string;
     data: { ok: boolean; pedido_id: number; folio: string; metodo_pago: string; exit_pass?: ExitPass | null }
   }>(`/orders/${params.pedido_id}/confirm-payment`, {
     payment_intent_id: params.payment_intent_id ?? '',

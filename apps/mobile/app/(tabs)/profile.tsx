@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -29,24 +29,22 @@ export default function ProfileScreen() {
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    async function loadWallet() {
-      setWalletLoading(true);
-      try {
-        const nextWallet = await getRewardsWallet();
-        if (!cancelled) setWallet(nextWallet);
-      } catch (error) {
-        console.warn('No se pudo cargar Saldo Amare', error);
-      } finally {
-        if (!cancelled) setWalletLoading(false);
-      }
+  useFocusEffect(
+    React.useCallback(() => {
+      void refreshWallet();
+    }, [])
+  );
+
+  async function refreshWallet() {
+    setWalletLoading(true);
+    try {
+      setWallet(await getRewardsWallet());
+    } catch (error) {
+      console.warn('No se pudo cargar Saldo Amare', error);
+    } finally {
+      setWalletLoading(false);
     }
-    void loadWallet();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }
 
   function formatTransactionAmount(tx: RewardTransaction): string {
     const amount = Number(tx.amount_mxn || 0);
@@ -84,7 +82,7 @@ export default function ProfileScreen() {
       : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6 });
 
     if (!result.canceled && result.assets[0].uri) {
-      uploadAvatar(result.assets[0].uri);
+      await uploadAvatar(result.assets[0].uri);
     }
   }
 
@@ -171,30 +169,33 @@ export default function ProfileScreen() {
           <Text style={styles.email}>{user?.email ?? ''}</Text>
         </View>
 
-        <View style={styles.walletCard}>
-          <View style={styles.walletHeader}>
-            <View style={styles.walletIcon}>
-              <Ionicons name="sparkles" size={22} color="#FFFFFF" />
+        <View style={styles.rewardsSummaryGrid}>
+          <TouchableOpacity
+            style={[styles.summaryCard, styles.summaryCardBalance]}
+            activeOpacity={0.88}
+            onPress={() => router.push('/profile/amare-balance' as any)}
+          >
+            <View style={styles.summaryTopRow}>
+              <View style={styles.summaryIconWrap}>
+                <Ionicons name="wallet-outline" size={20} color="#064E3B" />
+              </View>
+              {walletLoading ? <ActivityIndicator size="small" color="#064E3B" /> : <Ionicons name="chevron-forward" size={18} color="#065F46" />}
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.walletTitle}>Saldo Amare</Text>
-              <Text style={styles.walletSubtitle}>Saldo simulado · 10% pagando con saldo</Text>
+            <Text style={styles.summaryTitle}>Saldo Amare</Text>
+            <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
+            <Text style={styles.summaryHint}>Toca para recargar tu prepago</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.summaryCard, styles.summaryCardPoints]}>
+            <View style={styles.summaryTopRow}>
+              <View style={styles.summaryIconWrap}>
+                <Ionicons name="trophy-outline" size={20} color="#7C2D12" />
+              </View>
+              {walletLoading ? <ActivityIndicator size="small" color="#7C2D12" /> : null}
             </View>
-            {walletLoading ? <ActivityIndicator size="small" color="#065F46" /> : null}
-          </View>
-          <View style={styles.walletStats}>
-            <View>
-              <Text style={styles.walletStatLabel}>Disponible</Text>
-              <Text style={styles.walletStatValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
-            </View>
-            <View>
-              <Text style={styles.walletStatLabel}>Puntos</Text>
-              <Text style={styles.walletStatValue}>{Number(wallet?.points ?? 0)}</Text>
-            </View>
-            <View>
-              <Text style={styles.walletStatLabel}>Canjeable</Text>
-              <Text style={styles.walletStatValue}>${Number(wallet?.points_value_mxn ?? 0).toFixed(2)}</Text>
-            </View>
+            <Text style={styles.summaryTitle}>Puntos Amare</Text>
+            <Text style={styles.summaryValue}>{Number(wallet?.points ?? 0)}</Text>
+            <Text style={styles.summaryHint}>1 punto = 1 peso. Puedes usarlos al pagar.</Text>
           </View>
 
           {wallet?.transactions?.length ? (
@@ -245,6 +246,13 @@ export default function ProfileScreen() {
               label="Historial de pedidos"
               color="#10B981"
               onPress={() => router.push('/(tabs)/orders')}
+              showDivider
+            />
+            <MenuItem
+              icon="time"
+              label="Actividad reciente"
+              color="#F59E0B"
+              onPress={() => router.push('/profile/activity' as any)}
               showDivider
             />
             <MenuItem
@@ -329,6 +337,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 24,
     paddingBottom: 120,
+    gap: 18,
   },
   avatarSection: {
     alignItems: 'center',
@@ -385,55 +394,55 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#6B7280',
   },
-  walletCard: {
-    marginBottom: 22,
-    padding: 16,
+  rewardsSummaryGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  summaryCard: {
+    flex: 1,
     borderRadius: 22,
-    backgroundColor: '#ECFDF5',
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#BBF7D0',
     ...Shadows.sm,
   },
-  walletHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
+  summaryCardBalance: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#BBF7D0',
   },
-  walletIcon: {
+  summaryCardPoints: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  summaryTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  summaryIconWrap: {
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: '#059669',
+    backgroundColor: '#FFFFFFB0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  walletTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#064E3B',
+  summaryTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
   },
-  walletSubtitle: {
-    marginTop: 2,
+  summaryValue: {
+    marginTop: 8,
+    fontSize: 23,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  summaryHint: {
+    marginTop: 4,
     fontSize: 12,
+    color: '#4B5563',
     fontWeight: '600',
-    color: '#047857',
-  },
-  walletStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  walletStatLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#047857',
-  },
-  walletStatValue: {
-    marginTop: 3,
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#064E3B',
   },
   walletHistory: {
     marginTop: 16,
@@ -559,7 +568,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 16,
-    marginTop: 36,
+    marginTop: 18,
     backgroundColor: '#FEF2F2',
     borderRadius: 18,
     borderWidth: 1,
