@@ -1071,19 +1071,17 @@ class Order
         $targetOrderIds = self::getPaymentTargetOrderIds((int)$order['id']);
         $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
         $token = $tokenOrder['salida_token'] ?? ($order['salida_token'] ?? null);
+        $tokenOrderId = (int)($tokenOrder['id'] ?? $order['id']);
 
         if (!$token) {
             $token = bin2hex(random_bytes(24));
         }
 
         $tokenFields = ['salida_token = :token'];
-        $tokenParams = [':token' => $token];
-        $tokenPlaceholders = [];
-        foreach ($targetOrderIds as $index => $targetId) {
-            $key = ':token_id_' . $index;
-            $tokenPlaceholders[] = $key;
-            $tokenParams[$key] = $targetId;
-        }
+        $tokenParams = [
+            ':token' => $token,
+            ':token_order_id' => $tokenOrderId,
+        ];
 
         if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
             $tokenFields[] = 'salida_qr_generado_at = COALESCE(salida_qr_generado_at, NOW())';
@@ -1093,7 +1091,7 @@ class Order
         }
 
         Database::rowCount(
-            'UPDATE rest_pedidos SET ' . implode(', ', $tokenFields) . ' WHERE id IN (' . implode(', ', $tokenPlaceholders) . ')',
+            'UPDATE rest_pedidos SET ' . implode(', ', $tokenFields) . ' WHERE id = :token_order_id',
             $tokenParams
         );
 
@@ -1118,11 +1116,11 @@ class Order
             );
         }
 
-        $updated = self::rawOrderById((int)$order['id'], $userId) ?? $order;
-        $updated['salida_token'] = $token;
-        if (empty($updated['salida_qr_generado_at']) && isset($tokenOrder['salida_qr_generado_at'])) {
-            $updated['salida_qr_generado_at'] = $tokenOrder['salida_qr_generado_at'];
+        $updated = self::rawOrderById($tokenOrderId, $userId) ?? self::rawOrderById($tokenOrderId) ?? $order;
+        if ((int)($updated['id'] ?? 0) !== $tokenOrderId) {
+            $updated['id'] = $tokenOrderId;
         }
+        $updated['salida_token'] = $token;
         return self::formatExitPass($updated, $token);
     }
 
@@ -1142,10 +1140,7 @@ class Order
                 return null;
             }
 
-            $order = $resolvedOrder;
-            $order['salida_token'] = $tokenOrder['salida_token'];
-            $order['salida_qr_generado_at'] = $tokenOrder['salida_qr_generado_at'] ?? ($order['salida_qr_generado_at'] ?? null);
-            $order['salida_validado_at'] = $tokenOrder['salida_validado_at'] ?? ($order['salida_validado_at'] ?? null);
+            $order = $tokenOrder;
         }
 
         return self::formatExitPass($order, (string)$order['salida_token']);

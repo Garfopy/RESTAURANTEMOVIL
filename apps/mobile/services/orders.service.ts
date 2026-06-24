@@ -156,6 +156,10 @@ export async function confirmPayment(params: {
     use_points: params.use_points ?? false,
   });
 
+  if (!data?.data) {
+    throw new Error(data?.message || 'No se pudo confirmar el pago.');
+  }
+
   return data.data;
 }
 

@@ -18,7 +18,7 @@ class RewardsController
         try {
             Response::success((new RewardsService())->getWallet((int)$user->id));
         } catch (\Throwable $exception) {
-            error_log('RewardsController::wallet ERROR: ' . $exception->getMessage());
+            error_log('RewardsController::wallet ERROR: ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
             Response::serverError('No se pudo cargar tu saldo Amare.');
         }
     }
@@ -46,7 +46,7 @@ class RewardsController
         try {
             Response::success((new RewardsService())->quote((int)$user->id, $amount, $usePoints, $context));
         } catch (\Throwable $exception) {
-            error_log('RewardsController::quote ERROR: ' . $exception->getMessage());
+            error_log('RewardsController::quote ERROR: ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
             Response::serverError('No se pudo cotizar tu saldo Amare.');
         }
     }

@@ -71,7 +71,12 @@ class OrderController
             $order = Order::findById($id, $user->id);
             $exitPass = null;
             if (($order['tipo_pedido'] ?? null) === 'eat_in') {
-                $exitPass = Order::ensureExitPass($id, $user->id);
+                try {
+                    $exitPass = Order::ensureExitPass($id, $user->id);
+                } catch (\Throwable $exception) {
+                    error_log('OrderController::confirmPayment exit pass ERROR: ' . $exception->getMessage());
+                    $exitPass = null;
+                }
             }
 
             Response::success([
@@ -90,7 +95,12 @@ class OrderController
         $order = Order::findById($id, $user->id);
         $exitPass = null;
         if (($order['tipo_pedido'] ?? null) === 'eat_in') {
-            $exitPass = Order::ensureExitPass($id, $user->id);
+            try {
+                $exitPass = Order::ensureExitPass($id, $user->id);
+            } catch (\Throwable $exception) {
+                error_log('OrderController::confirmPayment exit pass ERROR: ' . $exception->getMessage());
+                $exitPass = null;
+            }
         }
 
         Response::success([
