@@ -16,6 +16,7 @@ import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
+import { useTableSessionStore } from '../../store/table-session.store';
 import { confirmPayment, createOrder, createPaymentIntent } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
@@ -90,6 +91,7 @@ export default function PaymentScreen() {
 
   const { items, total, clear, restauranteId: cartRestaurantId } = useCartStore();
   const selectedBranchId = useBranchStore((s) => s.seleccionada?.id);
+  const tableSession = useTableSessionStore((s) => s.session);
   const resolvedRestaurantId =
     Number(restauranteId) ||
     cartRestaurantId ||
@@ -98,6 +100,19 @@ export default function PaymentScreen() {
     null;
   const existingOrderId = typeof orderId === 'string' && orderId !== '' ? Number(orderId) : null;
   const paymentAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : total;
+  const routeMesaId = typeof mesaId === 'string' && mesaId !== '' ? Number(mesaId) : null;
+  const resolvedMesaId =
+    routeMesaId !== null && Number.isFinite(routeMesaId)
+      ? routeMesaId
+      : tipoPedido === 'eat_in'
+        ? tableSession?.mesaId
+        : undefined;
+  const resolvedMesaLabel =
+    typeof mesaLabel === 'string' && mesaLabel !== ''
+      ? mesaLabel
+      : tipoPedido === 'eat_in'
+        ? tableSession?.mesaLabel ?? ''
+        : '';
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [rewardsWallet, setRewardsWallet] = useState<RewardsWallet | null>(null);
@@ -208,7 +223,7 @@ export default function PaymentScreen() {
               orderId: String(targetOrderId),
               payload: confirmation.exit_pass.payload,
               folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+              mesaLabel: resolvedMesaLabel,
             },
           });
           return;
@@ -238,7 +253,7 @@ export default function PaymentScreen() {
               orderId: String(targetOrderId),
               payload: confirmation.exit_pass.payload,
               folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+              mesaLabel: resolvedMesaLabel,
             },
           });
           return;
@@ -271,7 +286,7 @@ export default function PaymentScreen() {
               orderId: String(targetOrderId),
               payload: confirmation.exit_pass.payload,
               folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+              mesaLabel: resolvedMesaLabel,
             },
           });
           return;
@@ -295,7 +310,7 @@ export default function PaymentScreen() {
               orderId: String(targetOrderId),
               payload: confirmation.exit_pass.payload,
               folio: confirmation.exit_pass.folio || folio || order?.folio || '',
-              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+              mesaLabel: resolvedMesaLabel,
             },
           });
           return;
@@ -341,7 +356,7 @@ export default function PaymentScreen() {
       tipo_pedido: tipoPedido as never,
       direccion_id: typeof direccionId === 'string' && direccionId !== '' ? Number(direccionId) : undefined,
       direccion_entrega: typeof direccionEntrega === 'string' && direccionEntrega !== '' ? direccionEntrega : undefined,
-      mesa_id: typeof mesaId === 'string' && mesaId !== '' ? Number(mesaId) : undefined,
+      mesa_id: resolvedMesaId,
       items: items.map((i) => ({
         platillo_id: i.platillo.id,
         cantidad: i.cantidad,

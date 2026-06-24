@@ -208,27 +208,32 @@ class RewardsService
     private function ensureWallet(PDO $pdo, int $userId, bool $forUpdate = false): array
     {
         $suffix = $forUpdate ? ' FOR UPDATE' : '';
-        $stmt = $pdo->prepare('SELECT * FROM amare_wallets WHERE user_id = :user_id LIMIT 1' . $suffix);
-        $stmt->execute([':user_id' => $userId]);
+        $lookup = $this->userLookup($pdo, 'amare_wallets', $userId);
+        $stmt = $pdo->prepare('SELECT * FROM amare_wallets WHERE ' . $lookup['where'] . ' LIMIT 1' . $suffix);
+        $stmt->execute($lookup['params']);
         $wallet = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($wallet) {
             return $wallet;
         }
 
-        $insert = $pdo->prepare(
-            'INSERT INTO amare_wallets (user_id, balance_mxn, points, simulated_balance, created_at, updated_at)
-             VALUES (:user_id, :balance, 0, 1, NOW(), NOW())'
+        $walletData = array_merge(
+            $this->userColumnValues($pdo, 'amare_wallets', $userId),
+            [
+                'balance_mxn' => self::DEMO_BALANCE_MXN,
+                'points' => 0,
+                'simulated_balance' => 1,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]
         );
-        $insert->execute([
-            ':user_id' => $userId,
-            ':balance' => self::DEMO_BALANCE_MXN,
-        ]);
+        $this->insertDynamicRow($pdo, 'amare_wallets', $walletData);
 
         $walletId = (int)$pdo->lastInsertId();
         $wallet = [
             'id' => $walletId,
             'user_id' => $userId,
+            'usuario_id' => $userId,
             'balance_mxn' => self::DEMO_BALANCE_MXN,
             'points' => 0,
             'simulated_balance' => 1,
@@ -320,27 +325,90 @@ class RewardsService
 
     private function insertTransaction(PDO $pdo, array $data): void
     {
-        $stmt = $pdo->prepare(
-            'INSERT INTO amare_wallet_transactions
-                (wallet_id, user_id, type, context, reference_type, reference_id, amount_mxn,
-                 points_delta, balance_after_mxn, points_after, description, metadata_json, created_at)
-             VALUES
-                (:wallet_id, :user_id, :type, :context, :reference_type, :reference_id, :amount_mxn,
-                 :points_delta, :balance_after_mxn, :points_after, :description, :metadata_json, NOW())'
+        $row = array_merge(
+            $this->userColumnValues($pdo, 'amare_wallet_transactions', (int)$data['user_id']),
+            [
+                'wallet_id' => $data['wallet_id'],
+                'type' => $data['type'],
+                'context' => $data['context'],
+                'reference_type' => $data['reference_type'],
+                'reference_id' => $data['reference_id'],
+                'amount_mxn' => $data['amount_mxn'],
+                'points_delta' => $data['points_delta'],
+                'balance_after_mxn' => $data['balance_after_mxn'],
+                'points_after' => $data['points_after'],
+                'description' => $data['description'],
+                'metadata_json' => $data['metadata_json'],
+                'created_at' => date('Y-m-d H:i:s'),
+            ]
         );
-        $stmt->execute([
-            ':wallet_id' => $data['wallet_id'],
-            ':user_id' => $data['user_id'],
-            ':type' => $data['type'],
-            ':context' => $data['context'],
-            ':reference_type' => $data['reference_type'],
-            ':reference_id' => $data['reference_id'],
-            ':amount_mxn' => $data['amount_mxn'],
-            ':points_delta' => $data['points_delta'],
-            ':balance_after_mxn' => $data['balance_after_mxn'],
-            ':points_after' => $data['points_after'],
-            ':description' => $data['description'],
-            ':metadata_json' => $data['metadata_json'],
-        ]);
+
+        $this->insertDynamicRow($pdo, 'amare_wallet_transactions', $row);
+    }
+
+    /**
+     * @return array{where: string, params: array<string, int>}
+     */
+    private function userLookup(PDO $pdo, string $tableName, int $userId): array
+    {
+        $parts = [];
+        $params = [];
+        if ($this->columnExists($pdo, $tableName, 'user_id')) {
+            $parts[] = 'user_id = :lookup_user_id';
+            $params[':lookup_user_id'] = $userId;
+        }
+        if ($this->columnExists($pdo, $tableName, 'usuario_id')) {
+            $parts[] = 'usuario_id = :lookup_usuario_id';
+            $params[':lookup_usuario_id'] = $userId;
+        }
+
+        if (!$parts) {
+            return [
+                'where' => 'user_id = :lookup_user_id',
+                'params' => [':lookup_user_id' => $userId],
+            ];
+        }
+
+        return [
+            'where' => '(' . implode(' OR ', $parts) . ')',
+            'params' => $params,
+        ];
+    }
+
+    private function userColumnValues(PDO $pdo, string $tableName, int $userId): array
+    {
+        $values = [];
+        if ($this->columnExists($pdo, $tableName, 'user_id')) {
+            $values['user_id'] = $userId;
+        }
+        if ($this->columnExists($pdo, $tableName, 'usuario_id')) {
+            $values['usuario_id'] = $userId;
+        }
+
+        return $values ?: ['user_id' => $userId];
+    }
+
+    private function insertDynamicRow(PDO $pdo, string $tableName, array $data): void
+    {
+        $columns = [];
+        $placeholders = [];
+        $params = [];
+
+        foreach ($data as $column => $value) {
+            if (!$this->columnExists($pdo, $tableName, (string)$column)) {
+                continue;
+            }
+            $columns[] = "`{$column}`";
+            $placeholder = ':' . $column;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $value;
+        }
+
+        if (!$columns) {
+            throw new \RuntimeException("No hay columnas compatibles para insertar en {$tableName}.");
+        }
+
+        $sql = 'INSERT INTO `' . $tableName . '` (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $placeholders) . ')';
+        $pdo->prepare($sql)->execute($params);
     }
 }

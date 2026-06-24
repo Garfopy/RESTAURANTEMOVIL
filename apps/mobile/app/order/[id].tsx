@@ -14,10 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient, formatImageUrl } from '../../services/api';
-import { getOrders } from '../../services/orders.service';
+import { getOrders, getOrderTracking } from '../../services/orders.service';
+import { useTableSessionStore } from '../../store/table-session.store';
 import { Colors, Spacing, Shadows } from '../../theme';
 import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { OrderTimeline } from '../../components/tracking/OrderTimeline';
+import type { Pedido, TrackingEvent } from '@amare/types';
 
 const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }> = {
   pendiente: { label: 'Recibido', color: '#F59E0B', icon: 'time-outline' },
@@ -28,10 +31,91 @@ const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }
   cancelado: { label: 'Cancelado', color: '#EF4444', icon: 'close-circle-outline' },
 };
 
+function buildOrderTimeline(order: Pedido | null | undefined, isEatInConsumption: boolean): TrackingEvent[] {
+  if (!order) return [];
+
+  if (isEatInConsumption) {
+    const hasExitQr = Boolean(order.salida_qr_generado_at);
+    const isValidated = Boolean(order.salida_validado_at);
+    return [
+      {
+        estado: 'pendiente',
+        label: 'Pedido recibido',
+        descripcion: 'La cuenta quedo abierta para esta mesa.',
+        completado: true,
+        en_curso: false,
+        timestamp: order.created_at ?? null,
+      },
+      {
+        estado: 'en_preparacion',
+        label: 'Cuenta abierta',
+        descripcion: 'Puedes seguir pidiendo antes de pagar.',
+        completado: hasExitQr || isValidated,
+        en_curso: !hasExitQr && !isValidated,
+        timestamp: order.updated_at ?? order.created_at ?? null,
+      },
+      {
+        estado: 'listo',
+        label: 'QR de salida',
+        descripcion: 'Se genera al pagar la cuenta.',
+        completado: hasExitQr || isValidated,
+        en_curso: hasExitQr && !isValidated,
+        timestamp: order.salida_qr_generado_at ?? null,
+      },
+      {
+        estado: 'entregado',
+        label: 'Salida validada',
+        descripcion: 'Hostess cierra la visita al escanear el QR.',
+        completado: isValidated,
+        en_curso: false,
+        timestamp: order.salida_validado_at ?? null,
+      },
+    ];
+  }
+
+  const statusOrder: Array<Pedido['estado']> = ['pendiente', 'en_preparacion', 'listo', 'entregado'];
+  const currentIndex = Math.max(0, statusOrder.indexOf(order.estado ?? 'pendiente'));
+  return [
+    {
+      estado: 'pendiente',
+      label: 'Pedido recibido',
+      descripcion: 'Tu orden entro al restaurante.',
+      completado: currentIndex > 0,
+      en_curso: currentIndex === 0,
+      timestamp: order.created_at ?? null,
+    },
+    {
+      estado: 'en_preparacion',
+      label: 'En preparacion',
+      descripcion: 'Cocina esta preparando tus alimentos.',
+      completado: currentIndex > 1,
+      en_curso: currentIndex === 1,
+      timestamp: order.updated_at ?? null,
+    },
+    {
+      estado: 'listo',
+      label: order.tipo_pedido === 'delivery' ? 'Listo para envio' : 'Listo',
+      descripcion: order.tipo_pedido === 'delivery' ? 'Tu pedido esta listo para salir.' : 'Tu pedido esta listo para entrega.',
+      completado: currentIndex > 2,
+      en_curso: currentIndex === 2,
+      timestamp: order.updated_at ?? null,
+    },
+    {
+      estado: 'entregado',
+      label: 'Entregado',
+      descripcion: 'El pedido fue completado.',
+      completado: order.estado === 'entregado',
+      en_curso: false,
+      timestamp: order.estado === 'entregado' ? order.updated_at ?? null : null,
+    },
+  ];
+}
+
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const [payingAccount, setPayingAccount] = useState(false);
+  const tableSession = useTableSessionStore((s) => s.session);
 
   function handleBackToOrders() {
     router.replace('/(tabs)/orders' as never);
@@ -66,6 +150,14 @@ export default function OrderDetailScreen() {
     retry: false,
   });
 
+  const { data: trackingData } = useQuery({
+    queryKey: ['order', 'timeline', order?.id],
+    queryFn: () => getOrderTracking(Number(order!.id)),
+    enabled: Boolean(order?.id),
+    staleTime: 30_000,
+    retry: false,
+  });
+
   if (isLoading) return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -95,6 +187,12 @@ export default function OrderDetailScreen() {
     : order?.salida_qr_generado_at
       ? 'Cuenta pagada'
       : 'Cuenta abierta';
+  const orderMesaLabel =
+    order?.mesa_nombre ||
+    (order?.mesa_id ? `Mesa ${order.mesa_id}` : tableSession?.mesaLabel ?? 'tu mesa');
+  const timelineSteps = trackingData?.tracking?.length
+    ? trackingData.tracking
+    : buildOrderTimeline(order, isEatInConsumption);
 
   async function handlePayOpenAccount() {
     if (!order) return;
@@ -109,7 +207,7 @@ export default function OrderDetailScreen() {
         amount: String(order.total || 0),
         folio: order.folio,
         mesaId: order.mesa_id ? String(order.mesa_id) : '',
-        mesaLabel: order.mesa_nombre || (order.mesa_id ? `Mesa ${order.mesa_id}` : ''),
+        mesaLabel: orderMesaLabel,
       },
     });
     setPayingAccount(false);
@@ -148,7 +246,7 @@ export default function OrderDetailScreen() {
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.trackingTitle}>Consumo en restaurante</Text>
                 <Text style={styles.trackingDesc}>
-                  {accountStatusLabel} en {order?.mesa_nombre || (order?.mesa_id ? `Mesa ${order.mesa_id}` : 'tu mesa')}
+                  {accountStatusLabel} en {orderMesaLabel}
                 </Text>
               </View>
             </View>
@@ -162,6 +260,10 @@ export default function OrderDetailScreen() {
                 <Text style={styles.accountStatLabel}>Total acumulado</Text>
                 <Text style={styles.accountStatValue}>${Number(order?.total || 0).toFixed(2)}</Text>
               </View>
+            </View>
+
+            <View style={styles.timelineWrap}>
+              <OrderTimeline steps={timelineSteps} />
             </View>
           </View>
         ) : null}
@@ -200,6 +302,9 @@ export default function OrderDetailScreen() {
               );
             })}
           </View>
+          <View style={styles.timelineWrap}>
+            <OrderTimeline steps={timelineSteps} />
+          </View>
         </View> : null}
 
         {/* DETALLES DE ENTREGA */}
@@ -219,7 +324,7 @@ export default function OrderDetailScreen() {
               </Text>
               <Text style={styles.detailValue}>
                 {order?.tipo_pedido === 'eat_in'
-                  ? `${order?.mesa_nombre || (order?.mesa_id ? `Mesa ${order.mesa_id}` : 'Mesa escaneada')} · ${order?.restaurante_nombre}`
+                  ? `${orderMesaLabel} · ${order?.restaurante_nombre}`
                   : order?.direccion_entrega || order?.restaurante_nombre}
               </Text>
             </View>
@@ -436,6 +541,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 18,
+  },
+  timelineWrap: {
+    marginTop: 18,
+    marginHorizontal: -20,
   },
   accountStat: {
     flex: 1,

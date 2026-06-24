@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -33,8 +33,11 @@ export default function TableScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanLocked, setScanLocked] = useState(false);
+  const [confirmedTable, setConfirmedTable] = useState<TableScanResult | null>(null);
   const scanLockedRef = useRef(false);
   const hasNavigatedRef = useRef(false);
+  const tableAppliedRef = useRef(false);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const seleccionar = useBranchStore((s) => s.seleccionar);
   const currentBranch = useBranchStore((s) => s.seleccionada);
@@ -46,6 +49,15 @@ export default function TableScannerScreen() {
 
   const destination = typeof returnTo === 'string' && returnTo.trim() ? returnTo : '/(tabs)';
   const resolvedDestination = destination === '/(tabs)/index' ? '/(tabs)' : destination;
+  const confirmedBranchName = confirmedTable?.branch?.nombre ?? currentBranch?.nombre ?? 'Sucursal';
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+      }
+    };
+  }, []);
 
   function navigateToDestination() {
     if (resolvedDestination === '/(tabs)' && router.canGoBack()) {
@@ -54,6 +66,23 @@ export default function TableScannerScreen() {
     }
 
     router.replace(resolvedDestination as never);
+  }
+
+  function continueAfterScan() {
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+
+    if (hasNavigatedRef.current) return;
+    hasNavigatedRef.current = true;
+
+    if (activateSocial === '1' && resolvedDestination === '/profile/social') {
+      router.replace({ pathname: '/profile/social', params: { activateSocial: '1' } } as never);
+      return;
+    }
+
+    navigateToDestination();
   }
 
   function handleScanLater() {
@@ -115,8 +144,8 @@ export default function TableScannerScreen() {
 
   function handleResolvedTable(table: TableScanResult) {
     const applyTable = () => {
-      if (hasNavigatedRef.current) return;
-      hasNavigatedRef.current = true;
+      if (tableAppliedRef.current) return;
+      tableAppliedRef.current = true;
 
       setTableSession(table);
       seleccionar(table.branch);
@@ -126,11 +155,8 @@ export default function TableScannerScreen() {
         current_restaurante_id: table.restaurante_id,
         mesa: table.mesa_value,
       });
-      if (activateSocial === '1' && resolvedDestination === '/profile/social') {
-        router.replace({ pathname: '/profile/social', params: { activateSocial: '1' } } as never);
-        return;
-      }
-      navigateToDestination();
+      setConfirmedTable(table);
+      successTimerRef.current = setTimeout(continueAfterScan, 1800);
     };
 
     if (itemCount > 0 && cartRestaurantId !== null && cartRestaurantId !== table.restaurante_id) {
@@ -167,6 +193,40 @@ export default function TableScannerScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <ActivityIndicator color={Colors.primary || '#111827'} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (confirmedTable) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.successContainer}>
+          <View style={styles.successIcon}>
+            <Ionicons name="checkmark" size={42} color="#FFFFFF" />
+          </View>
+
+          <Text style={styles.successEyebrow}>Mesa guardada</Text>
+          <Text style={styles.successTitle}>Estás en {confirmedTable.mesa_label}</Text>
+          <Text style={styles.successSubtitle}>
+            {confirmedBranchName} quedó asociado a tu visita para pedir comida, pagar y activar el modo social.
+          </Text>
+
+          <View style={styles.tableSummaryCard}>
+            <View style={styles.tableSummaryIcon}>
+              <Ionicons name="restaurant-outline" size={22} color={Colors.primary || '#111827'} />
+            </View>
+            <View style={styles.tableSummaryCopy}>
+              <Text style={styles.tableSummaryLabel}>Ubicación actual</Text>
+              <Text style={styles.tableSummaryValue} numberOfLines={1}>
+                {confirmedTable.mesa_label} · {confirmedBranchName}
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity style={styles.primaryButtonWide} activeOpacity={0.86} onPress={continueAfterScan}>
+            <Text style={styles.primaryButtonText}>Continuar</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -311,6 +371,80 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  successContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 14,
+  },
+  successIcon: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    backgroundColor: Colors.primary || '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  successEyebrow: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+  },
+  successTitle: {
+    fontSize: 27,
+    fontWeight: '900',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  successSubtitle: {
+    maxWidth: 320,
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  tableSummaryCard: {
+    width: '100%',
+    maxWidth: 340,
+    minHeight: 70,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 12,
+    marginTop: 8,
+  },
+  tableSummaryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableSummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tableSummaryLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  tableSummaryValue: {
+    marginTop: 2,
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '900',
+  },
   title: {
     fontSize: 22,
     fontWeight: '900',
@@ -328,6 +462,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 14,
     backgroundColor: Colors.primary || '#111827',
+  },
+  primaryButtonWide: {
+    width: '100%',
+    maxWidth: 340,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: Colors.primary || '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
   },
   primaryButtonText: {
     color: '#FFFFFF',

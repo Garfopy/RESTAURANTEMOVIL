@@ -17,8 +17,8 @@ import { useCartStore } from '../store/cart.store';
 import { useTableSessionStore } from '../store/table-session.store';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
-import { OrderTypeSelector } from '../components/shared/OrderTypeSelector';
-import { Colors, Spacing, Typography, Shadows } from '../theme';
+import { TableContextBanner } from '../components/shared/TableContextBanner';
+import { Colors, Spacing, Shadows } from '../theme';
 import { formatImageUrl } from '../services/api';
 import { getDishById } from '../services/menu.service';
 import type { CarritoItem } from '@amare/types';
@@ -114,6 +114,10 @@ export default function CartScreen() {
           <Text style={styles.clearText}>Vaciar</Text>
         </TouchableOpacity>
       </View>
+
+      {tipoPedido === 'eat_in' ? (
+        <TableContextBanner session={tableSession} style={styles.tableBannerWrap} />
+      ) : null}
 
       <FlatList
         data={items}
@@ -347,6 +351,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     paddingHorizontal: 8,
+  },
+  tableBannerWrap: {
+    marginHorizontal: Spacing.base || 16,
+    marginBottom: 10,
   },
   list: { paddingBottom: 140 },
 

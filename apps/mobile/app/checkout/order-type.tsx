@@ -556,15 +556,7 @@ export default function OrderTypeScreen() {
                 Tu pedido quedara asociado a la mesa escaneada. Al pagar se generara un QR de salida para que hostess cierre tu visita.
               </Text>
 
-              {tableSession ? (
-                <View style={styles.scannedTableBox}>
-                  <Ionicons name="qr-code-outline" size={20} color={Colors.primary || '#111827'} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.scannedTableLabel}>{tableSession.mesaLabel}</Text>
-                    <Text style={styles.locationTextMuted}>{selectedBranch?.nombre || 'Sucursal seleccionada'}</Text>
-                  </View>
-                </View>
-              ) : (
+              {!tableSession ? (
                 <TouchableOpacity
                   style={styles.scanTableButton}
                   onPress={() => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } })}
@@ -572,7 +564,7 @@ export default function OrderTypeScreen() {
                   <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.scanTableButtonText}>Escanear QR de mesa</Text>
                 </TouchableOpacity>
-              )}
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -846,21 +838,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#4B5563',
-  },
-  scannedTableBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  scannedTableLabel: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#111827',
   },
   scanTableButton: {
     flexDirection: 'row',

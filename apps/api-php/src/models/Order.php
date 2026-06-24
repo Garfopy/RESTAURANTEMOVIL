@@ -223,6 +223,40 @@ class Order
         };
     }
 
+    private static function paymentMethodValueForColumn(string $column, string $metodo): string
+    {
+        $preferred = self::normalizePaymentMethod($metodo);
+        if (self::columnAcceptsValue('rest_pedidos', $column, $preferred)) {
+            return $preferred;
+        }
+
+        if ($metodo === 'amare_wallet' && self::columnAcceptsValue('rest_pedidos', $column, 'tarjeta')) {
+            return 'tarjeta';
+        }
+
+        return $preferred;
+    }
+
+    private static function columnAcceptsValue(string $table, string $column, string $value): bool
+    {
+        try {
+            $pdo = Database::getInstance();
+            $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$table}` LIKE :column");
+            $stmt->execute([':column' => $column]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $type = strtolower((string)($row['Type'] ?? ''));
+
+            if (!str_starts_with($type, 'enum(')) {
+                return true;
+            }
+
+            return str_contains($type, "'" . strtolower($value) . "'");
+        } catch (\Throwable $exception) {
+            error_log('Order::columnAcceptsValue ERROR: ' . $exception->getMessage());
+            return true;
+        }
+    }
+
     /**
      * Verifica si existen TRIGGERs en MySQL que descuenten stock automáticamente.
      * Si existen, no debemos descontar manualmente en PHP para evitar doble descuento.
@@ -554,10 +588,10 @@ class Order
 
         if (self::columnExists('rest_pedidos', 'metodo_pago')) {
             $fields[] = "metodo_pago = :metodo";
-            $params[':metodo'] = self::normalizePaymentMethod($metodo);
+            $params[':metodo'] = self::paymentMethodValueForColumn('metodo_pago', $metodo);
         } elseif (self::columnExists('rest_pedidos', 'payment_method')) {
             $fields[] = "payment_method = :metodo";
-            $params[':metodo'] = self::normalizePaymentMethod($metodo);
+            $params[':metodo'] = self::paymentMethodValueForColumn('payment_method', $metodo);
         }
 
         if ($paymentIntentId !== null) {
@@ -592,10 +626,10 @@ class Order
 
         if (self::columnExists('rest_pedidos', 'metodo_pago')) {
             $fields[] = 'metodo_pago = :metodo';
-            $params[':metodo'] = 'amare_wallet';
+            $params[':metodo'] = self::paymentMethodValueForColumn('metodo_pago', 'amare_wallet');
         } elseif (self::columnExists('rest_pedidos', 'payment_method')) {
             $fields[] = 'payment_method = :metodo';
-            $params[':metodo'] = 'amare_wallet';
+            $params[':metodo'] = self::paymentMethodValueForColumn('payment_method', 'amare_wallet');
         }
 
         $rewardColumns = [

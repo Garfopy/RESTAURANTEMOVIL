@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
 import { apiClient } from '../../services/api';
 import { logout } from '../../services/auth.service';
-import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
+import { getRewardsWallet, type RewardTransaction, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 
 export default function ProfileScreen() {
@@ -47,6 +47,19 @@ export default function ProfileScreen() {
       cancelled = true;
     };
   }, []);
+
+  function formatTransactionAmount(tx: RewardTransaction): string {
+    const amount = Number(tx.amount_mxn || 0);
+    const prefix = amount > 0 ? '+' : '';
+    return `${prefix}$${amount.toFixed(2)}`;
+  }
+
+  function formatTransactionDate(value?: string | null): string {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+  }
 
   async function handlePickImage() {
     Alert.alert('Foto de perfil', '¿De dónde quieres obtener la imagen?', [
@@ -183,6 +196,38 @@ export default function ProfileScreen() {
               <Text style={styles.walletStatValue}>${Number(wallet?.points_value_mxn ?? 0).toFixed(2)}</Text>
             </View>
           </View>
+
+          {wallet?.transactions?.length ? (
+            <View style={styles.walletHistory}>
+              <View style={styles.walletHistoryHeader}>
+                <Text style={styles.walletHistoryTitle}>Movimientos recientes</Text>
+                <Text style={styles.walletHistoryCount}>{wallet.transactions.length}</Text>
+              </View>
+              {wallet.transactions.slice(0, 3).map((tx, index) => (
+                <View key={`${tx.created_at}-${index}`} style={styles.walletTxRow}>
+                  <View style={styles.walletTxIcon}>
+                    <Ionicons
+                      name={tx.type === 'wallet_payment' ? 'bag-check-outline' : 'sparkles-outline'}
+                      size={15}
+                      color="#047857"
+                    />
+                  </View>
+                  <View style={styles.walletTxCopy}>
+                    <Text style={styles.walletTxTitle} numberOfLines={1}>
+                      {tx.description || (tx.type === 'wallet_payment' ? 'Pago con Saldo Amare' : 'Movimiento Amare')}
+                    </Text>
+                    <Text style={styles.walletTxMeta} numberOfLines={1}>
+                      {formatTransactionDate(tx.created_at)}
+                      {tx.points_delta ? ` · ${tx.points_delta > 0 ? '+' : ''}${tx.points_delta} pts` : ''}
+                    </Text>
+                  </View>
+                  <Text style={[styles.walletTxAmount, Number(tx.amount_mxn) < 0 && styles.walletTxAmountNegative]}>
+                    {formatTransactionAmount(tx)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.menuContainer}>
@@ -389,6 +434,73 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '900',
     color: '#064E3B',
+  },
+  walletHistory: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#BBF7D0',
+    gap: 10,
+  },
+  walletHistoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  walletHistoryTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#065F46',
+    textTransform: 'uppercase',
+  },
+  walletHistoryCount: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    backgroundColor: '#BBF7D0',
+    color: '#065F46',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingTop: 3,
+  },
+  walletTxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  walletTxIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 11,
+    backgroundColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  walletTxCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  walletTxTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#064E3B',
+  },
+  walletTxMeta: {
+    marginTop: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#047857',
+  },
+  walletTxAmount: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#047857',
+  },
+  walletTxAmountNegative: {
+    color: '#9F1239',
   },
   menuContainer: {
     gap: 20,

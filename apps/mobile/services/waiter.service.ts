@@ -76,6 +76,27 @@ export type WaiterAccount = {
   active_split?: WaiterSplit | null;
 };
 
+export type WaiterIncomingOrder = {
+  id: number;
+  folio?: string | null;
+  estado?: string | null;
+  subtotal: number;
+  total: number;
+  table_id: number;
+  table_label: string;
+  cliente_nombre?: string | null;
+  mesero_usuario_id?: number | null;
+  mesero_nombre?: string | null;
+  claimed_by_me?: boolean;
+  is_claimed?: boolean;
+  is_ready?: boolean;
+  kitchen_status?: 'en_cocina' | 'listo' | string;
+  pedido_origen?: string | null;
+  consumo_id?: string | null;
+  created_at?: string | null;
+  items_count: number;
+};
+
 export type WaiterOrderItemPayload = {
   platillo_id: number;
   cantidad: number;
@@ -206,6 +227,31 @@ export async function getWaiterAccount(tableId: number, restaurantId: number): P
       imagen: formatImageUrl(item.imagen ?? null) ?? item.imagen ?? null,
     })),
   };
+}
+
+export async function getWaiterIncomingOrders(restaurantId: number): Promise<WaiterIncomingOrder[]> {
+  const { data } = await apiClient.get<Envelope<{ orders: WaiterIncomingOrder[] }>>('/waiter/orders', {
+    params: { restaurant_id: restaurantId },
+  });
+  return (unwrap(data).orders ?? []).map((order) => ({
+    ...order,
+    subtotal: Number(order.subtotal || 0),
+    total: Number(order.total || 0),
+    table_id: Number(order.table_id || 0),
+    items_count: Number(order.items_count || 0),
+  }));
+}
+
+export async function claimWaiterIncomingOrder(orderId: number, restaurantId: number): Promise<WaiterIncomingOrder> {
+  const { data } = await apiClient.post<Envelope<{ order: WaiterIncomingOrder }>>(
+    `/waiter/orders/${orderId}/claim`,
+    { restaurant_id: restaurantId }
+  );
+  return unwrap(data).order;
+}
+
+export async function deliverWaiterIncomingOrder(orderId: number, restaurantId: number): Promise<void> {
+  await apiClient.post(`/waiter/orders/${orderId}/deliver`, { restaurant_id: restaurantId });
 }
 
 export async function createWaiterOrder(params: {

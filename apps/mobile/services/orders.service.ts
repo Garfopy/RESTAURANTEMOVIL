@@ -1,5 +1,5 @@
 import { apiClient } from './api';
-import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago, ExitPass } from '@amare/types';
+import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago, ExitPass, TrackingEvent } from '@amare/types';
 
 function flattenModifierSelection(modifiers: any[]): Array<{ modificador_id: number; cantidad: number }> {
   const quantities = new Map<number, number>();
@@ -103,8 +103,15 @@ export async function getStoreOrders(): Promise<Pedido[]> {
   }));
 }
 
-export async function getOrderTracking(_id: number) {
-  return { tracking: [] };
+export async function getOrderTracking(id: number): Promise<{ tracking: TrackingEvent[] }> {
+  const { data } = await apiClient.get<{
+    success: boolean;
+    data: { timeline?: TrackingEvent[]; tracking?: TrackingEvent[] }
+  }>(`/orders/${id}/timeline`);
+
+  return {
+    tracking: data.data.timeline ?? data.data.tracking ?? [],
+  };
 }
 
 export async function createPaymentIntent(params: {

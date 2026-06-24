@@ -29,9 +29,11 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import InputField from '../../components/ui/InputField';
+import { TableContextBanner } from '../../components/shared/TableContextBanner';
 import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../../constants/stripe';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import {
@@ -176,6 +178,20 @@ type SocialUnlikeResponse = {
 
 type SocialView = 'discover' | 'matches' | 'likes';
 type LikesView = 'received' | 'sent';
+
+const SEEN_INCOMING_LIKE_KEY_PREFIX = 'amare_social_seen_incoming_like';
+
+function getSeenIncomingLikeStorageKey(userId: number | string): string {
+  return `${SEEN_INCOMING_LIKE_KEY_PREFIX}:${userId}`;
+}
+
+function getIncomingLikeKey(diner?: SocialDiner | null): string | null {
+  if (!diner?.user_id) {
+    return null;
+  }
+
+  return `${diner.user_id}:${diner.liked_at ?? ''}`;
+}
 
 type GiftProduct = {
   id: number;
@@ -630,6 +646,7 @@ export default function SocialProfileScreen() {
   const [socialView, setSocialView] = useState<SocialView>('discover');
   const [likesView, setLikesView] = useState<LikesView>('received');
   const [floatingLikeVisible, setFloatingLikeVisible] = useState(false);
+  const [seenIncomingLikeKey, setSeenIncomingLikeKey] = useState<string | null | undefined>(undefined);
   const userSocialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   const translateX = useSharedValue(0);
@@ -677,6 +694,7 @@ export default function SocialProfileScreen() {
   const detailImageWidth = Math.max(260, width - 36);
   const isCompactDiscovery = height < 760 || width < 380;
   const topReceivedLike = receivedLikes[0] ?? null;
+  const topReceivedLikeKey = getIncomingLikeKey(topReceivedLike);
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
       ? `${topReceivedLike.nombre} y ${receivedLikes.length - 1} más te dieron me gusta`
@@ -729,7 +747,36 @@ export default function SocialProfileScreen() {
   }, [canDiscover, socialView]);
 
   useEffect(() => {
-    if (!topReceivedLike) {
+    let mounted = true;
+    setSeenIncomingLikeKey(undefined);
+    setFloatingLikeVisible(false);
+
+    if (!user?.id) {
+      setSeenIncomingLikeKey(null);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    AsyncStorage.getItem(getSeenIncomingLikeStorageKey(user.id))
+      .then((value) => {
+        if (mounted) {
+          setSeenIncomingLikeKey(value);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setSeenIncomingLikeKey(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!topReceivedLikeKey || seenIncomingLikeKey === undefined || seenIncomingLikeKey === topReceivedLikeKey) {
       setFloatingLikeVisible(false);
       return undefined;
     }
@@ -737,7 +784,23 @@ export default function SocialProfileScreen() {
     setFloatingLikeVisible(true);
     const timer = setTimeout(() => setFloatingLikeVisible(false), 5000);
     return () => clearTimeout(timer);
-  }, [topReceivedLike?.user_id, topReceivedLike?.liked_at]);
+  }, [seenIncomingLikeKey, topReceivedLikeKey]);
+
+  useEffect(() => {
+    if (
+      socialView === 'likes' &&
+      likesView === 'received' &&
+      topReceivedLikeKey &&
+      seenIncomingLikeKey !== undefined &&
+      seenIncomingLikeKey !== topReceivedLikeKey
+    ) {
+      setSeenIncomingLikeKey(topReceivedLikeKey);
+      setFloatingLikeVisible(false);
+      if (user?.id) {
+        AsyncStorage.setItem(getSeenIncomingLikeStorageKey(user.id), topReceivedLikeKey).catch(() => undefined);
+      }
+    }
+  }, [likesView, seenIncomingLikeKey, socialView, topReceivedLikeKey, user?.id]);
 
   function advanceToDiner(direction: 'next' | 'prev') {
     if (diners.length <= 1) {
@@ -1189,7 +1252,21 @@ export default function SocialProfileScreen() {
     setDetailsVisible(true);
   }
 
+  function markIncomingLikeSeen(key = topReceivedLikeKey) {
+    if (!user?.id || !key) {
+      setFloatingLikeVisible(false);
+      return;
+    }
+
+    setSeenIncomingLikeKey(key);
+    setFloatingLikeVisible(false);
+    AsyncStorage.setItem(getSeenIncomingLikeStorageKey(user.id), key).catch(() => undefined);
+  }
+
   function handleOpenLikesView(view: LikesView = 'received') {
+    if (view === 'received') {
+      markIncomingLikeSeen();
+    }
     setLikesView(view);
     setSocialView('likes');
     setFloatingLikeVisible(false);
@@ -2457,6 +2534,14 @@ export default function SocialProfileScreen() {
           />
         </View>
 
+        <TableContextBanner
+          session={tableSession}
+          branchName={selectedBranch?.nombre}
+          variant="compact"
+          title="En mesa"
+          style={styles.currentTablePill}
+        />
+
         {canDiscover ? (
           <View style={styles.summaryRow}>
             <TouchableOpacity
@@ -3524,6 +3609,10 @@ const styles = StyleSheet.create({
   statusSwitch: {
     transform: [{ scaleX: 0.64 }, { scaleY: 0.64 }],
     marginRight: -10,
+  },
+  currentTablePill: {
+    marginTop: 10,
+    backgroundColor: '#FFFFFFCC',
   },
   summaryRow: {
     flexDirection: 'row',

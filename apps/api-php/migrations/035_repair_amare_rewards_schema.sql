@@ -37,13 +37,19 @@ CREATE TABLE IF NOT EXISTS `amare_wallet_transactions` (
   KEY `idx_wallet_transactions_reference` (`reference_type`, `reference_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallets' AND COLUMN_NAME='usuario_id'), 'SELECT 1', 'ALTER TABLE `amare_wallets` ADD COLUMN `usuario_id` INT UNSIGNED NULL AFTER `user_id`');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallet_transactions' AND COLUMN_NAME='wallet_id'), 'SELECT 1', 'ALTER TABLE `amare_wallet_transactions` ADD COLUMN `wallet_id` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `id`');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallet_transactions' AND COLUMN_NAME='user_id'), 'SELECT 1', 'ALTER TABLE `amare_wallet_transactions` ADD COLUMN `user_id` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `wallet_id`');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallet_transactions' AND COLUMN_NAME='type'), 'SELECT 1', 'ALTER TABLE `amare_wallet_transactions` ADD COLUMN `type` VARCHAR(40) NOT NULL DEFAULT ''wallet_payment'' AFTER `user_id`');
+SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallet_transactions' AND COLUMN_NAME='usuario_id'), 'SELECT 1', 'ALTER TABLE `amare_wallet_transactions` ADD COLUMN `usuario_id` INT UNSIGNED NULL AFTER `user_id`');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallet_transactions' AND COLUMN_NAME='type'), 'SELECT 1', 'ALTER TABLE `amare_wallet_transactions` ADD COLUMN `type` VARCHAR(40) NOT NULL DEFAULT ''wallet_payment'' AFTER `usuario_id`');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql = IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=@db_name AND TABLE_NAME='amare_wallet_transactions' AND COLUMN_NAME='context'), 'SELECT 1', 'ALTER TABLE `amare_wallet_transactions` ADD COLUMN `context` VARCHAR(30) NULL AFTER `type`');

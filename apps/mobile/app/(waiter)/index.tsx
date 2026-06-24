@@ -12,6 +12,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type GestureResponderEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,9 +22,13 @@ import * as Haptics from 'expo-haptics';
 import { getApiError } from '../../services/api';
 import {
   claimWaiterTable,
+  claimWaiterIncomingOrder,
+  deliverWaiterIncomingOrder,
   getWaiterBranches,
   getWaiterGifts,
+  getWaiterIncomingOrders,
   getWaiterTables,
+  type WaiterIncomingOrder,
   type WaiterTable,
 } from '../../services/waiter.service';
 import { useUserStore } from '../../store/user.store';
@@ -32,7 +37,7 @@ import { useToast } from '../../context/ToastContext';
 import { GiftInboxModal } from '../../components/waiter/GiftInboxModal';
 
 type StatusIcon = keyof typeof Ionicons.glyphMap;
-type TableFilter = 'mine' | 'free' | 'support' | 'gifts';
+type TableFilter = 'all' | 'mine' | 'open' | 'free' | 'support' | 'gifts';
 
 const STATUS_LABEL: Record<WaiterTable['status'], string> = {
   libre: 'Libre',
@@ -86,8 +91,10 @@ export default function WaiterHomeScreen() {
   const [customerName, setCustomerName] = useState('');
   const [claiming, setClaiming] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<TableFilter>('mine');
+  const [activeFilter, setActiveFilter] = useState<TableFilter>('all');
+  const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
   const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
+  const seenClientOrderIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
 
   const branchesQuery = useQuery({
     queryKey: ['waiter', 'branches'],
@@ -121,8 +128,22 @@ export default function WaiterHomeScreen() {
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,
   });
+  const incomingOrdersQuery = useQuery({
+    queryKey: ['waiter', 'incoming-orders', selectedBranch?.id],
+    queryFn: () => getWaiterIncomingOrders(selectedBranch!.id),
+    enabled: Boolean(selectedBranch?.id),
+    refetchInterval: 8_000,
+    refetchIntervalInBackground: false,
+  });
 
   const giftInbox = giftsQuery.data ?? { active: [], history: [], pending_count: 0 };
+  const incomingOrders = incomingOrdersQuery.data ?? [];
+  const incomingOrderByTable = useMemo(() => incomingOrders.reduce<Record<number, WaiterIncomingOrder>>((map, order) => {
+    if (!map[order.table_id]) {
+      map[order.table_id] = order;
+    }
+    return map;
+  }, {}), [incomingOrders]);
   const giftCountByTable = useMemo(() => giftInbox.active.reduce<Record<number, number>>((counts, gift) => {
     counts[gift.table_id] = (counts[gift.table_id] ?? 0) + 1;
     return counts;
@@ -155,10 +176,33 @@ export default function WaiterHomeScreen() {
     }
   }, [giftsQuery.data, selectedBranch?.id, toast]);
 
+  useEffect(() => {
+    if (!selectedBranch?.id || !incomingOrdersQuery.data) return;
+    const ids = new Set(incomingOrdersQuery.data.map((order) => order.id));
+    if (seenClientOrderIds.current.branchId !== selectedBranch.id) {
+      seenClientOrderIds.current = { branchId: selectedBranch.id, ids };
+      return;
+    }
+
+    const newIds = [...ids].filter((id) => !seenClientOrderIds.current.ids.has(id));
+    seenClientOrderIds.current.ids = ids;
+    if (newIds.length > 0) {
+      const newest = incomingOrdersQuery.data.find((order) => order.id === newIds[0]);
+      toast.info(
+        newIds.length === 1 && newest
+          ? `Nuevo pedido de cliente en ${newest.table_label}`
+          : `${newIds.length} pedidos nuevos de cliente`,
+        { duration: 6000, icon: 'restaurant' }
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [incomingOrdersQuery.data, selectedBranch?.id, toast]);
+
   const tables = tablesQuery.data ?? [];
   const priorityTables = useMemo(() => {
     const statusWeight = (table: WaiterTable) => {
       if (pendingGiftCountByTable[table.id]) return 0;
+      if (incomingOrderByTable[table.id]) return 1;
       if (table.status === 'mia' || (table.status === 'cuenta_abierta' && table.mesero_usuario_id === user?.id)) return 1;
       if (table.status === 'ocupada_por_otro' || table.status === 'cuenta_abierta') return 2;
       return 3;
@@ -171,7 +215,7 @@ export default function WaiterHomeScreen() {
       if (statusDiff !== 0) return statusDiff;
       return String(a.label).localeCompare(String(b.label), 'es', { numeric: true });
     });
-  }, [pendingGiftCountByTable, tables, user?.id]);
+  }, [incomingOrderByTable, pendingGiftCountByTable, tables, user?.id]);
 
   const filteredTables = useMemo(() => {
     const query = normalizeSearchText(searchText);
@@ -183,12 +227,13 @@ export default function WaiterHomeScreen() {
         table.value,
         table.zona_nombre,
         table.cliente_nombre,
+        incomingOrderByTable[table.id]?.cliente_nombre,
         table.mesero_nombre,
         table.estado,
         table.id,
       ].some((value) => normalizeSearchText(value).includes(query))
     );
-  }, [priorityTables, searchText]);
+  }, [incomingOrderByTable, priorityTables, searchText]);
 
   const myTables = filteredTables.filter(
     (table) =>
@@ -200,24 +245,36 @@ export default function WaiterHomeScreen() {
       table.status === 'ocupada_por_otro' ||
       (table.status === 'cuenta_abierta' && table.mesero_usuario_id !== user?.id)
   );
-  const freeTables = filteredTables.filter((table) => table.status === 'libre');
+  const openTables = filteredTables.filter((table) => table.cuenta_abierta || Number(table.total || 0) > 0);
+  const activeClientTables = filteredTables.filter((table) => Boolean(incomingOrderByTable[table.id]));
+  const freeTables = filteredTables.filter((table) => table.status === 'libre' && !incomingOrderByTable[table.id]);
   const giftTables = filteredTables.filter((table) => (giftCountByTable[table.id] ?? 0) > 0);
-  const activeTables = activeFilter === 'mine'
+  const activeTables = activeFilter === 'all'
+    ? filteredTables
+    : activeFilter === 'mine'
     ? myTables
+    : activeFilter === 'open'
+      ? [...new Map([...openTables, ...activeClientTables].map((table) => [table.id, table])).values()]
     : activeFilter === 'free'
       ? freeTables
       : activeFilter === 'support'
         ? supportTables
         : giftTables;
-  const activeEmptyText = activeFilter === 'mine'
+  const activeEmptyText = activeFilter === 'all'
+    ? 'No hay mesas para mostrar.'
+    : activeFilter === 'mine'
     ? 'Todavía no tienes mesas asignadas.'
+    : activeFilter === 'open'
+      ? 'No hay mesas por cobrar en este momento.'
     : activeFilter === 'free'
       ? 'No hay mesas libres en este momento.'
       : activeFilter === 'support'
         ? 'No hay mesas ocupadas por otros meseros.'
         : 'No hay regalos activos en esta sucursal.';
   const filters: Array<{ key: TableFilter; label: string; count: number; icon: StatusIcon }> = [
+    { key: 'all', label: 'Todas', count: filteredTables.length, icon: 'apps-outline' },
     { key: 'mine', label: 'Mis mesas', count: myTables.length, icon: 'person-outline' },
+    { key: 'open', label: 'Por cobrar', count: new Set([...openTables, ...activeClientTables].map((table) => table.id)).size, icon: 'receipt-outline' },
     { key: 'free', label: 'Libres', count: freeTables.length, icon: 'grid-outline' },
     { key: 'support', label: 'Apoyo', count: supportTables.length, icon: 'people-outline' },
     { key: 'gifts', label: 'Regalos', count: giftInbox.active.length, icon: 'gift-outline' },
@@ -234,15 +291,35 @@ export default function WaiterHomeScreen() {
         table.status === 'ocupada_por_otro' ||
         (table.status === 'cuenta_abierta' && table.mesero_usuario_id !== user?.id)
     ).length;
-    const free = tables.filter((table) => table.status === 'libre').length;
-    const total = tables.reduce((sum, table) => sum + Number(table.total || 0), 0);
+    const free = tables.filter((table) => table.status === 'libre' && !incomingOrderByTable[table.id]).length;
+    const total = tables.reduce(
+      (sum, table) => sum + Number(table.total || incomingOrderByTable[table.id]?.total || 0),
+      0
+    );
     return { mine, support, free, total };
-  }, [tables, user?.id]);
+  }, [incomingOrderByTable, tables, user?.id]);
+
+  function openIncomingOrder(order: WaiterIncomingOrder) {
+    if (!selectedBranch) return;
+    const table = tables.find((item) => item.id === order.table_id);
+    router.push({
+      pathname: '/(waiter)/table/[id]',
+      params: {
+        id: String(order.table_id),
+        restaurantId: String(selectedBranch.id),
+        tableLabel: table?.label ?? order.table_label,
+        clienteNombre: order.cliente_nombre ?? table?.cliente_nombre ?? 'Cliente app',
+        meseroNombre: table?.mesero_nombre ?? order.mesero_nombre ?? '',
+        supportMode: table?.mesero_usuario_id && table.mesero_usuario_id !== user?.id ? '1' : '0',
+      },
+    });
+  }
 
   function openTable(table: WaiterTable) {
     if (!selectedBranch) return;
 
-    if (table.status === 'libre') {
+    const incomingOrder = incomingOrderByTable[table.id];
+    if (table.status === 'libre' && !incomingOrder) {
       setClaimingTable(table);
       setCustomerName(table.cliente_nombre ?? '');
       return;
@@ -254,7 +331,7 @@ export default function WaiterHomeScreen() {
         id: String(table.id),
         restaurantId: String(selectedBranch.id),
         tableLabel: table.label,
-        clienteNombre: table.cliente_nombre ?? '',
+        clienteNombre: table.cliente_nombre ?? incomingOrder?.cliente_nombre ?? '',
         meseroNombre: table.mesero_nombre ?? '',
         supportMode: table.mesero_usuario_id && table.mesero_usuario_id !== user?.id ? '1' : '0',
       },
@@ -263,13 +340,17 @@ export default function WaiterHomeScreen() {
 
   function renderTableCard(table: WaiterTable) {
     const giftCount = giftCountByTable[table.id] ?? 0;
+    const incomingOrder = incomingOrderByTable[table.id];
+    const effectiveStatus: WaiterTable['status'] = incomingOrder && table.status === 'libre' ? 'cuenta_abierta' : table.status;
+    const effectiveCustomerName = table.cliente_nombre || incomingOrder?.cliente_nombre || 'Sin comensal';
+    const effectiveTotal = Number(table.total || incomingOrder?.total || 0);
     return (
       <TouchableOpacity key={table.id} activeOpacity={0.9} style={styles.tableCard} onPress={() => openTable(table)}>
         <View style={styles.tableTopRow}>
-          <View style={[styles.statusBadge, { backgroundColor: STATUS_BG[table.status] }]}>
-            <Ionicons name={STATUS_ICON[table.status]} size={15} color={STATUS_COLOR[table.status]} />
-            <Text style={[styles.statusBadgeText, { color: STATUS_COLOR[table.status] }]}>
-              {STATUS_LABEL[table.status]}
+          <View style={[styles.statusBadge, { backgroundColor: STATUS_BG[effectiveStatus] }]}>
+            <Ionicons name={STATUS_ICON[effectiveStatus]} size={15} color={STATUS_COLOR[effectiveStatus]} />
+            <Text style={[styles.statusBadgeText, { color: STATUS_COLOR[effectiveStatus] }]}>
+              {incomingOrder ? 'Pedido cliente' : STATUS_LABEL[effectiveStatus]}
             </Text>
           </View>
           {giftCount > 0 ? (
@@ -289,7 +370,7 @@ export default function WaiterHomeScreen() {
         <View style={styles.tableMeta}>
           <View style={styles.metaLine}>
             <Ionicons name="person-outline" size={14} color="#64748B" />
-            <Text style={styles.metaText} numberOfLines={1}>{table.cliente_nombre || 'Sin comensal'}</Text>
+            <Text style={styles.metaText} numberOfLines={1}>{effectiveCustomerName}</Text>
           </View>
           <View style={styles.metaLine}>
             <Ionicons name="restaurant-outline" size={14} color="#64748B" />
@@ -298,9 +379,100 @@ export default function WaiterHomeScreen() {
         </View>
 
         <View style={styles.tableFooter}>
-          <Text style={styles.tableTotal}>{Number(table.total || 0) > 0 ? money(table.total) : 'Sin consumo'}</Text>
-          <Text style={styles.tableHint}>{table.status === 'libre' ? 'Reclamar' : 'Abrir'}</Text>
+          <Text style={styles.tableTotal}>{effectiveTotal > 0 ? money(effectiveTotal) : 'Sin consumo'}</Text>
+          <Text style={styles.tableHint}>{table.status === 'libre' && !incomingOrder ? 'Reclamar' : 'Abrir'}</Text>
         </View>
+      </TouchableOpacity>
+    );
+  }
+
+  async function handleClaimIncomingOrder(order: WaiterIncomingOrder, event?: GestureResponderEvent) {
+    event?.stopPropagation();
+    if (!selectedBranch || updatingOrderId) return;
+
+    try {
+      setUpdatingOrderId(order.id);
+      await claimWaiterIncomingOrder(order.id, selectedBranch.id);
+      await Promise.all([incomingOrdersQuery.refetch(), tablesQuery.refetch()]);
+      toast.success(`Comanda reclamada en ${order.table_label}`);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('No se pudo reclamar', getApiError(error));
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  }
+
+  async function handleDeliverIncomingOrder(order: WaiterIncomingOrder, event?: GestureResponderEvent) {
+    event?.stopPropagation();
+    if (!selectedBranch || updatingOrderId) return;
+
+    try {
+      setUpdatingOrderId(order.id);
+      await deliverWaiterIncomingOrder(order.id, selectedBranch.id);
+      await Promise.all([incomingOrdersQuery.refetch(), tablesQuery.refetch()]);
+      toast.success(`Comanda entregada en ${order.table_label}`);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('No se pudo entregar', getApiError(error));
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  }
+
+  function renderIncomingOrder(order: WaiterIncomingOrder) {
+    const updating = updatingOrderId === order.id;
+    const actionLabel = !order.claimed_by_me
+      ? 'Reclamar'
+      : order.is_ready
+        ? 'Entregado'
+        : 'Reclamado';
+    const actionDisabled = updating || (Boolean(order.claimed_by_me) && !order.is_ready);
+    const statusLabel = order.is_ready ? 'Listo para entregar' : 'En cocina';
+
+    return (
+      <TouchableOpacity
+        key={order.id}
+        style={styles.incomingOrderCard}
+        activeOpacity={0.88}
+        onPress={() => openIncomingOrder(order)}
+      >
+        <View style={styles.incomingOrderIcon}>
+          <Ionicons name="phone-portrait-outline" size={18} color="#FFFFFF" />
+        </View>
+        <View style={styles.incomingOrderCopy}>
+          <Text style={styles.incomingOrderTitle} numberOfLines={1}>
+            {order.table_label} - {order.items_count} productos
+          </Text>
+          <Text style={styles.incomingOrderText} numberOfLines={1}>
+            {order.cliente_nombre || 'Cliente app'} - {money(order.total)}
+          </Text>
+          <Text style={[styles.incomingOrderStatus, order.is_ready && styles.incomingOrderStatusReady]} numberOfLines={1}>
+            {statusLabel}{order.mesero_nombre ? ` - ${order.mesero_nombre}` : ''}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.incomingOrderAction,
+            order.claimed_by_me && order.is_ready && styles.incomingOrderActionReady,
+            actionDisabled && styles.incomingOrderActionDisabled,
+          ]}
+          activeOpacity={0.82}
+          disabled={actionDisabled}
+          onPress={(event) => {
+            if (!order.claimed_by_me) {
+              void handleClaimIncomingOrder(order, event);
+              return;
+            }
+            void handleDeliverIncomingOrder(order, event);
+          }}
+        >
+          {updating ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.incomingOrderActionText}>{actionLabel}</Text>
+          )}
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   }
@@ -444,6 +616,19 @@ export default function WaiterHomeScreen() {
               </View>
               <Ionicons name="chevron-forward" size={20} color="#BE123C" />
             </TouchableOpacity>
+          ) : null}
+
+          {incomingOrders.length > 0 ? (
+            <View style={styles.incomingPanel}>
+              <View style={styles.incomingHeader}>
+                <View>
+                  <Text style={styles.incomingKicker}>Pedidos desde cliente</Text>
+                  <Text style={styles.incomingTitle}>{incomingOrders.length} comandas activas</Text>
+                </View>
+                {incomingOrdersQuery.isRefetching ? <ActivityIndicator size="small" color="#92400E" /> : null}
+              </View>
+              {incomingOrders.slice(0, 4).map(renderIncomingOrder)}
+            </View>
           ) : null}
 
           <View style={styles.searchWrap}>
@@ -644,6 +829,100 @@ const styles = StyleSheet.create({
   giftBannerCopy: { flex: 1 },
   giftBannerTitle: { color: '#881337', fontSize: 14, fontWeight: '900' },
   giftBannerText: { marginTop: 2, color: '#9F1239', fontSize: 11 },
+  incomingPanel: {
+    marginHorizontal: 18,
+    marginBottom: 12,
+    padding: 13,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+    gap: 9,
+  },
+  incomingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  incomingKicker: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#C2410C',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  incomingTitle: {
+    marginTop: 2,
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#7C2D12',
+  },
+  incomingOrderCard: {
+    minHeight: 58,
+    borderRadius: 15,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  incomingOrderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#EA580C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingOrderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  incomingOrderTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  incomingOrderText: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9A3412',
+  },
+  incomingOrderStatus: {
+    marginTop: 3,
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#B45309',
+    textTransform: 'uppercase',
+  },
+  incomingOrderStatusReady: {
+    color: '#15803D',
+  },
+  incomingOrderAction: {
+    minWidth: 82,
+    height: 34,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EA580C',
+  },
+  incomingOrderActionReady: {
+    backgroundColor: '#16A34A',
+  },
+  incomingOrderActionDisabled: {
+    opacity: 0.58,
+  },
+  incomingOrderActionText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
   tableGiftBadge: { marginLeft: 'auto', paddingHorizontal: 7, height: 25, borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFE4E6' },
   tableGiftBadgeText: { color: '#BE123C', fontSize: 11, fontWeight: '900' },
   branchChipActive: {

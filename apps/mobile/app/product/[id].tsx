@@ -21,6 +21,7 @@ import { useFavorites } from '../../hooks/useFavorites';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { CartButton } from '../../components/shared/CartButton';
+import { TableContextBanner } from '../../components/shared/TableContextBanner';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 import type {
   ModificadorSeleccionado,
@@ -290,6 +291,10 @@ export default function ProductScreen() {
                 <Ionicons name="cash-outline" size={16} color={Colors.text} />
                 <Text style={styles.heroPrice}>${platillo.precio.toFixed(2)}</Text>
               </View>
+
+              {tipoPedido === 'eat_in' ? (
+                <TableContextBanner session={tableSession} variant="chip" />
+              ) : null}
 
               {platillo.descripcion ? (
                 <Text style={styles.heroDescription}>{platillo.descripcion}</Text>

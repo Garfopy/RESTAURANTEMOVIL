@@ -502,6 +502,21 @@ export default function WaiterTableScreen() {
           </View>
         </View>
 
+        {activeSplit ? (
+          <TouchableOpacity style={styles.splitNotice} activeOpacity={0.88} onPress={() => setSplitVisible(true)}>
+            <View style={styles.splitNoticeIcon}>
+              <Ionicons name="git-branch-outline" size={18} color="#92400E" />
+            </View>
+            <View style={styles.splitNoticeCopy}>
+              <Text style={styles.splitNoticeTitle}>Cuentas separadas activas</Text>
+              <Text style={styles.splitNoticeText}>
+                Cobra o cancela la division antes de agregar nuevos productos.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={19} color="#92400E" />
+          </TouchableOpacity>
+        ) : null}
+
         <View style={[styles.section, hasPendingCart && styles.pendingSection]}>
           <View style={styles.sectionHeader}>
             <View>
@@ -529,7 +544,11 @@ export default function WaiterTableScreen() {
               </TouchableOpacity>
             </>
           ) : (
-            <Text style={styles.emptyText}>Agrega alimentos desde el menú para preparar una comanda.</Text>
+            <Text style={styles.emptyText}>
+              {activeSplit
+                ? 'La mesa tiene cuentas separadas activas. Termina esa division antes de agregar alimentos.'
+                : 'Agrega alimentos desde el menu para preparar una comanda.'}
+            </Text>
           )}
         </View>
 
@@ -1077,6 +1096,40 @@ const styles = StyleSheet.create({
     color: '#E5E7EB',
     fontSize: 13,
     fontWeight: '800',
+  },
+  splitNotice: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+    padding: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  splitNoticeIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitNoticeCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  splitNoticeTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#78350F',
+  },
+  splitNoticeText: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400E',
+    lineHeight: 17,
   },
   actionGrid: {
     flexDirection: 'row',

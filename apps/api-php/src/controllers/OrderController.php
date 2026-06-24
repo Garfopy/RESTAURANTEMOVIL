@@ -10,6 +10,7 @@ use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\Product;
+use Amare\Api\Models\User;
 use Amare\Api\Services\RewardsService;
 
 class OrderController
@@ -45,12 +46,18 @@ class OrderController
 
         if ($metodo === 'amare_wallet') {
             $pdo = Database::getInstance();
+            $amount = (float)($order['total'] ?? $order['subtotal'] ?? 0);
+            $rewards = new RewardsService();
             try {
+                // Prepara wallet/esquema fuera de la transaccion. DDL en MySQL hace
+                // commit implicito y no debe ejecutarse dentro del cobro.
+                $rewards->quote((int)$user->id, $amount, !empty($input['use_points']), 'food');
+
                 $pdo->beginTransaction();
-                $reward = (new RewardsService())->charge(
+                $reward = $rewards->charge(
                     $pdo,
                     (int)$user->id,
-                    (float)($order['total'] ?? $order['subtotal'] ?? 0),
+                    $amount,
                     !empty($input['use_points']),
                     'food',
                     'order',
@@ -64,7 +71,7 @@ class OrderController
                 Response::error($exception->getMessage(), 409);
             } catch (\Throwable $exception) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
-                error_log('OrderController::confirmPayment wallet ERROR: ' . $exception->getMessage());
+                error_log('OrderController::confirmPayment wallet ERROR: ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
                 Response::serverError('No se pudo pagar con Saldo Amare.');
             }
 
@@ -157,6 +164,110 @@ class OrderController
         Response::success(['order' => $order]);
     }
 
+    public function timeline(int $id): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $order = Order::findById($id, $user->id);
+
+        if (!$order) {
+            Response::notFound('Pedido no encontrado');
+        }
+
+        Response::success([
+            'timeline' => $this->buildTimeline($order),
+        ]);
+    }
+
+    private function buildTimeline(array $order): array
+    {
+        $isEatIn = ($order['tipo_pedido'] ?? null) === 'eat_in';
+        $isConsumption = $isEatIn && (
+            !empty($order['es_consumo']) ||
+            !empty($order['consumo_id']) ||
+            (int)($order['pedidos_count'] ?? 0) > 1 ||
+            (int)($order['cuenta_abierta'] ?? 0) === 1
+        );
+
+        if ($isConsumption) {
+            $hasExitQr = !empty($order['salida_qr_generado_at']);
+            $isValidated = !empty($order['salida_validado_at']);
+            return [
+                [
+                    'estado' => 'pendiente',
+                    'label' => 'Pedido recibido',
+                    'descripcion' => 'La cuenta quedo abierta para esta mesa.',
+                    'completado' => true,
+                    'en_curso' => false,
+                    'timestamp' => $order['created_at'] ?? null,
+                ],
+                [
+                    'estado' => 'en_preparacion',
+                    'label' => 'Cuenta abierta',
+                    'descripcion' => 'Puedes seguir pidiendo antes de pagar.',
+                    'completado' => $hasExitQr || $isValidated,
+                    'en_curso' => !$hasExitQr && !$isValidated,
+                    'timestamp' => $order['updated_at'] ?? $order['created_at'] ?? null,
+                ],
+                [
+                    'estado' => 'listo',
+                    'label' => 'QR de salida',
+                    'descripcion' => 'Se genera al pagar la cuenta.',
+                    'completado' => $hasExitQr || $isValidated,
+                    'en_curso' => $hasExitQr && !$isValidated,
+                    'timestamp' => $order['salida_qr_generado_at'] ?? null,
+                ],
+                [
+                    'estado' => 'entregado',
+                    'label' => 'Salida validada',
+                    'descripcion' => 'Hostess cierra la visita al escanear el QR.',
+                    'completado' => $isValidated,
+                    'en_curso' => false,
+                    'timestamp' => $order['salida_validado_at'] ?? null,
+                ],
+            ];
+        }
+
+        $statusOrder = ['pendiente', 'en_preparacion', 'listo', 'entregado'];
+        $status = (string)($order['estado'] ?? 'pendiente');
+        $currentIndex = array_search($status, $statusOrder, true);
+        $currentIndex = $currentIndex === false ? 0 : (int)$currentIndex;
+
+        return [
+            [
+                'estado' => 'pendiente',
+                'label' => 'Pedido recibido',
+                'descripcion' => 'Tu orden entro al restaurante.',
+                'completado' => $currentIndex > 0,
+                'en_curso' => $currentIndex === 0,
+                'timestamp' => $order['created_at'] ?? null,
+            ],
+            [
+                'estado' => 'en_preparacion',
+                'label' => 'En preparacion',
+                'descripcion' => 'Cocina esta preparando tus alimentos.',
+                'completado' => $currentIndex > 1,
+                'en_curso' => $currentIndex === 1,
+                'timestamp' => $order['updated_at'] ?? null,
+            ],
+            [
+                'estado' => 'listo',
+                'label' => ($order['tipo_pedido'] ?? null) === 'delivery' ? 'Listo para envio' : 'Listo',
+                'descripcion' => ($order['tipo_pedido'] ?? null) === 'delivery' ? 'Tu pedido esta listo para salir.' : 'Tu pedido esta listo para entrega.',
+                'completado' => $currentIndex > 2,
+                'en_curso' => $currentIndex === 2,
+                'timestamp' => $order['updated_at'] ?? null,
+            ],
+            [
+                'estado' => 'entregado',
+                'label' => 'Entregado',
+                'descripcion' => 'El pedido fue completado.',
+                'completado' => $status === 'entregado',
+                'en_curso' => false,
+                'timestamp' => $status === 'entregado' ? ($order['updated_at'] ?? null) : null,
+            ],
+        ];
+    }
+
     public function store(): void
     {
         $user = AuthMiddleware::authenticate();
@@ -203,6 +314,12 @@ class OrderController
             ];
         }
 
+        $customerName = trim((string)($user->nombre ?? ''));
+        if ($customerName === '') {
+            $profile = User::findById((int)$user->id);
+            $customerName = trim((string)($profile['nombre'] ?? ''));
+        }
+
         try {
             $orderId = Order::create([
                 'restaurante_id' => $input['restaurante_id'],
@@ -210,6 +327,7 @@ class OrderController
                 'order_type' => $input['tipo_pedido'],
                 'subtotal' => $input['subtotal'],
                 'total' => $input['total'],
+                'cliente_nombre' => $input['cliente_nombre'] ?? ($customerName !== '' ? $customerName : 'Cliente app'),
                 'notes' => $input['notas'] ?? null,
                 'direccion_id' => $input['direccion_id'] ?? null,
                 'direccion_entrega' => $input['direccion_entrega'] ?? null,

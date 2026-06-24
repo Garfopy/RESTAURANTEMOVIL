@@ -240,6 +240,138 @@ class WaiterController
         Response::success(['account' => $this->buildAccount($restaurantId, $tableId, (int)$user['id'])]);
     }
 
+    public function orders(): void
+    {
+        $user = $this->requireWaiter();
+        $restaurantId = isset($_GET['restaurant_id']) ? (int)$_GET['restaurant_id'] : 0;
+
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+
+        Response::success(['orders' => $this->getClientOpenOrders($restaurantId, (int)$user['id'])]);
+    }
+
+    public function claimOrder(int $orderId): void
+    {
+        $user = $this->requireWaiter();
+        $input = ValidationMiddleware::getAllInput();
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+
+        $order = $this->findWaiterClientOrder($restaurantId, $orderId);
+        if (!$order) {
+            Response::notFound('Pedido no encontrado');
+        }
+
+        $assignedWaiter = isset($order['mesero_usuario_id']) && $order['mesero_usuario_id'] !== null
+            ? (int)$order['mesero_usuario_id']
+            : null;
+        if ($assignedWaiter !== null && $assignedWaiter !== (int)$user['id']) {
+            Response::error('Otro mesero ya reclamo esta comanda.', 409);
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        $set = [];
+        $params = [':id' => $orderId];
+        if (in_array('mesero_usuario_id', $columns, true)) {
+            $set[] = 'mesero_usuario_id = :waiter_id';
+            $params[':waiter_id'] = (int)$user['id'];
+        }
+        if (in_array('mesero_nombre', $columns, true)) {
+            $set[] = 'mesero_nombre = :waiter_name';
+            $params[':waiter_name'] = (string)$user['nombre'];
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+        if (!empty($set)) {
+            Database::rowCount('UPDATE rest_pedidos SET ' . implode(', ', $set) . ' WHERE id = :id', $params);
+        }
+
+        $tableId = (int)($order['mesa_id'] ?? 0);
+        if ($tableId > 0) {
+            $this->updateTableClaim(
+                $tableId,
+                (int)$user['id'],
+                (string)$user['nombre'],
+                substr((string)($order['cliente_nombre'] ?? 'Cliente app'), 0, 120),
+                true
+            );
+        }
+
+        $updated = $this->findWaiterClientOrder($restaurantId, $orderId) ?? $order;
+        Response::success([
+            'order' => $this->normalizeClientOrder($updated, $restaurantId, (int)$user['id']),
+        ], 'Comanda reclamada');
+    }
+
+    public function deliverOrder(int $orderId): void
+    {
+        $user = $this->requireWaiter();
+        $input = ValidationMiddleware::getAllInput();
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+
+        $order = $this->findWaiterClientOrder($restaurantId, $orderId);
+        if (!$order) {
+            Response::notFound('Pedido no encontrado');
+        }
+
+        $assignedWaiter = isset($order['mesero_usuario_id']) && $order['mesero_usuario_id'] !== null
+            ? (int)$order['mesero_usuario_id']
+            : null;
+        if ($assignedWaiter !== null && $assignedWaiter !== (int)$user['id']) {
+            Response::error('Solo el mesero que reclamo esta comanda puede entregarla.', 403);
+        }
+        if ($assignedWaiter === null) {
+            Response::error('Reclama la comanda antes de marcarla como entregada.', 409);
+        }
+
+        $items = $this->getOrderItems($orderId);
+        $kitchen = $this->summarizeKitchenItems($items);
+        if (!$kitchen['is_ready']) {
+            Response::error('La cocina aun no marca esta comanda como lista.', 409);
+        }
+
+        if ($this->tableExists('rest_pedido_items')) {
+            $itemColumns = $this->getTableColumns('rest_pedido_items');
+            if (in_array('estado', $itemColumns, true)) {
+                Database::rowCount(
+                    "UPDATE rest_pedido_items
+                        SET estado = 'entregado'
+                      WHERE pedido_id = :order_id
+                        AND COALESCE(estado, 'pendiente') <> 'cancelado'",
+                    [':order_id' => $orderId]
+                );
+            }
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        $set = [];
+        $params = [':id' => $orderId];
+        if (in_array('estado', $columns, true)) {
+            $set[] = "estado = 'entregado'";
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+        if (!empty($set)) {
+            Database::rowCount('UPDATE rest_pedidos SET ' . implode(', ', $set) . ' WHERE id = :id', $params);
+        }
+
+        Response::success(['ok' => true], 'Comanda entregada');
+    }
+
     public function gifts(): void
     {
         $user = $this->requireWaiter();
@@ -449,8 +581,9 @@ class WaiterController
         }
 
         if ($customerName === '') {
-            $customerName = (string)($table['cliente_nombre'] ?? 'Comensal');
+            $customerName = (string)($openAccount['cliente_nombre'] ?? $table['cliente_nombre'] ?? 'Comensal');
         }
+        $accountUserId = (int)($openAccount['mobile_usuario_id'] ?? $user['id']);
 
         $items = [];
         $subtotal = 0.0;
@@ -480,7 +613,7 @@ class WaiterController
         try {
             $orderId = Order::create([
                 'restaurante_id' => $restaurantId,
-                'user_id' => (int)$user['id'],
+                'user_id' => $accountUserId,
                 'order_type' => 'eat_in',
                 'subtotal' => $subtotal,
                 'total' => $subtotal,
@@ -1302,6 +1435,9 @@ class WaiterController
             'consumo_id' => $latest['consumo_id'] ?? null,
             'cliente_nombre' => $latest['cliente_nombre'] ?? null,
             'mesero_nombre' => $latest['mesero_nombre'] ?? null,
+            'mobile_usuario_id' => isset($latest['mobile_usuario_id']) && $latest['mobile_usuario_id'] !== null
+                ? (int)$latest['mobile_usuario_id']
+                : null,
             'total' => $total,
         ];
     }
@@ -1313,8 +1449,9 @@ class WaiterController
         }
 
         $columns = $this->getTableColumns('rest_pedidos');
+        $activeKitchenCondition = $this->activeKitchenOrderCondition($columns);
         $fields = ['id', 'folio', 'estado', 'subtotal', 'total', 'tipo_pedido', 'created_at'];
-        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'mesero_usuario_id', 'pedido_origen'] as $column) {
+        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'mesero_usuario_id', 'mobile_usuario_id', 'pedido_origen'] as $column) {
             if (in_array($column, $columns, true)) {
                 $fields[] = $column;
             }
@@ -1331,7 +1468,9 @@ class WaiterController
         ];
 
         if (in_array('cuenta_abierta', $columns, true)) {
-            $sql .= ' AND cuenta_abierta = 1';
+            $sql .= $activeKitchenCondition !== null
+                ? ' AND (cuenta_abierta = 1 OR ' . $activeKitchenCondition . ')'
+                : ' AND cuenta_abierta = 1';
         } else {
             $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
         }
@@ -1341,6 +1480,175 @@ class WaiterController
 
         $sql .= ' ORDER BY created_at ASC, id ASC';
         return Database::query($sql, $params);
+    }
+
+    private function getClientOpenOrders(int $restaurantId, int $waiterId): array
+    {
+        if (!$this->tableExists('rest_pedidos')) {
+            return [];
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        if (!in_array('mesa_id', $columns, true)) {
+            return [];
+        }
+
+        $fields = ['id', 'folio', 'estado', 'subtotal', 'total', 'tipo_pedido', 'mesa_id', 'created_at'];
+        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'mesero_usuario_id', 'pedido_origen'] as $column) {
+            if (in_array($column, $columns, true)) {
+                $fields[] = $column;
+            }
+        }
+
+        $activeKitchenCondition = $this->activeKitchenOrderCondition($columns);
+        $sql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", array_unique($fields))) . '
+                  FROM rest_pedidos
+                 WHERE restaurante_id = :restaurant_id
+                   AND mesa_id IS NOT NULL
+                   AND mesa_id > 0
+                   AND tipo_pedido IN ("eat_in", "dine_in")';
+        $params = [':restaurant_id' => $restaurantId];
+
+        if ($activeKitchenCondition !== null) {
+            $sql .= ' AND ' . $activeKitchenCondition;
+        } elseif (in_array('cuenta_abierta', $columns, true)) {
+            $sql .= ' AND cuenta_abierta = 1';
+        } else {
+            $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
+        }
+        if (in_array('salida_validado_at', $columns, true)) {
+            $sql .= ' AND salida_validado_at IS NULL';
+        }
+        if (in_array('pedido_origen', $columns, true)) {
+            $sql .= " AND (pedido_origen IS NULL OR pedido_origen <> 'mesero')";
+        }
+        if (in_array('mesero_usuario_id', $columns, true)) {
+            $sql .= ' AND (mesero_usuario_id IS NULL OR mesero_usuario_id = :waiter_id)';
+            $params[':waiter_id'] = $waiterId;
+        }
+
+        $sql .= ' ORDER BY created_at DESC, id DESC LIMIT 50';
+        $orders = Database::query($sql, $params);
+
+        return array_map(fn(array $order): array => $this->normalizeClientOrder($order, $restaurantId, $waiterId), $orders);
+    }
+
+    private function activeKitchenOrderCondition(array $orderColumns): ?string
+    {
+        if (
+            $this->tableExists('rest_pedido_items') &&
+            in_array('estado', $this->getTableColumns('rest_pedido_items'), true)
+        ) {
+            return "EXISTS (
+                SELECT 1
+                  FROM rest_pedido_items kitchen_items
+                 WHERE kitchen_items.pedido_id = rest_pedidos.id
+                   AND COALESCE(kitchen_items.estado, 'pendiente') NOT IN ('entregado', 'cancelado')
+            )";
+        }
+
+        if (in_array('estado', $orderColumns, true)) {
+            return "estado NOT IN ('entregado', 'cancelado')";
+        }
+
+        return null;
+    }
+
+    private function findWaiterClientOrder(int $restaurantId, int $orderId): ?array
+    {
+        if (!$this->tableExists('rest_pedidos')) {
+            return null;
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        $fields = ['id', 'folio', 'estado', 'subtotal', 'total', 'tipo_pedido', 'mesa_id', 'created_at'];
+        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'mesero_usuario_id', 'pedido_origen'] as $column) {
+            if (in_array($column, $columns, true)) {
+                $fields[] = $column;
+            }
+        }
+
+        $sql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", array_unique($fields))) . '
+                  FROM rest_pedidos
+                 WHERE id = :id
+                   AND restaurante_id = :restaurant_id
+                   AND tipo_pedido IN ("eat_in", "dine_in")';
+        $params = [
+            ':id' => $orderId,
+            ':restaurant_id' => $restaurantId,
+        ];
+
+        if (in_array('pedido_origen', $columns, true)) {
+            $sql .= " AND (pedido_origen IS NULL OR pedido_origen <> 'mesero')";
+        }
+
+        return Database::queryOne($sql, $params);
+    }
+
+    private function normalizeClientOrder(array $order, int $restaurantId, int $waiterId): array
+    {
+        $tableId = (int)($order['mesa_id'] ?? 0);
+        $table = $tableId > 0 ? $this->findTable($restaurantId, $tableId) : null;
+        $items = $this->getOrderItems((int)$order['id']);
+        $kitchen = $this->summarizeKitchenItems($items);
+        $tableLabel = $table !== null
+            ? $this->formatMesaLabel((string)($table['mesa_label'] ?? $tableId))
+            : $this->formatMesaLabel((string)$tableId);
+        $assignedWaiter = isset($order['mesero_usuario_id']) && $order['mesero_usuario_id'] !== null
+            ? (int)$order['mesero_usuario_id']
+            : null;
+
+        return [
+            'id' => (int)$order['id'],
+            'folio' => $order['folio'] ?? null,
+            'estado' => $order['estado'] ?? null,
+            'subtotal' => (float)($order['subtotal'] ?? 0),
+            'total' => (float)($order['total'] ?? 0),
+            'table_id' => $tableId,
+            'table_label' => $tableLabel,
+            'cliente_nombre' => $order['cliente_nombre'] ?? 'Cliente app',
+            'mesero_usuario_id' => $assignedWaiter,
+            'mesero_nombre' => $order['mesero_nombre'] ?? null,
+            'claimed_by_me' => $assignedWaiter === $waiterId,
+            'is_claimed' => $assignedWaiter !== null,
+            'is_ready' => $kitchen['is_ready'],
+            'kitchen_status' => $kitchen['status'],
+            'pedido_origen' => $order['pedido_origen'] ?? 'cliente',
+            'consumo_id' => $order['consumo_id'] ?? null,
+            'created_at' => $order['created_at'] ?? null,
+            'items_count' => $kitchen['items_count'],
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array{items_count:int,status:string,is_ready:bool}
+     */
+    private function summarizeKitchenItems(array $items): array
+    {
+        $itemsCount = 0;
+        $pending = 0;
+        $ready = 0;
+
+        foreach ($items as $item) {
+            $quantity = max(1, (int)($item['cantidad'] ?? 1));
+            $itemsCount += $quantity;
+            $status = (string)($item['estado'] ?? 'pendiente');
+            if ($status === 'listo') {
+                $ready += $quantity;
+                continue;
+            }
+            if (!in_array($status, ['entregado', 'cancelado'], true)) {
+                $pending += $quantity;
+            }
+        }
+
+        $isReady = $itemsCount > 0 && $pending === 0 && $ready > 0;
+        return [
+            'items_count' => $itemsCount,
+            'status' => $isReady ? 'listo' : 'en_cocina',
+            'is_ready' => $isReady,
+        ];
     }
 
     private function getOrderItems(int $orderId): array

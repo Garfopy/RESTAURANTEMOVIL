@@ -246,7 +246,36 @@ export default function HomeScreen() {
     seleccionar(nextBranch);
   }
 
+  function resumeSavedTableSession(session = tableSession) {
+    if (!session) {
+      return false;
+    }
+
+    const savedBranch =
+      session.branch ??
+      sucursales.find((item) => Number(item.id) === Number(session.restauranteId)) ??
+      branch ??
+      null;
+
+    if (savedBranch && Number(branch?.id) !== Number(savedBranch.id)) {
+      seleccionar(savedBranch);
+    }
+
+    if (tipoPedido !== 'eat_in') {
+      setTipoPedido('eat_in');
+    }
+
+    closeDeliveryFlow();
+    void refreshBranchConfig(session.restauranteId, { force: true }).catch(() => undefined);
+    void queryClient.invalidateQueries({ queryKey: ['menu', session.restauranteId] });
+    return true;
+  }
+
   function openEatInScanner(branchToUse?: Sucursal | null) {
+    if (resumeSavedTableSession()) {
+      return;
+    }
+
     const branchForScanner = branchToUse ?? branch ?? getFirstEatInBranch();
     const scannerParams: { returnTo: string; mode: string; branchId?: string } = {
       returnTo: '/(tabs)',
@@ -268,7 +297,16 @@ export default function HomeScreen() {
 
   // Lógica para detectar ubicación y mostrar modal inicial
   useEffect(() => {
-    if (tipoPedido || sucursales.length === 0 || initialFlowStartedRef.current) {
+    if (tipoPedido || sucursales.length === 0) {
+      return;
+    }
+
+    if (tableSession) {
+      resumeSavedTableSession(tableSession);
+      return;
+    }
+
+    if (initialFlowStartedRef.current) {
       return;
     }
 
@@ -694,10 +732,12 @@ export default function HomeScreen() {
                 <Text style={styles.heroEyebrow}>{greeting.toUpperCase()}</Text>
                 <Text style={styles.greetingText}>{firstName ? `${firstName},` : 'Bienvenido,'}</Text>
               </View>
-              <TouchableOpacity style={styles.modeBadge} onPress={() => void openDeliveryFlow()} activeOpacity={0.86}>
-                <Ionicons name={getOrderModeIcon()} size={14} color="#E9DDC8" />
-                <Text style={styles.modeBadgeText}>{getOrderModeLabel()}</Text>
-              </TouchableOpacity>
+              {!(tipoPedido === 'eat_in' && tableSession) ? (
+                <TouchableOpacity style={styles.modeBadge} onPress={() => void openDeliveryFlow()} activeOpacity={0.86}>
+                  <Ionicons name={getOrderModeIcon()} size={14} color="#E9DDC8" />
+                  <Text style={styles.modeBadgeText}>{getOrderModeLabel()}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
             <Text style={styles.subtitleText}>Hoy puede empezar con algo delicioso.</Text>
 
