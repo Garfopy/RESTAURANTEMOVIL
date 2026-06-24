@@ -1449,7 +1449,6 @@ class WaiterController
         }
 
         $columns = $this->getTableColumns('rest_pedidos');
-        $activeKitchenCondition = $this->activeKitchenOrderCondition($columns);
         $fields = ['id', 'folio', 'estado', 'subtotal', 'total', 'tipo_pedido', 'created_at'];
         foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'mesero_usuario_id', 'mobile_usuario_id', 'pedido_origen'] as $column) {
             if (in_array($column, $columns, true)) {
@@ -1468,9 +1467,7 @@ class WaiterController
         ];
 
         if (in_array('cuenta_abierta', $columns, true)) {
-            $sql .= $activeKitchenCondition !== null
-                ? ' AND (cuenta_abierta = 1 OR ' . $activeKitchenCondition . ')'
-                : ' AND cuenta_abierta = 1';
+            $sql .= ' AND cuenta_abierta = 1';
         } else {
             $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
         }
@@ -1509,10 +1506,13 @@ class WaiterController
                    AND tipo_pedido IN ("eat_in", "dine_in")';
         $params = [':restaurant_id' => $restaurantId];
 
-        if ($activeKitchenCondition !== null) {
-            $sql .= ' AND ' . $activeKitchenCondition;
-        } elseif (in_array('cuenta_abierta', $columns, true)) {
+        if (in_array('cuenta_abierta', $columns, true)) {
             $sql .= ' AND cuenta_abierta = 1';
+            if ($activeKitchenCondition !== null) {
+                $sql .= ' AND ' . $activeKitchenCondition;
+            }
+        } elseif ($activeKitchenCondition !== null) {
+            $sql .= ' AND ' . $activeKitchenCondition;
         } else {
             $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
         }
@@ -1520,11 +1520,16 @@ class WaiterController
             $sql .= ' AND salida_validado_at IS NULL';
         }
         if (in_array('pedido_origen', $columns, true)) {
-            $sql .= " AND (pedido_origen IS NULL OR pedido_origen <> 'mesero')";
+            $sql .= " AND pedido_origen = 'cliente'";
         }
         if (in_array('mesero_usuario_id', $columns, true)) {
-            $sql .= ' AND (mesero_usuario_id IS NULL OR mesero_usuario_id = :waiter_id)';
             $params[':waiter_id'] = $waiterId;
+            $readyKitchenCondition = $this->readyKitchenOrderCondition($columns);
+            if ($readyKitchenCondition !== null) {
+                $sql .= ' AND (mesero_usuario_id IS NULL OR (mesero_usuario_id = :waiter_id AND ' . $readyKitchenCondition . '))';
+            } else {
+                $sql .= ' AND mesero_usuario_id IS NULL';
+            }
         }
 
         $sql .= ' ORDER BY created_at DESC, id DESC LIMIT 50';
@@ -1549,6 +1554,32 @@ class WaiterController
 
         if (in_array('estado', $orderColumns, true)) {
             return "estado NOT IN ('entregado', 'cancelado')";
+        }
+
+        return null;
+    }
+
+    private function readyKitchenOrderCondition(array $orderColumns): ?string
+    {
+        if (
+            $this->tableExists('rest_pedido_items') &&
+            in_array('estado', $this->getTableColumns('rest_pedido_items'), true)
+        ) {
+            return "EXISTS (
+                SELECT 1
+                  FROM rest_pedido_items ready_items
+                 WHERE ready_items.pedido_id = rest_pedidos.id
+                   AND ready_items.estado = 'listo'
+            ) AND NOT EXISTS (
+                SELECT 1
+                  FROM rest_pedido_items pending_items
+                 WHERE pending_items.pedido_id = rest_pedidos.id
+                   AND COALESCE(pending_items.estado, 'pendiente') NOT IN ('listo', 'entregado', 'cancelado')
+            )";
+        }
+
+        if (in_array('estado', $orderColumns, true)) {
+            return "estado = 'listo'";
         }
 
         return null;
@@ -1579,7 +1610,7 @@ class WaiterController
         ];
 
         if (in_array('pedido_origen', $columns, true)) {
-            $sql .= " AND (pedido_origen IS NULL OR pedido_origen <> 'mesero')";
+            $sql .= " AND pedido_origen = 'cliente'";
         }
 
         return Database::queryOne($sql, $params);

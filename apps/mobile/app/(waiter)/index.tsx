@@ -92,6 +92,7 @@ export default function WaiterHomeScreen() {
   const [claiming, setClaiming] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TableFilter>('all');
+  const [incomingExpanded, setIncomingExpanded] = useState(false);
   const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
   const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
   const seenClientOrderIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
@@ -138,6 +139,7 @@ export default function WaiterHomeScreen() {
 
   const giftInbox = giftsQuery.data ?? { active: [], history: [], pending_count: 0 };
   const incomingOrders = incomingOrdersQuery.data ?? [];
+  const visibleIncomingOrders = incomingExpanded ? incomingOrders : incomingOrders.slice(0, 4);
   const incomingOrderByTable = useMemo(() => incomingOrders.reduce<Record<number, WaiterIncomingOrder>>((map, order) => {
     if (!map[order.table_id]) {
       map[order.table_id] = order;
@@ -425,8 +427,8 @@ export default function WaiterHomeScreen() {
     const actionLabel = !order.claimed_by_me
       ? 'Reclamar'
       : order.is_ready
-        ? 'Entregado'
-        : 'Reclamado';
+        ? 'Entregar'
+        : 'En cocina';
     const actionDisabled = updating || (Boolean(order.claimed_by_me) && !order.is_ready);
     const statusLabel = order.is_ready ? 'Listo para entregar' : 'En cocina';
 
@@ -627,7 +629,29 @@ export default function WaiterHomeScreen() {
                 </View>
                 {incomingOrdersQuery.isRefetching ? <ActivityIndicator size="small" color="#92400E" /> : null}
               </View>
-              {incomingOrders.slice(0, 4).map(renderIncomingOrder)}
+              <ScrollView
+                style={incomingExpanded ? styles.incomingListExpanded : undefined}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={incomingExpanded}
+              >
+                {visibleIncomingOrders.map(renderIncomingOrder)}
+              </ScrollView>
+              {incomingOrders.length > 4 ? (
+                <TouchableOpacity
+                  style={styles.incomingToggle}
+                  activeOpacity={0.82}
+                  onPress={() => setIncomingExpanded((current) => !current)}
+                >
+                  <Text style={styles.incomingToggleText}>
+                    {incomingExpanded ? 'Mostrar menos' : `Ver ${incomingOrders.length - 4} más`}
+                  </Text>
+                  <Ionicons
+                    name={incomingExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={17}
+                    color="#C2410C"
+                  />
+                </TouchableOpacity>
+              ) : null}
             </View>
           ) : null}
 
@@ -845,6 +869,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  incomingListExpanded: {
+    maxHeight: 390,
+  },
   incomingKicker: {
     fontSize: 10,
     fontWeight: '900',
@@ -921,6 +948,22 @@ const styles = StyleSheet.create({
   incomingOrderActionText: {
     color: '#FFFFFF',
     fontSize: 11,
+    fontWeight: '900',
+  },
+  incomingToggle: {
+    height: 38,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFEDD5',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  incomingToggleText: {
+    color: '#C2410C',
+    fontSize: 12,
     fontWeight: '900',
   },
   tableGiftBadge: { marginLeft: 'auto', paddingHorizontal: 7, height: 25, borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFE4E6' },
