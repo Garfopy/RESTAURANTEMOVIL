@@ -218,6 +218,7 @@ class Order
         return match ($metodo) {
             'card', 'apple_pay', 'google_pay' => 'tarjeta',
             'cash' => 'efectivo',
+            'amare_wallet' => 'amare_wallet',
             default => $metodo,
         };
     }
@@ -579,6 +580,64 @@ class Order
         $sql = "UPDATE rest_pedidos SET " . implode(', ', $fields) . " WHERE id IN (" . implode(', ', $placeholders) . ")";
         $stmt = $pdo->prepare($sql);
         return $stmt->execute($params);
+    }
+
+    public static function applyRewardsPayment(int $orderId, array $reward): bool
+    {
+        $pdo = Database::getInstance();
+        $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
+
+        $fields = ['estado = :estado'];
+        $params = [':estado' => 'en_preparacion'];
+
+        if (self::columnExists('rest_pedidos', 'metodo_pago')) {
+            $fields[] = 'metodo_pago = :metodo';
+            $params[':metodo'] = 'amare_wallet';
+        } elseif (self::columnExists('rest_pedidos', 'payment_method')) {
+            $fields[] = 'payment_method = :metodo';
+            $params[':metodo'] = 'amare_wallet';
+        }
+
+        $rewardColumns = [
+            'amare_wallet_used_mxn' => 'wallet_total',
+            'amare_discount_mxn' => 'discount_amount',
+            'amare_points_redeemed' => 'points_redeemed',
+            'amare_points_earned' => 'points_earned',
+        ];
+        foreach ($rewardColumns as $column => $key) {
+            if (self::columnExists('rest_pedidos', $column)) {
+                $fields[] = "{$column} = :{$column}";
+                $params[":{$column}"] = $reward[$key] ?? 0;
+            }
+        }
+
+        if (count($targetOrderIds) === 1) {
+            if (self::columnExists('rest_pedidos', 'descuento')) {
+                $fields[] = 'descuento = :descuento';
+                $params[':descuento'] = (float)($reward['discount_amount'] ?? 0) + (float)($reward['points_discount'] ?? 0);
+            }
+            if (self::columnExists('rest_pedidos', 'total')) {
+                $fields[] = 'total = :total';
+                $params[':total'] = (float)($reward['wallet_total'] ?? 0);
+            }
+        }
+
+        if (self::columnExists('rest_pedidos', 'pagado_at')) {
+            $fields[] = 'pagado_at = NOW()';
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        $placeholders = [];
+        foreach ($targetOrderIds as $index => $targetId) {
+            $key = ':id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $targetId;
+        }
+
+        $sql = 'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')';
+        return $pdo->prepare($sql)->execute($params);
     }
 
     public static function findById(int $id, ?int $userId = null): ?array

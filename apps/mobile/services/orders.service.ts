@@ -142,16 +142,18 @@ export async function createPaymentIntent(params: {
 }
 
 export async function confirmPayment(params: {
-  payment_intent_id: string;
+  payment_intent_id?: string;
   pedido_id: number;
   metodo: MetodoPago;
+  use_points?: boolean;
 }) {
   const { data } = await apiClient.post<{
     success: boolean;
     data: { ok: boolean; pedido_id: number; folio: string; metodo_pago: string; exit_pass?: ExitPass | null }
   }>(`/orders/${params.pedido_id}/confirm-payment`, {
-    payment_intent_id: params.payment_intent_id,
+    payment_intent_id: params.payment_intent_id ?? '',
     metodo: params.metodo,
+    use_points: params.use_points ?? false,
   });
 
   return data.data;

@@ -59,6 +59,10 @@ $routes = [
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],
     ['POST', '/payments/webhook', ['Amare\Api\Controllers\PaymentController', 'webhook']],
+
+    // Rewards routes
+    ['GET', '/rewards/wallet', ['Amare\Api\Controllers\RewardsController', 'wallet']],
+    ['POST', '/rewards/quote', ['Amare\Api\Controllers\RewardsController', 'quote']],
     
     // Profile routes
     ['GET', '/profile', ['Amare\Api\Controllers\ProfileController', 'show']],
@@ -123,10 +127,18 @@ $routes = [
     ['GET', '/store/products/:id', ['Amare\Api\Controllers\StoreController', 'showProduct']],
 ];
 
-// Remove base path from request URI
-$requestPath = str_replace($basePath, '', $requestUri);
+// Remove base path from request URI. Some cPanel setups report SCRIPT_NAME as
+// /index.php even when the API lives under /api_restaurante, so normalize both
+// shapes before matching routes.
+$requestPath = $requestUri;
+if ($basePath !== '/' && $basePath !== '.' && strpos($requestPath, $basePath) === 0) {
+    $requestPath = substr($requestPath, strlen($basePath));
+}
 
-if (empty($requestPath)) {
+$requestPath = preg_replace('#^/index\.php#', '', $requestPath) ?: '/';
+$requestPath = preg_replace('#^/(api_restaurante|backend_php)(?=/)#', '', $requestPath) ?: '/';
+
+if ($requestPath === '') {
     $requestPath = '/';
 }
 

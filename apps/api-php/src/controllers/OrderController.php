@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Amare\Api\Controllers;
 
+use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\Product;
+use Amare\Api\Services\RewardsService;
 
 class OrderController
 {
@@ -34,12 +36,53 @@ class OrderController
         }
 
         $metodo = $input['metodo'] ?? 'card';
-        $allowed = ['card', 'cash', 'apple_pay', 'google_pay'];
+        $allowed = ['card', 'cash', 'apple_pay', 'google_pay', 'amare_wallet'];
         if (!in_array($metodo, $allowed, true)) {
             Response::validationError(['metodo' => ["Método de pago no válido: {$metodo}"]]);
         }
 
         $paymentIntentId = $input['payment_intent_id'] ?? null;
+
+        if ($metodo === 'amare_wallet') {
+            $pdo = Database::getInstance();
+            try {
+                $pdo->beginTransaction();
+                $reward = (new RewardsService())->charge(
+                    $pdo,
+                    (int)$user->id,
+                    (float)($order['total'] ?? $order['subtotal'] ?? 0),
+                    !empty($input['use_points']),
+                    'food',
+                    'order',
+                    $id,
+                    'Pago de alimentos con Saldo Amare'
+                );
+                Order::applyRewardsPayment($id, $reward);
+                $pdo->commit();
+            } catch (\DomainException $exception) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                Response::error($exception->getMessage(), 409);
+            } catch (\Throwable $exception) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                error_log('OrderController::confirmPayment wallet ERROR: ' . $exception->getMessage());
+                Response::serverError('No se pudo pagar con Saldo Amare.');
+            }
+
+            $order = Order::findById($id, $user->id);
+            $exitPass = null;
+            if (($order['tipo_pedido'] ?? null) === 'eat_in') {
+                $exitPass = Order::ensureExitPass($id, $user->id);
+            }
+
+            Response::success([
+                'ok' => true,
+                'pedido_id' => $order['id'],
+                'folio' => $order['folio'],
+                'metodo_pago' => $metodo,
+                'reward' => $reward,
+                'exit_pass' => $exitPass,
+            ], 'Pago con Saldo Amare confirmado');
+        }
 
         // Actualizar pedido con método de pago
         Order::updatePaymentMethod($id, $metodo, $paymentIntentId);

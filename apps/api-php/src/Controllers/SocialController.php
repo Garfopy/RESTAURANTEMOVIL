@@ -8,6 +8,7 @@ use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Models\User;
+use Amare\Api\Services\RewardsService;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
 
@@ -905,7 +906,7 @@ class SocialController
         if (!preg_match('/^[A-Za-z0-9_-]{16,64}$/', $requestKey)) {
             $errors['request_key'] = ['La clave de solicitud no es válida'];
         }
-        if (!in_array($paymentMode, ['account', 'stripe'], true)) {
+        if (!in_array($paymentMode, ['account', 'stripe', 'wallet'], true)) {
             $errors['payment_mode'] = ['Selecciona una forma de pago valida'];
         }
         if ($errors) Response::validationError($errors);
@@ -952,6 +953,27 @@ class SocialController
         if ($giftProduct === null) Response::notFound('Regalo no encontrado');
         $price = round((float)($giftProduct['precio'] ?? 0), 2);
         if ($price <= 0) Response::error('Este regalo no tiene un precio válido.', 409);
+
+        if ($paymentMode === 'wallet') {
+            $this->createGiftWalletPayment(
+                $user,
+                $input,
+                $restaurantId,
+                $giftProductId,
+                $recipientUserId,
+                $requestKey,
+                $sender,
+                $senderMesaLabel,
+                $senderMesa,
+                $recipient,
+                $recipientMesaLabel,
+                $recipientMesa,
+                $giftProduct,
+                $price,
+                $giftColumns
+            );
+            return;
+        }
 
         $pdo = Database::getInstance();
         try {
@@ -1080,6 +1102,159 @@ class SocialController
                 ' request_key=' . $requestKey);
             error_log('SocialController::createGiftPayment TRACE: ' . $exception->getTraceAsString());
             Response::serverError('No se pudo cargar el regalo a la cuenta.');
+        }
+    }
+
+    private function createGiftWalletPayment(
+        object $user,
+        array $input,
+        int $restaurantId,
+        int $giftProductId,
+        int $recipientUserId,
+        string $requestKey,
+        array $sender,
+        string $senderMesaLabel,
+        array $senderMesa,
+        array $recipient,
+        string $recipientMesaLabel,
+        array $recipientMesa,
+        array $giftProduct,
+        float $price,
+        array $giftColumns
+    ): void {
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $existing = $pdo->prepare(
+                'SELECT * FROM social_gift_orders
+                  WHERE sender_user_id = :sender_id AND payment_request_key = :request_key
+                  LIMIT 1 FOR UPDATE'
+            );
+            $existing->execute([':sender_id' => (int)$user->id, ':request_key' => $requestKey]);
+            $gift = $existing->fetch();
+            if ($gift) {
+                if ((int)$gift['restaurante_id'] !== $restaurantId ||
+                    (int)$gift['recipient_user_id'] !== $recipientUserId ||
+                    (int)$gift['gift_product_id'] !== $giftProductId) {
+                    throw new \DomainException('La clave de solicitud ya pertenece a otro regalo.');
+                }
+                if (empty($gift['pedido_item_id'])) {
+                    throw new \DomainException('Esta solicitud pertenece a un flujo de pago anterior. Inicia un nuevo envío.');
+                }
+                $pdo->commit();
+                Response::success([
+                    'gift' => $this->giftPaymentResponse($gift),
+                    'paid_with_wallet' => true,
+                ], 'Regalo ya pagado con Saldo Amare.');
+            }
+
+            $giftId = $this->insertDynamicRow($pdo, 'social_gift_orders', [
+                'restaurante_id' => $restaurantId,
+                'mesa_id' => (int)$recipientMesa['id'],
+                'sender_mesa_id' => (int)$senderMesa['id'],
+                'gift_product_id' => $giftProductId,
+                'sender_user_id' => (int)$user->id,
+                'recipient_user_id' => $recipientUserId,
+                'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                'recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
+                'sender_mesa' => $senderMesaLabel,
+                'recipient_mesa' => $recipientMesaLabel,
+                'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
+                'gift_descripcion' => $giftProduct['descripcion'] ?? null,
+                'gift_precio' => $price,
+                'gift_imagen' => $giftProduct['imagen'] ?? null,
+                'status' => 'listo',
+                'moneda' => 'MXN',
+                'payment_request_key' => $requestKey,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            if ($giftId <= 0) throw new \RuntimeException('No se pudo crear el regalo.');
+
+            $reward = (new RewardsService())->charge(
+                $pdo,
+                (int)$user->id,
+                $price,
+                !empty($input['use_points']),
+                'gift',
+                'social_gift',
+                $giftId,
+                'Regalo social con Saldo Amare'
+            );
+
+            $account = $this->chargeGiftToTableAccount(
+                $pdo,
+                $restaurantId,
+                (int)$senderMesa['id'],
+                (int)$user->id,
+                (string)($sender['nombre'] ?? 'Comensal'),
+                $giftId,
+                $giftProductId,
+                $giftProduct,
+                (float)$reward['wallet_total'],
+                (string)($recipient['nombre'] ?? 'Comensal'),
+                $recipientMesaLabel,
+                false,
+                null,
+                'amare_wallet'
+            );
+
+            $folio = $this->buildGiftFolio($giftId);
+            $giftUpdateSet = [
+                'folio = :folio',
+                'pedido_id = :order_id',
+                'pedido_item_id = :item_id',
+                'pagado_at = NOW()',
+                'cargado_cuenta_at = NOW()',
+                'updated_at = NOW()',
+            ];
+            $giftUpdateParams = [
+                ':folio' => $folio,
+                ':order_id' => $account['pedido_id'],
+                ':item_id' => $account['pedido_item_id'],
+                ':id' => $giftId,
+            ];
+            $rewardColumns = [
+                'amare_wallet_used_mxn' => 'wallet_total',
+                'amare_discount_mxn' => 'discount_amount',
+                'amare_points_redeemed' => 'points_redeemed',
+                'amare_points_earned' => 'points_earned',
+            ];
+            foreach ($rewardColumns as $column => $key) {
+                if (in_array($column, $giftColumns, true)) {
+                    $giftUpdateSet[] = "{$column} = :{$column}";
+                    $giftUpdateParams[":{$column}"] = $reward[$key] ?? 0;
+                }
+            }
+            if (in_array('consumo_id', $giftColumns, true) && !empty($account['consumo_id'])) {
+                $giftUpdateSet[] = 'consumo_id = :consumo_id';
+                $giftUpdateParams[':consumo_id'] = $account['consumo_id'];
+            }
+            $update = $pdo->prepare(
+                'UPDATE social_gift_orders
+                    SET ' . implode(', ', $giftUpdateSet) . '
+                  WHERE id = :id'
+            );
+            $update->execute($giftUpdateParams);
+            $read = $pdo->prepare('SELECT * FROM social_gift_orders WHERE id = :id');
+            $read->execute([':id' => $giftId]);
+            $gift = $read->fetch();
+            $pdo->commit();
+
+            Response::success([
+                'gift' => $this->giftPaymentResponse($gift),
+                'paid_with_wallet' => true,
+                'reward' => $reward,
+                'account' => $account,
+            ], 'Regalo enviado con Saldo Amare.', 201);
+        } catch (\DomainException $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            Response::error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('SocialController::createGiftPayment WALLET ERROR: ' . $exception->getMessage());
+            error_log('SocialController::createGiftPayment WALLET TRACE: ' . $exception->getTraceAsString());
+            Response::serverError('No se pudo pagar el regalo con Saldo Amare.');
         }
     }
 
@@ -1395,7 +1570,8 @@ class SocialController
         string $recipientName,
         string $recipientTable,
         bool $openAccount = true,
-        ?string $paymentIntentId = null
+        ?string $paymentIntentId = null,
+        ?string $paymentMethod = null
     ): array {
         $orderColumns = $this->getTableColumns('rest_pedidos');
         $dishColumns = $this->getTableColumns('rest_platillos');
@@ -1465,7 +1641,8 @@ class SocialController
             $recipientName,
             $recipientTable,
             $openAccount,
-            $paymentIntentId
+            $paymentIntentId,
+            $paymentMethod
         );
         $orderId = (int)$orderResult['pedido_id'];
         $consumoId = $orderResult['consumo_id'];
@@ -1614,7 +1791,8 @@ class SocialController
         string $recipientName,
         string $recipientTable,
         bool $openAccount = true,
-        ?string $paymentIntentId = null
+        ?string $paymentIntentId = null,
+        ?string $paymentMethod = null
     ): array {
         $orderColumns = $this->getTableColumns('rest_pedidos');
         $notes = 'Regalo social para ' . $recipientName . ' - ' . $this->formatMesaLabel($recipientTable);
@@ -1647,10 +1825,13 @@ class SocialController
             } elseif (in_array('payment_intent_id', $orderColumns, true)) {
                 $orderData['payment_intent_id'] = $paymentIntentId;
             }
+            $paymentMethod = $paymentMethod ?? 'tarjeta';
+        }
+        if ($paymentMethod !== null) {
             if (in_array('metodo_pago', $orderColumns, true)) {
-                $orderData['metodo_pago'] = 'tarjeta';
+                $orderData['metodo_pago'] = $paymentMethod;
             } elseif (in_array('payment_method', $orderColumns, true)) {
-                $orderData['payment_method'] = 'tarjeta';
+                $orderData['payment_method'] = $paymentMethod;
             }
         }
 
@@ -1822,6 +2003,10 @@ class SocialController
             'pedido_id' => isset($gift['pedido_id']) ? (int)$gift['pedido_id'] : null,
             'pedido_item_id' => isset($gift['pedido_item_id']) ? (int)$gift['pedido_item_id'] : null,
             'charged_to_account' => !empty($gift['cargado_cuenta_at']),
+            'amare_wallet_used_mxn' => isset($gift['amare_wallet_used_mxn']) ? (float)$gift['amare_wallet_used_mxn'] : null,
+            'amare_discount_mxn' => isset($gift['amare_discount_mxn']) ? (float)$gift['amare_discount_mxn'] : null,
+            'amare_points_redeemed' => isset($gift['amare_points_redeemed']) ? (int)$gift['amare_points_redeemed'] : null,
+            'amare_points_earned' => isset($gift['amare_points_earned']) ? (int)$gift['amare_points_earned'] : null,
         ];
     }
 

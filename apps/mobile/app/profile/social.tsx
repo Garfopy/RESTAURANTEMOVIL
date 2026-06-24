@@ -40,6 +40,7 @@ import {
   type GiftCheckoutMode,
   type SocialGiftOrder,
 } from '../../services/social-gifts.service';
+import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
@@ -434,14 +435,45 @@ function isDinerApiItem(value: unknown): value is DinerApiItem {
   );
 }
 
-function normalizeGiftProduct(item: GiftProduct): GiftProduct {
+function isSocialDiner(value: unknown): value is SocialDiner {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'user_id' in value &&
+      'nombre' in value &&
+      Array.isArray((value as SocialDiner).intereses)
+  );
+}
+
+function isGiftProductItem(value: unknown): value is Record<string, unknown> {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'id' in value &&
+      'nombre' in value
+  );
+}
+
+function normalizeGiftProduct(item: Record<string, unknown>): GiftProduct {
+  const price = Number(item.precio ?? 0);
+  const image = typeof item.imagen === 'string' ? item.imagen : null;
+
   return {
-    ...item,
     id: Number(item.id),
-    precio: Number(item.precio ?? 0),
-    imagen: resolvePhotoUrl(item.imagen) ?? item.imagen ?? null,
-    color: item.color ?? Colors.primary,
+    nombre: String(item.nombre ?? 'Regalo'),
+    descripcion: typeof item.descripcion === 'string' ? item.descripcion : null,
+    precio: Number.isFinite(price) ? price : 0,
+    icono: typeof item.icono === 'string' ? item.icono : null,
+    color: typeof item.color === 'string' ? item.color : Colors.primary,
+    es_regalo: item.es_regalo === undefined ? true : Boolean(item.es_regalo),
+    imagen: resolvePhotoUrl(image) ?? image,
+    orden: Number.isFinite(Number(item.orden)) ? Number(item.orden) : 0,
+    tipo: typeof item.tipo === 'string' ? item.tipo : 'gift',
   };
+}
+
+function getGiftProductType(gift: GiftProduct): 'gift' | 'menu' {
+  return gift.tipo === 'menu' ? 'menu' : 'gift';
 }
 
 function ChoiceField({
@@ -567,6 +599,10 @@ export default function SocialProfileScreen() {
   const [giftSending, setGiftSending] = useState(false);
   const [giftCheckoutMode, setGiftCheckoutMode] = useState<GiftCheckoutMode>('account');
   const [giftCardComplete, setGiftCardComplete] = useState(false);
+  const [giftRewardsWallet, setGiftRewardsWallet] = useState<RewardsWallet | null>(null);
+  const [giftRewardsQuote, setGiftRewardsQuote] = useState<RewardsQuote | null>(null);
+  const [giftRewardsLoading, setGiftRewardsLoading] = useState(false);
+  const [useGiftRewardsPoints, setUseGiftRewardsPoints] = useState(false);
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
@@ -632,7 +668,9 @@ export default function SocialProfileScreen() {
   const canSubmitGift = Boolean(selectedGift) &&
     !giftProductsLoading &&
     !giftSending &&
-    (giftCheckoutMode === 'account' || (stripeAvailable && giftCardComplete));
+    (giftCheckoutMode === 'account' ||
+      (giftCheckoutMode === 'wallet' && Boolean(giftRewardsQuote?.can_pay) && !giftRewardsLoading) ||
+      (giftCheckoutMode === 'stripe' && stripeAvailable && giftCardComplete));
   const detailPhotos = detailDiner
     ? normalizePhotoList(detailDiner.social_photos, detailDiner.foto_url)
     : [];
@@ -653,6 +691,36 @@ export default function SocialProfileScreen() {
       setGiftCheckoutMode('account');
     }
   }, [giftCheckoutMode, stripeAvailable]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGiftRewards() {
+      if (!giftsVisible || !selectedGift) {
+        setGiftRewardsQuote(null);
+        return;
+      }
+      setGiftRewardsLoading(true);
+      try {
+        const [wallet, quote] = await Promise.all([
+          getRewardsWallet(),
+          quoteRewards({ context: 'gift', amount: selectedGift.precio, use_points: useGiftRewardsPoints }),
+        ]);
+        if (!cancelled) {
+          setGiftRewardsWallet(wallet);
+          setGiftRewardsQuote(quote);
+        }
+      } catch (error) {
+        console.warn('No se pudo cotizar regalo con Saldo Amare', error);
+        if (!cancelled) setGiftRewardsQuote(null);
+      } finally {
+        if (!cancelled) setGiftRewardsLoading(false);
+      }
+    }
+    void loadGiftRewards();
+    return () => {
+      cancelled = true;
+    };
+  }, [giftsVisible, selectedGift?.id, selectedGift?.precio, useGiftRewardsPoints]);
 
   useEffect(() => {
     if (!canDiscover && socialView === 'discover') {
@@ -1610,12 +1678,13 @@ export default function SocialProfileScreen() {
     }
   }
 
-  async function openGiftSelector(targetDiner?: SocialDiner) {
-    const giftRecipient = targetDiner ?? detailDiner;
+  async function openGiftSelector(targetDiner?: unknown) {
+    const explicitTarget = isSocialDiner(targetDiner) ? targetDiner : null;
+    const giftRecipient = explicitTarget ?? detailDiner;
     if (!giftRecipient) return;
 
-    if (targetDiner) {
-      setFocusedDiner(targetDiner);
+    if (explicitTarget) {
+      setFocusedDiner(explicitTarget);
     }
 
     if (detailsVisible) {
@@ -1638,13 +1707,16 @@ export default function SocialProfileScreen() {
       const response = await apiClient.get<{ success?: boolean; data?: GiftProduct[] } | GiftProduct[]>('/gift-products', {
         params: restaurantId ? { restaurant_id: restaurantId } : undefined,
       });
-      const rawItems = Array.isArray(response.data)
+      const rawItems: unknown[] = Array.isArray(response.data)
         ? response.data
         : Array.isArray(response.data?.data)
           ? response.data.data
           : [];
 
-      const normalized = rawItems.map(normalizeGiftProduct).filter((item) => item.es_regalo !== false);
+      const normalized = rawItems
+        .filter(isGiftProductItem)
+        .map(normalizeGiftProduct)
+        .filter((item) => item.id > 0 && item.es_regalo !== false);
       setGiftProducts(normalized);
       setGiftProductsRestaurantId(restaurantId);
       setSelectedGiftId((current) => current ?? normalized[0]?.id ?? null);
@@ -1666,6 +1738,8 @@ export default function SocialProfileScreen() {
     setFocusedDiner(null);
     setGiftCheckoutMode('account');
     setGiftCardComplete(false);
+    setGiftRewardsQuote(null);
+    setUseGiftRewardsPoints(false);
     giftRequestKeyRef.current = null;
   }
 
@@ -1678,6 +1752,7 @@ export default function SocialProfileScreen() {
     if (giftSending) return;
     giftRequestKeyRef.current = null;
     setGiftCardComplete(false);
+    setUseGiftRewardsPoints(false);
     setGiftCheckoutMode(mode);
   }
 
@@ -1690,6 +1765,8 @@ export default function SocialProfileScreen() {
     const message =
       paymentMode === 'stripe'
         ? `Cobramos $${amount} con Stripe y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
+        : paymentMode === 'wallet'
+          ? `Usamos tu Saldo Amare y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`
         : `Agregamos $${amount} a la cuenta de tu mesa y avisamos al equipo para entregar "${giftName}" a ${recipientName} en ${mesaLabel}${folio ? `.\nFolio: ${folio}` : '.'}`;
 
     resetGiftComposer();
@@ -1707,7 +1784,7 @@ export default function SocialProfileScreen() {
       restaurant_id: selectedBranch.id,
       recipient_user_id: diner.user_id,
       gift_product_id: gift.id,
-      gift_type: gift.tipo ?? 'gift',
+      gift_type: getGiftProductType(gift),
       request_key: getGiftRequestKey(),
       payment_mode: 'account',
     });
@@ -1747,7 +1824,7 @@ export default function SocialProfileScreen() {
       restaurant_id: selectedBranch.id,
       recipient_user_id: diner.user_id,
       gift_product_id: gift.id,
-      gift_type: gift.tipo ?? 'gift',
+      gift_type: getGiftProductType(gift),
       request_key: requestKey,
       payment_mode: 'stripe',
     });
@@ -1805,6 +1882,35 @@ export default function SocialProfileScreen() {
     showGiftSentAlert(paidGift, 'stripe');
   }
 
+  async function sendGiftWithWallet() {
+    const gift = selectedGift;
+    const diner = detailDiner;
+    if (!gift || !diner || !selectedBranch?.id) {
+      throw new Error('Faltan datos para enviar el regalo.');
+    }
+    if (!giftRewardsQuote?.can_pay) {
+      throw new Error('Tu Saldo Amare no alcanza para enviar este regalo.');
+    }
+
+    const payload = await createSocialGiftPayment({
+      restaurant_id: selectedBranch.id,
+      recipient_user_id: diner.user_id,
+      gift_product_id: gift.id,
+      gift_type: getGiftProductType(gift),
+      request_key: getGiftRequestKey(),
+      payment_mode: 'wallet',
+      use_points: useGiftRewardsPoints,
+    });
+
+    if (!payload?.gift?.id || !payload.paid_with_wallet) {
+      throw new Error('No se pudo pagar el regalo con Saldo Amare.');
+    }
+
+    const wallet = await getRewardsWallet().catch(() => null);
+    if (wallet) setGiftRewardsWallet(wallet);
+    showGiftSentAlert(payload.gift, 'wallet');
+  }
+
   async function handleSendGift() {
     if (!detailDiner || !selectedGift) {
       Alert.alert('Regalos', 'Selecciona un regalo para continuar.');
@@ -1820,12 +1926,14 @@ export default function SocialProfileScreen() {
       setGiftSending(true);
       if (giftCheckoutMode === 'stripe') {
         await sendGiftWithStripe();
+      } else if (giftCheckoutMode === 'wallet') {
+        await sendGiftWithWallet();
       } else {
         await sendGiftToAccount();
       }
     } catch (error) {
-      if (giftCheckoutMode === 'stripe') {
-        console.error('[SocialGift][Stripe] Flujo de pago fallo', {
+      if (giftCheckoutMode === 'stripe' || giftCheckoutMode === 'wallet') {
+        console.error('[SocialGift] Flujo de pago fallo', {
           requestKey: giftRequestKeyRef.current,
           message: getApiError(error),
           error,
@@ -1998,7 +2106,7 @@ export default function SocialProfileScreen() {
         ) : null}
 
         {canUseSocialActions ? (
-          <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
+          <TouchableOpacity activeOpacity={0.88} onPress={() => openGiftSelector()} style={styles.giftButton}>
             <Ionicons name="gift-outline" size={20} color={Colors.white} />
             <Text style={styles.giftButtonText}>Regalo</Text>
           </TouchableOpacity>
@@ -2110,7 +2218,7 @@ export default function SocialProfileScreen() {
               <TouchableOpacity
                 style={[styles.discoveryGiftButton, giftButtonDisabled && styles.saveButtonDisabled]}
                 activeOpacity={0.86}
-                onPress={openGiftSelector}
+                onPress={() => openGiftSelector()}
                 disabled={giftButtonDisabled}
               >
                 <Text style={styles.discoveryButtonText} numberOfLines={1}>
@@ -2875,7 +2983,7 @@ export default function SocialProfileScreen() {
               <View style={styles.modalHeaderActions}>
                 {detailDiner && canUseSocialActions ? (
                   <TouchableOpacity
-                    onPress={openGiftSelector}
+                    onPress={() => openGiftSelector()}
                     style={styles.headerGiftButton}
                     activeOpacity={0.8}
                     accessibilityLabel="Enviar regalo"
@@ -3189,22 +3297,85 @@ export default function SocialProfileScreen() {
                       </Text>
                     </View>
                   </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => selectGiftCheckoutMode('wallet')}
+                    style={[
+                      styles.giftPaymentModeCard,
+                      giftCheckoutMode === 'wallet' && styles.giftPaymentModeCardActive,
+                      giftRewardsQuote && !giftRewardsQuote.can_pay && styles.giftPaymentModeCardDisabled,
+                    ]}
+                    disabled={Boolean(giftRewardsQuote && !giftRewardsQuote.can_pay)}
+                  >
+                    <Ionicons name="sparkles-outline" size={18} color={giftCheckoutMode === 'wallet' ? Colors.primary : Colors.textSecondary} />
+                    <View style={styles.giftPaymentModeTextWrap}>
+                      <Text style={[styles.giftPaymentModeTitle, giftCheckoutMode === 'wallet' && styles.giftPaymentModeTitleActive]}>
+                        Saldo Amare
+                      </Text>
+                      <Text style={styles.giftPaymentModeDescription}>
+                        10% de descuento y puntos.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.giftPaymentBox}>
                   <View style={styles.giftPaymentHeading}>
                     <View>
                       <Text style={styles.giftPaymentLabel}>
-                        {giftCheckoutMode === 'stripe' ? 'Pago inmediato con Stripe' : 'Se carga a tu cuenta'}
+                        {giftCheckoutMode === 'stripe'
+                          ? 'Pago inmediato con Stripe'
+                          : giftCheckoutMode === 'wallet'
+                            ? 'Pago con Saldo Amare'
+                            : 'Se carga a tu cuenta'}
                       </Text>
                       <Text style={styles.giftPaymentHint}>
                         {giftCheckoutMode === 'stripe'
                           ? 'Captura tu tarjeta para cobrar este regalo antes de enviarlo.'
-                          : 'Pagarás este regalo al cerrar la cuenta de tu mesa.'}
+                          : giftCheckoutMode === 'wallet'
+                            ? 'Usa saldo simulado, recibe 10% y gana puntos.'
+                            : 'Pagarás este regalo al cerrar la cuenta de tu mesa.'}
                       </Text>
                     </View>
-                    <Text style={styles.giftPaymentTotal}>${selectedGift.precio.toFixed(2)}</Text>
+                    <Text style={styles.giftPaymentTotal}>
+                      ${giftCheckoutMode === 'wallet' && giftRewardsQuote ? giftRewardsQuote.wallet_total.toFixed(2) : selectedGift.precio.toFixed(2)}
+                    </Text>
                   </View>
+
+                  {giftCheckoutMode === 'wallet' ? (
+                    <View style={styles.giftRewardsSummary}>
+                      <View style={styles.giftRewardsRow}>
+                        <Text style={styles.giftRewardsLabel}>Saldo</Text>
+                        <Text style={styles.giftRewardsValue}>${Number(giftRewardsWallet?.balance_mxn ?? giftRewardsQuote?.balance_mxn ?? 0).toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.giftRewardsRow}>
+                        <Text style={styles.giftRewardsLabel}>Descuento 10%</Text>
+                        <Text style={styles.giftRewardsValue}>-${Number(giftRewardsQuote?.discount_amount ?? 0).toFixed(2)}</Text>
+                      </View>
+                      {useGiftRewardsPoints && giftRewardsQuote ? (
+                        <View style={styles.giftRewardsRow}>
+                          <Text style={styles.giftRewardsLabel}>Puntos</Text>
+                          <Text style={styles.giftRewardsValue}>-{giftRewardsQuote.points_redeemed} pts</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.giftRewardsRow}>
+                        <Text style={styles.giftRewardsLabel}>Ganarás</Text>
+                        <Text style={styles.giftRewardsValue}>{Number(giftRewardsQuote?.points_earned ?? 0)} pts</Text>
+                      </View>
+                      <View style={styles.giftRewardsToggle}>
+                        <Text style={styles.giftRewardsLabel}>Usar puntos ({Number(giftRewardsWallet?.points ?? giftRewardsQuote?.points ?? 0)})</Text>
+                        <Switch
+                          value={useGiftRewardsPoints}
+                          onValueChange={setUseGiftRewardsPoints}
+                          disabled={Number(giftRewardsWallet?.points ?? giftRewardsQuote?.points ?? 0) < 10}
+                        />
+                      </View>
+                      {giftRewardsQuote && !giftRewardsQuote.can_pay ? (
+                        <Text style={styles.giftStripeWarning}>Tu Saldo Amare no alcanza para este regalo.</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
 
                   {giftCheckoutMode === 'stripe' ? (
                     stripeAvailable ? (
@@ -3244,10 +3415,14 @@ export default function SocialProfileScreen() {
                 {giftSending
                   ? giftCheckoutMode === 'stripe'
                     ? 'Procesando pago...'
-                    : 'Enviando...'
+                    : giftCheckoutMode === 'wallet'
+                      ? 'Pagando con saldo...'
+                      : 'Enviando...'
                   : giftCheckoutMode === 'stripe'
                     ? `Pagar y enviar${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`
-                    : `Enviar y cargar a cuenta${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`}
+                    : giftCheckoutMode === 'wallet'
+                      ? `Enviar con saldo${giftRewardsQuote ? ` · $${giftRewardsQuote.wallet_total.toFixed(2)}` : ''}`
+                      : `Enviar y cargar a cuenta${selectedGift ? ` · $${selectedGift.precio.toFixed(2)}` : ''}`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -4116,6 +4291,35 @@ const styles = StyleSheet.create({
   giftPaymentLabel: { color: '#111827', fontSize: 13, fontWeight: '800' },
   giftPaymentHint: { marginTop: 2, maxWidth: 230, color: '#64748B', fontSize: 10, lineHeight: 14 },
   giftPaymentTotal: { color: Colors.primary, fontSize: 18, fontWeight: '900' },
+  giftRewardsSummary: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#D1FAE5',
+    gap: 7,
+  },
+  giftRewardsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  giftRewardsLabel: {
+    color: '#047857',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  giftRewardsValue: {
+    color: '#064E3B',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  giftRewardsToggle: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   giftStripeCardWrap: {
     marginTop: 12,
     gap: 8,

@@ -6,12 +6,13 @@ export interface PaymentIntent {
   status: string;
 }
 
-export type MetodoPago = 'card' | 'apple_pay' | 'google_pay' | 'cash';
+export type MetodoPago = 'card' | 'apple_pay' | 'google_pay' | 'cash' | 'amare_wallet';
 
 export interface ConfirmPaymentPayload {
   payment_intent_id: string;
   pedido_id: number;
   metodo: MetodoPago;
+  use_points?: boolean;
 }
 
 export interface PaymentResult {

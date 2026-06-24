@@ -16,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
 import { apiClient } from '../../services/api';
 import { logout } from '../../services/auth.service';
+import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 
 export default function ProfileScreen() {
@@ -25,6 +26,27 @@ export default function ProfileScreen() {
   const logoutStore = useUserStore((s) => s.logout);
 
   const [uploading, setUploading] = useState(false);
+  const [wallet, setWallet] = useState<RewardsWallet | null>(null);
+  const [walletLoading, setWalletLoading] = useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadWallet() {
+      setWalletLoading(true);
+      try {
+        const nextWallet = await getRewardsWallet();
+        if (!cancelled) setWallet(nextWallet);
+      } catch (error) {
+        console.warn('No se pudo cargar Saldo Amare', error);
+      } finally {
+        if (!cancelled) setWalletLoading(false);
+      }
+    }
+    void loadWallet();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handlePickImage() {
     Alert.alert('Foto de perfil', '¿De dónde quieres obtener la imagen?', [
@@ -134,6 +156,33 @@ export default function ProfileScreen() {
           </View>
           <Text style={styles.nombre}>{user?.nombre ?? '—'}</Text>
           <Text style={styles.email}>{user?.email ?? ''}</Text>
+        </View>
+
+        <View style={styles.walletCard}>
+          <View style={styles.walletHeader}>
+            <View style={styles.walletIcon}>
+              <Ionicons name="sparkles" size={22} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walletTitle}>Saldo Amare</Text>
+              <Text style={styles.walletSubtitle}>Saldo simulado · 10% pagando con saldo</Text>
+            </View>
+            {walletLoading ? <ActivityIndicator size="small" color="#065F46" /> : null}
+          </View>
+          <View style={styles.walletStats}>
+            <View>
+              <Text style={styles.walletStatLabel}>Disponible</Text>
+              <Text style={styles.walletStatValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
+            </View>
+            <View>
+              <Text style={styles.walletStatLabel}>Puntos</Text>
+              <Text style={styles.walletStatValue}>{Number(wallet?.points ?? 0)}</Text>
+            </View>
+            <View>
+              <Text style={styles.walletStatLabel}>Canjeable</Text>
+              <Text style={styles.walletStatValue}>${Number(wallet?.points_value_mxn ?? 0).toFixed(2)}</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.menuContainer}>
@@ -290,6 +339,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#6B7280',
+  },
+  walletCard: {
+    marginBottom: 22,
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    ...Shadows.sm,
+  },
+  walletHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  walletIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#059669',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  walletTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#064E3B',
+  },
+  walletSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#047857',
+  },
+  walletStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  walletStatLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#047857',
+  },
+  walletStatValue: {
+    marginTop: 3,
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#064E3B',
   },
   menuContainer: {
     gap: 20,

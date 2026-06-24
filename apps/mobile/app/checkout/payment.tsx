@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   Platform,
+  Switch,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,11 +18,12 @@ import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { confirmPayment, createOrder, createPaymentIntent } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
+import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
 
-type PaymentMethod = 'card' | 'wallet' | 'cash';
+type PaymentMethod = 'card' | 'wallet' | 'cash' | 'amare';
 
 interface PaymentMethodDef {
   id: PaymentMethod;
@@ -52,6 +54,12 @@ const ALL_PAYMENT_METHODS: PaymentMethodDef[] = [
     label: 'Efectivo',
     icon: 'cash-outline',
     iconActive: 'cash',
+  },
+  {
+    id: 'amare',
+    label: 'Saldo Amare',
+    icon: 'sparkles-outline',
+    iconActive: 'sparkles',
   },
 ];
 
@@ -92,13 +100,17 @@ export default function PaymentScreen() {
   const paymentAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : total;
   const [loading, setLoading] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
+  const [rewardsWallet, setRewardsWallet] = useState<RewardsWallet | null>(null);
+  const [rewardsQuote, setRewardsQuote] = useState<RewardsQuote | null>(null);
+  const [useRewardsPoints, setUseRewardsPoints] = useState(false);
+  const [rewardsLoading, setRewardsLoading] = useState(false);
   const config = useBranchConfigStore((state) => state.branchId === resolvedRestaurantId ? state.config : null);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
 
   // Métodos habilitados según la BD, mapeados a los IDs de la UI (deduplicado por si apple_pay y google_pay comparten 'wallet')
   const enabledMethodIds: PaymentMethod[] = config
-    ? [...new Set(config.metodos_pago.map(dbMethodToUI))]
-    : ['card', 'cash'];
+    ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
+    : ['card', 'cash', 'amare'];
 
   // Solo mostramos los métodos que están habilitados
   const enabledMethods = ALL_PAYMENT_METHODS.filter((m) =>
@@ -116,9 +128,49 @@ export default function PaymentScreen() {
 
   useEffect(() => {
     if (!config) return;
-    const ids = [...new Set(config.metodos_pago.map(dbMethodToUI))];
+    const ids = [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])];
     if (!ids.includes(selectedMethod)) setSelectedMethod(ids[0] ?? 'cash');
   }, [config, selectedMethod]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRewards() {
+      try {
+        const wallet = await getRewardsWallet();
+        if (!cancelled) setRewardsWallet(wallet);
+      } catch (error) {
+        console.warn('No se pudo cargar Saldo Amare', error);
+      }
+    }
+    void loadRewards();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadQuote() {
+      if (paymentAmount <= 0) {
+        setRewardsQuote(null);
+        return;
+      }
+      setRewardsLoading(true);
+      try {
+        const quote = await quoteRewards({ context: 'food', amount: paymentAmount, use_points: useRewardsPoints });
+        if (!cancelled) setRewardsQuote(quote);
+      } catch (error) {
+        console.warn('No se pudo cotizar Saldo Amare', error);
+        if (!cancelled) setRewardsQuote(null);
+      } finally {
+        if (!cancelled) setRewardsLoading(false);
+      }
+    }
+    void loadQuote();
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentAmount, useRewardsPoints]);
 
   // Cálculo dinámico del ancho de cada card según cuántas hay
   function getCardWidth() {
@@ -134,7 +186,7 @@ export default function PaymentScreen() {
       return (available - gap) / 2;
     }
     // 3 métodos
-    return (available - gap * 2) / 3;
+    return (available - gap * (count - 1)) / count;
   }
 
   async function handlePay() {
@@ -149,6 +201,36 @@ export default function PaymentScreen() {
         const targetOrderId = existingOrderId ?? order!.id;
         const confirmation = await confirmPayment({ pedido_id: targetOrderId, payment_intent_id: intentId ?? '', metodo: 'cash' });
         if (!existingOrderId) clear();
+        if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
+          router.replace({
+            pathname: '/checkout/exit-pass',
+            params: {
+              orderId: String(targetOrderId),
+              payload: confirmation.exit_pass.payload,
+              folio: confirmation.exit_pass.folio || folio || order?.folio || '',
+              mesaLabel: typeof mesaLabel === 'string' ? mesaLabel : '',
+            },
+          });
+          return;
+        }
+        router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
+        return;
+      }
+
+      if (selectedMethod === 'amare') {
+        if (!rewardsQuote?.can_pay) {
+          throw new Error('Tu Saldo Amare no alcanza para cubrir este pago.');
+        }
+        const order = existingOrderId ? null : await createOrderBackend('amare_wallet');
+        const targetOrderId = existingOrderId ?? order!.id;
+        const confirmation = await confirmPayment({
+          pedido_id: targetOrderId,
+          metodo: 'amare_wallet',
+          use_points: useRewardsPoints,
+        });
+        if (!existingOrderId) clear();
+        const wallet = await getRewardsWallet().catch(() => null);
+        if (wallet) setRewardsWallet(wallet);
         if (tipoPedido === 'eat_in' && confirmation.exit_pass) {
           router.replace({
             pathname: '/checkout/exit-pass',
@@ -310,6 +392,7 @@ export default function PaymentScreen() {
         ]}>
           {enabledMethods.map((method) => {
             const isSelected = selectedMethod === method.id;
+            const isAmareDisabled = method.id === 'amare' && Boolean(rewardsQuote && !rewardsQuote.can_pay);
             return (
               <TouchableOpacity
                 key={method.id}
@@ -317,8 +400,10 @@ export default function PaymentScreen() {
                   styles.methodCard,
                   { width: cardWidth, aspectRatio: count === 1 ? 1.2 : 1 },
                   isSelected && styles.methodCardActive,
+                  isAmareDisabled && styles.methodCardDisabled,
                 ]}
                 onPress={() => setSelectedMethod(method.id)}
+                disabled={isAmareDisabled}
                 accessibilityLabel={`Pagar con ${method.label}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
@@ -362,20 +447,86 @@ export default function PaymentScreen() {
           </View>
         )}
 
+        {selectedMethod === 'amare' && (
+          <View style={styles.rewardsBox}>
+            <View style={styles.rewardsHeader}>
+              <View>
+                <Text style={styles.rewardsTitle}>Saldo Amare</Text>
+                <Text style={styles.rewardsSubtitle}>Saldo simulado · 10% de descuento</Text>
+              </View>
+              <Text style={styles.rewardsBalance}>
+                ${Number(rewardsWallet?.balance_mxn ?? rewardsQuote?.balance_mxn ?? 0).toFixed(2)}
+              </Text>
+            </View>
+
+            <View style={styles.rewardsRows}>
+              <View style={styles.rewardsRow}>
+                <Text style={styles.rewardsLabel}>Subtotal</Text>
+                <Text style={styles.rewardsValue}>${paymentAmount.toFixed(2)}</Text>
+              </View>
+              <View style={styles.rewardsRow}>
+                <Text style={styles.rewardsLabel}>Descuento Amare</Text>
+                <Text style={styles.rewardsValue}>-${Number(rewardsQuote?.discount_amount ?? 0).toFixed(2)}</Text>
+              </View>
+              {useRewardsPoints && rewardsQuote ? (
+                <View style={styles.rewardsRow}>
+                  <Text style={styles.rewardsLabel}>Puntos canjeados</Text>
+                  <Text style={styles.rewardsValue}>-{rewardsQuote.points_redeemed} pts · ${rewardsQuote.points_discount.toFixed(2)}</Text>
+                </View>
+              ) : null}
+              <View style={styles.rewardsRow}>
+                <Text style={styles.rewardsLabel}>Ganarás</Text>
+                <Text style={styles.rewardsValue}>{Number(rewardsQuote?.points_earned ?? 0)} pts</Text>
+              </View>
+            </View>
+
+            <View style={styles.rewardsToggleRow}>
+              <View>
+                <Text style={styles.rewardsToggleTitle}>Usar puntos</Text>
+                <Text style={styles.rewardsToggleHint}>{Number(rewardsWallet?.points ?? rewardsQuote?.points ?? 0)} pts disponibles</Text>
+              </View>
+              <Switch
+                value={useRewardsPoints}
+                onValueChange={setUseRewardsPoints}
+                disabled={Number(rewardsWallet?.points ?? rewardsQuote?.points ?? 0) < 10}
+              />
+            </View>
+
+            {rewardsQuote && !rewardsQuote.can_pay ? (
+              <Text style={styles.rewardsWarning}>Tu Saldo Amare no alcanza para cubrir este pago.</Text>
+            ) : null}
+          </View>
+        )}
+
         <View style={styles.totalBox}>
           <Text style={styles.totalLabel}>Total a pagar</Text>
-          <Text style={styles.totalValue}>${paymentAmount.toFixed(2)} MXN</Text>
+          <Text style={styles.totalValue}>
+            ${selectedMethod === 'amare' && rewardsQuote ? rewardsQuote.wallet_total.toFixed(2) : paymentAmount.toFixed(2)} MXN
+          </Text>
         </View>
       </ScrollView>
 
       <View style={styles.footer}>
         <Button
-          label={selectedMethod === 'cash' ? `Confirmar pago ($${paymentAmount.toFixed(2)})` : `Pagar $${paymentAmount.toFixed(2)}`}
+          label={
+            selectedMethod === 'cash'
+              ? `Confirmar pago ($${paymentAmount.toFixed(2)})`
+              : selectedMethod === 'amare'
+                ? `Pagar con saldo ($${(rewardsQuote?.wallet_total ?? paymentAmount).toFixed(2)})`
+                : `Pagar $${paymentAmount.toFixed(2)}`
+          }
           onPress={handlePay}
           fullWidth
           size="lg"
           loading={loading}
-          accessibilityLabel={selectedMethod === 'cash' ? `Confirmar pago por $${paymentAmount.toFixed(2)} en efectivo` : `Pagar $${paymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`}
+          disabled={selectedMethod === 'amare' && (!rewardsQuote?.can_pay || rewardsLoading)}
+          accessibilityLabel={
+            selectedMethod === 'cash'
+              ? `Confirmar pago por $${paymentAmount.toFixed(2)} en efectivo`
+              : selectedMethod === 'amare'
+                ? `Pagar $${(rewardsQuote?.wallet_total ?? paymentAmount).toFixed(2)} con Saldo Amare`
+                : `Pagar $${paymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`
+          }
           testID="payment-confirm-btn"
         />
       </View>
@@ -422,6 +573,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     backgroundColor: `${Colors.primary}08`,
   },
+  methodCardDisabled: {
+    opacity: 0.45,
+  },
   methodText: {
     fontSize: 12,
     fontWeight: '600',
@@ -436,6 +590,39 @@ const styles = StyleSheet.create({
   },
 
   stripeContainer: { gap: Spacing.sm, marginTop: Spacing.sm },
+  rewardsBox: {
+    gap: 12,
+    marginTop: Spacing.sm,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    backgroundColor: '#F0FDF4',
+    padding: Spacing.md,
+  },
+  rewardsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  rewardsTitle: { fontSize: 16, fontWeight: '800', color: '#064E3B' },
+  rewardsSubtitle: { marginTop: 2, fontSize: 12, fontWeight: '600', color: '#047857' },
+  rewardsBalance: { fontSize: 18, fontWeight: '900', color: '#065F46' },
+  rewardsRows: { gap: 7 },
+  rewardsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  rewardsLabel: { fontSize: 13, fontWeight: '600', color: '#047857' },
+  rewardsValue: { fontSize: 13, fontWeight: '800', color: '#064E3B' },
+  rewardsToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#BBF7D0',
+  },
+  rewardsToggleTitle: { fontSize: 13, fontWeight: '800', color: '#064E3B' },
+  rewardsToggleHint: { marginTop: 2, fontSize: 11, color: '#047857' },
+  rewardsWarning: { fontSize: 12, fontWeight: '700', color: Colors.error || '#DC2626' },
   cardField: {
     width: '100%',
     height: 56,
