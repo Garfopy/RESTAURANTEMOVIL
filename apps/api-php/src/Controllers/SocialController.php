@@ -677,34 +677,39 @@ class SocialController
 
     public function giftProducts(): void
     {
+        $restaurantId = (int)($_GET['restaurant_id'] ?? 0);
         $tableName = $this->detectGiftProductsTable();
 
-        if ($tableName === null) {
-            Response::success([]);
+        $result = [];
+        if ($tableName !== null) {
+            $products = Database::query(
+                "SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden
+                   FROM {$tableName}
+               ORDER BY orden ASC, nombre ASC"
+            );
+
+            $result = array_map(
+                static function (array $item): array {
+                    return [
+                        'id' => (int)$item['id'],
+                        'tipo' => 'gift',
+                        'nombre' => $item['nombre'],
+                        'descripcion' => $item['descripcion'] ?? null,
+                        'precio' => (float)($item['precio'] ?? 0),
+                        'icono' => $item['icono'] ?? null,
+                        'color' => $item['color'] ?? '#B71C1C',
+                        'es_regalo' => (bool)($item['es_regalo'] ?? true),
+                        'imagen' => $item['imagen'] ?? null,
+                        'orden' => (int)($item['orden'] ?? 0),
+                    ];
+                },
+                $products
+            );
         }
 
-        $products = Database::query(
-            "SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden
-               FROM {$tableName}
-           ORDER BY orden ASC, nombre ASC"
-        );
-
-        $result = array_map(
-            static function (array $item): array {
-                return [
-                    'id' => (int)$item['id'],
-                    'nombre' => $item['nombre'],
-                    'descripcion' => $item['descripcion'] ?? null,
-                    'precio' => (float)($item['precio'] ?? 0),
-                    'icono' => $item['icono'] ?? null,
-                    'color' => $item['color'] ?? '#B71C1C',
-                    'es_regalo' => (bool)($item['es_regalo'] ?? true),
-                    'imagen' => $item['imagen'] ?? null,
-                    'orden' => (int)($item['orden'] ?? 0),
-                ];
-            },
-            $products
-        );
+        if (empty($result) && $restaurantId > 0) {
+            $result = $this->menuGiftProducts($restaurantId);
+        }
 
         Response::success($result);
     }
@@ -889,6 +894,7 @@ class SocialController
         $giftProductId = (int)($input['gift_product_id'] ?? 0);
         $recipientUserId = (int)($input['recipient_user_id'] ?? 0);
         $requestKey = trim((string)($input['request_key'] ?? ''));
+        $giftType = $this->sanitizeGiftType($input['gift_type'] ?? null);
 
         $errors = [];
         if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal válida'];
@@ -933,7 +939,7 @@ class SocialController
         $recipientMesa = $this->resolveMesaForRestaurant($restaurantId, $recipientMesaLabel);
         if ($recipientMesa === null) Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
 
-        $giftProduct = $this->findGiftProduct($giftProductId);
+        $giftProduct = $this->findGiftProduct($giftProductId, $restaurantId, $giftType);
         if ($giftProduct === null) Response::notFound('Regalo no encontrado');
         $price = round((float)($giftProduct['precio'] ?? 0), 2);
         if ($price <= 0) Response::error('Este regalo no tiene un precio válido.', 409);
@@ -1781,11 +1787,96 @@ class SocialController
         return null;
     }
 
-    private function findGiftProduct(int $giftProductId): ?array
+    private function sanitizeGiftType(mixed $giftType): string
     {
+        return (string)$giftType === 'menu' ? 'menu' : 'gift';
+    }
+
+    private function menuGiftProducts(int $restaurantId): array
+    {
+        if (!$this->tableExists('rest_platillos')) {
+            return [];
+        }
+
+        $hasCategories = $this->tableExists('rest_categorias_menu');
+        $categoryJoin = $hasCategories ? 'LEFT JOIN rest_categorias_menu c ON c.id = p.categoria_id' : '';
+        $categoryField = $hasCategories ? 'c.nombre' : "''";
+        $categoryFilter = $hasCategories
+            ? "AND (
+                LOWER(COALESCE(c.nombre, '')) LIKE '%bebida%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%trago%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%cerveza%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%vino%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%refresco%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%agua%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%cafe%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%café%'
+                OR LOWER(COALESCE(c.nombre, '')) LIKE '%postre%'
+            )"
+            : '';
+
+        $rows = Database::query(
+            "SELECT p.id, p.nombre, p.descripcion, p.precio, p.imagen, {$categoryField} AS categoria_nombre
+               FROM rest_platillos p
+               {$categoryJoin}
+              WHERE p.restaurante_id = :restaurant_id
+                AND COALESCE(p.activo, 1) = 1
+                AND COALESCE(p.disponible, 1) = 1
+                {$categoryFilter}
+           ORDER BY categoria_nombre ASC, p.nombre ASC",
+            [':restaurant_id' => $restaurantId]
+        );
+
+        return array_map(
+            static function (array $item): array {
+                $category = (string)($item['categoria_nombre'] ?? '');
+                return [
+                    'id' => (int)$item['id'],
+                    'tipo' => 'menu',
+                    'nombre' => $item['nombre'],
+                    'descripcion' => $item['descripcion'] ?: ($category !== '' ? $category : null),
+                    'precio' => (float)($item['precio'] ?? 0),
+                    'icono' => match (true) {
+                        stripos($category, 'cerveza') !== false => 'beer-outline',
+                        stripos($category, 'vino') !== false => 'wine-outline',
+                        stripos($category, 'café') !== false || stripos($category, 'cafe') !== false => 'cafe-outline',
+                        stripos($category, 'trago') !== false => 'flame-outline',
+                        stripos($category, 'refresco') !== false || stripos($category, 'agua') !== false => 'water-outline',
+                        stripos($category, 'postre') !== false => 'ice-cream-outline',
+                        default => 'gift-outline',
+                    },
+                    'color' => '#B71C1C',
+                    'es_regalo' => true,
+                    'imagen' => $item['imagen'] ?? null,
+                    'orden' => 1000,
+                ];
+            },
+            $rows
+        );
+    }
+
+    private function findGiftProduct(int $giftProductId, int $restaurantId = 0, string $giftType = 'gift'): ?array
+    {
+        if ($giftType === 'menu') {
+            if ($restaurantId <= 0 || !$this->tableExists('rest_platillos')) {
+                return null;
+            }
+
+            return Database::queryOne(
+                "SELECT id, nombre, descripcion, precio, imagen
+                   FROM rest_platillos
+                  WHERE id = :id
+                    AND restaurante_id = :restaurant_id
+                    AND COALESCE(activo, 1) = 1
+                    AND COALESCE(disponible, 1) = 1
+                  LIMIT 1",
+                [':id' => $giftProductId, ':restaurant_id' => $restaurantId]
+            );
+        }
+
         $tableName = $this->detectGiftProductsTable();
         if ($tableName === null) {
-            return null;
+            return $restaurantId > 0 ? $this->findGiftProduct($giftProductId, $restaurantId, 'menu') : null;
         }
 
         return Database::queryOne(

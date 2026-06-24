@@ -519,7 +519,7 @@ function getSexualityDescription(value?: string | null): string | null {
 export default function SocialProfileScreen() {
   const router = useRouter();
   const { activateSocial } = useLocalSearchParams<{ activateSocial?: string }>();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const selectedBranch = useBranchStore((state) => state.seleccionada);
@@ -533,6 +533,7 @@ export default function SocialProfileScreen() {
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
+  const [likeGiftPromptVisible, setLikeGiftPromptVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
@@ -557,7 +558,10 @@ export default function SocialProfileScreen() {
   const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
   const [focusedDiner, setFocusedDiner] = useState<SocialDiner | null>(null);
+  const [likeGiftPromptDiner, setLikeGiftPromptDiner] = useState<SocialDiner | null>(null);
+  const [likeGiftPromptMatched, setLikeGiftPromptMatched] = useState(false);
   const [giftProducts, setGiftProducts] = useState<GiftProduct[]>([]);
+  const [giftProductsRestaurantId, setGiftProductsRestaurantId] = useState<number | null>(null);
   const [selectedGiftId, setSelectedGiftId] = useState<number | null>(null);
   const [filters, setFilters] = useState<SocialFilterState>(EMPTY_FILTERS);
   const [mesaInput, setMesaInput] = useState('');
@@ -605,8 +609,7 @@ export default function SocialProfileScreen() {
     ? normalizePhotoList(detailDiner.social_photos, detailDiner.foto_url)
     : [];
   const detailImageWidth = Math.max(260, width - 36);
-  const discoveryCardHeight = Math.min(470, Math.max(400, width * 1.14));
-  const discoveryImageHeight = Math.min(320, Math.max(270, discoveryCardHeight * 0.66));
+  const isCompactDiscovery = height < 760 || width < 380;
   const topReceivedLike = receivedLikes[0] ?? null;
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
@@ -615,6 +618,7 @@ export default function SocialProfileScreen() {
     : '';
   const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
   const canDiscover = Boolean(modoSocial && selectedBranch?.id);
+  const canUseSocialActions = canDiscover;
 
   useEffect(() => {
     if (!canDiscover && socialView === 'discover') {
@@ -774,7 +778,6 @@ export default function SocialProfileScreen() {
     staleSocialActivationHandledRef.current = true;
     void (async () => {
       await persistSocialStatus(false, null);
-      router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social', activateSocial: '1' } });
     })();
   }, [profileLoading, userSocialActive, tableSession?.mesaValue]);
 
@@ -1114,7 +1117,7 @@ export default function SocialProfileScreen() {
     if (!diner) return;
 
     if (!selectedBranch?.id) {
-      Alert.alert('Sucursal requerida', 'Selecciona una sucursal antes de dar like.');
+      Alert.alert('Visítanos en una sucursal', 'Visítanos en alguna sucursal para conocer a los comensales.');
       return;
     }
 
@@ -1135,8 +1138,10 @@ export default function SocialProfileScreen() {
           const withoutDuplicate = current.filter((item) => item.user_id !== matchedDiner.user_id);
           return [{ ...matchedDiner, relationship_status: 'matched' }, ...withoutDuplicate];
         });
-        Alert.alert('¡Es match!', `${matchedDiner.nombre} también te dio like. Lo agregamos a Mis matches.`);
       }
+      setLikeGiftPromptDiner(matchedDiner);
+      setLikeGiftPromptMatched(Boolean(result.matched));
+      setLikeGiftPromptVisible(true);
       void refreshMatches(false);
       void refreshReceivedLikes();
       void refreshSentLikes();
@@ -1365,26 +1370,17 @@ export default function SocialProfileScreen() {
     }
   }
 
+  function showVisitBranchMessage() {
+    Alert.alert(
+      'Visítanos en una sucursal',
+      'Visítanos en alguna sucursal para conocer a los comensales.',
+      [{ text: 'Entendido' }]
+    );
+  }
+
   async function updateSocialStatus(nextValue: boolean) {
     if (nextValue && !selectedBranch?.id) {
-      Alert.alert(
-        'Sucursal requerida',
-        'Selecciona una sucursal antes de activar el modo social.',
-        [
-          {
-            text: 'Elegir sucursal',
-            onPress: () => {
-              setPendingActivationAfterBranch(true);
-              router.push('/branch-selector' as never);
-            },
-          },
-          {
-            text: 'Cancelar',
-            style: 'cancel',
-            onPress: () => setPendingActivationAfterBranch(false),
-          },
-        ]
-      );
+      showVisitBranchMessage();
       return;
     }
 
@@ -1403,14 +1399,7 @@ export default function SocialProfileScreen() {
         return;
       }
 
-      Alert.alert('Escanea tu mesa', 'Para activar el modo social primero escanea el QR de tu mesa.', [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Escanear QR',
-          onPress: () =>
-            router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social', activateSocial: '1' } }),
-        },
-      ]);
+      showVisitBranchMessage();
       return;
     }
 
@@ -1418,7 +1407,7 @@ export default function SocialProfileScreen() {
   }
 
   async function openMesaPrompt() {
-    router.push({ pathname: '/table-scanner', params: { returnTo: '/profile/social', activateSocial: '1' } });
+    showVisitBranchMessage();
   }
 
   async function persistSocialStatus(nextValue: boolean, mesaValue: string | null, acceptsSocialPrivacy = false) {
@@ -1572,8 +1561,28 @@ export default function SocialProfileScreen() {
     }
   }
 
-  async function openGiftSelector() {
-    if (!detailDiner) return;
+  function closeLikeGiftPrompt() {
+    setLikeGiftPromptVisible(false);
+    setLikeGiftPromptDiner(null);
+    setLikeGiftPromptMatched(false);
+  }
+
+  async function handleGiftAfterLike() {
+    const recipient = likeGiftPromptDiner;
+    closeLikeGiftPrompt();
+    if (recipient) {
+      await new Promise((resolve) => setTimeout(resolve, Platform.OS === 'ios' ? 180 : 80));
+      await openGiftSelector(recipient);
+    }
+  }
+
+  async function openGiftSelector(targetDiner?: SocialDiner) {
+    const giftRecipient = targetDiner ?? detailDiner;
+    if (!giftRecipient) return;
+
+    if (targetDiner) {
+      setFocusedDiner(targetDiner);
+    }
 
     if (detailsVisible) {
       setDetailsVisible(false);
@@ -1582,13 +1591,19 @@ export default function SocialProfileScreen() {
 
     try {
       setGiftsVisible(true);
+      const restaurantId = selectedBranch?.id ?? null;
 
-      if (giftProducts.length > 0) {
+      if (giftProducts.length > 0 && giftProductsRestaurantId === restaurantId) {
         return;
       }
 
+      setGiftProducts([]);
+      setGiftProductsRestaurantId(null);
+      setSelectedGiftId(null);
       setGiftProductsLoading(true);
-      const response = await apiClient.get<{ success?: boolean; data?: GiftProduct[] } | GiftProduct[]>('/gift-products');
+      const response = await apiClient.get<{ success?: boolean; data?: GiftProduct[] } | GiftProduct[]>('/gift-products', {
+        params: restaurantId ? { restaurant_id: restaurantId } : undefined,
+      });
       const rawItems = Array.isArray(response.data)
         ? response.data
         : Array.isArray(response.data?.data)
@@ -1597,6 +1612,7 @@ export default function SocialProfileScreen() {
 
       const normalized = rawItems.map(normalizeGiftProduct).filter((item) => item.es_regalo !== false);
       setGiftProducts(normalized);
+      setGiftProductsRestaurantId(restaurantId);
       setSelectedGiftId((current) => current ?? normalized[0]?.id ?? null);
     } catch (error) {
       Alert.alert('Regalos', getApiError(error));
@@ -1620,7 +1636,7 @@ export default function SocialProfileScreen() {
     }
 
     if (!selectedBranch?.id) {
-      Alert.alert('Regalos', 'Selecciona una sucursal antes de enviar un regalo.');
+      Alert.alert('Visítanos en una sucursal', 'Visítanos en alguna sucursal para conocer a los comensales.');
       return;
     }
 
@@ -1640,6 +1656,7 @@ export default function SocialProfileScreen() {
         restaurant_id: selectedBranch.id,
         recipient_user_id: detailDiner.user_id,
         gift_product_id: selectedGift.id,
+        gift_type: selectedGift.tipo ?? 'gift',
         request_key: giftRequestKeyRef.current,
       });
       const payload = unwrapApiData(response.data);
@@ -1704,7 +1721,7 @@ export default function SocialProfileScreen() {
           onPress={() => {
             options?.onPress?.();
           }}
-          style={[styles.dinerImageWrap, { height: discoveryImageHeight }]}
+          style={styles.dinerImageWrap}
         >
           {diner.foto_url ? (
             <Image source={{ uri: diner.foto_url }} style={styles.dinerImage} contentFit="cover" cachePolicy="disk" />
@@ -1754,7 +1771,7 @@ export default function SocialProfileScreen() {
       </>
     );
 
-    return <View style={[styles.dinerCard, { minHeight: discoveryCardHeight }]}>{cardBody}</View>;
+    return <View style={styles.dinerCard}>{cardBody}</View>;
   }
 
   function renderDinerDetailsContent(diner: SocialDiner) {
@@ -1807,7 +1824,7 @@ export default function SocialProfileScreen() {
           </View>
         ) : null}
 
-        {diner.relationship_status !== 'matched' ? (
+        {canUseSocialActions && diner.relationship_status !== 'matched' ? (
           <TouchableOpacity
             activeOpacity={0.88}
             onPress={() => (diner.relationship_status === 'liked' ? handleUnlikeDiner(diner.user_id) : handleLikeDiner(diner.user_id))}
@@ -1825,10 +1842,12 @@ export default function SocialProfileScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
-          <Ionicons name="gift-outline" size={20} color={Colors.white} />
-          <Text style={styles.giftButtonText}>Regalo</Text>
-        </TouchableOpacity>
+        {canUseSocialActions ? (
+          <TouchableOpacity activeOpacity={0.88} onPress={openGiftSelector} style={styles.giftButton}>
+            <Ionicons name="gift-outline" size={20} color={Colors.white} />
+            <Text style={styles.giftButtonText}>Regalo</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   }
@@ -1848,14 +1867,10 @@ export default function SocialProfileScreen() {
       return (
         <View style={styles.centerStateCard}>
           <Ionicons name="location-outline" size={54} color={Colors.textMuted} />
-          <Text style={styles.centerStateTitle}>Selecciona una sucursal</Text>
+          <Text style={styles.centerStateTitle}>Visítanos en una sucursal</Text>
           <Text style={styles.centerStateText}>
-            El modo social usa la sucursal actual para mostrar solo comensales cercanos a ti.
+            Visítanos en alguna sucursal para conocer a los comensales.
           </Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/branch-selector' as never)}>
-            <Ionicons name="navigate" size={18} color={Colors.white} />
-            <Text style={styles.primaryButtonText}>Elegir sucursal</Text>
-          </TouchableOpacity>
         </View>
       );
     }
@@ -1881,93 +1896,91 @@ export default function SocialProfileScreen() {
       currentDiner.relationship_status === 'matched'
         ? 'Match'
         : currentDiner.relationship_status === 'liked'
-          ? 'Like enviado'
+          ? isCompactDiscovery
+            ? 'Enviado'
+            : 'Like enviado'
           : 'Me gusta';
     const giftButtonDisabled = !currentDiner || giftSending;
 
     return (
       <View style={styles.carouselArea}>
-        <Text style={styles.counterText}>
-          {safeCurrentIndex + 1} / {diners.length}
-        </Text>
-
         <View style={styles.tinderCardContainer}>
           {currentDiner && (
             <GestureDetector gesture={panGesture}>
-              <Animated.View style={[styles.tinderCard, { height: discoveryCardHeight }, animatedCardStyle]}>
+              <Animated.View style={[styles.tinderCard, animatedCardStyle]}>
                 {renderSwipeCard(currentDiner, {
                   onPress: () => handleDinerCardPress(),
                 })}
               </Animated.View>
             </GestureDetector>
           )}
-        </View>
 
-        <View style={styles.discoveryActions}>
-          <TouchableOpacity
-            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
-            activeOpacity={0.86}
-            onPress={() => advanceToDiner('prev')}
-            disabled={diners.length <= 1}
-            accessibilityRole="button"
-            accessibilityLabel="Perfil anterior"
-          >
-            <Ionicons name="chevron-back" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
-          </TouchableOpacity>
-
-          <View style={styles.discoveryActionCenter}>
+          <View style={styles.discoveryActions}>
             <TouchableOpacity
-              style={[
-                styles.likeButton,
-                (likingUserId === currentDiner?.user_id || currentDinerHasRelationship) && styles.saveButtonDisabled,
-              ]}
+              style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
               activeOpacity={0.86}
-              onPress={() =>
-                currentDiner &&
-                (currentDiner.relationship_status === 'liked'
-                  ? handleUnlikeDiner(currentDiner.user_id)
-                  : handleLikeDiner(currentDiner.user_id))
-              }
-              disabled={!currentDiner || likingUserId === currentDiner.user_id || currentDinerHasRelationship}
+              onPress={() => advanceToDiner('prev')}
+              disabled={diners.length <= 1}
+              accessibilityRole="button"
+              accessibilityLabel="Perfil anterior"
             >
-              {likingUserId === currentDiner?.user_id ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <Ionicons name="heart" size={20} color={Colors.white} />
-              )}
-              <Text style={styles.discoveryButtonText} numberOfLines={1}>
-                {currentDinerLikeLabel}
-              </Text>
+              <Ionicons name="chevron-back" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.discoveryGiftButton, giftButtonDisabled && styles.saveButtonDisabled]}
-              activeOpacity={0.86}
-              onPress={openGiftSelector}
-              disabled={giftButtonDisabled}
-            >
-              <Text style={styles.discoveryButtonText} numberOfLines={1}>
-                Enviar
-              </Text>
-              {giftProductsLoading ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <Ionicons name="gift-outline" size={20} color={Colors.white} />
-              )}
+            <View style={styles.discoveryActionCenter}>
+              <TouchableOpacity
+                style={[
+                  styles.likeButton,
+                  (likingUserId === currentDiner?.user_id || currentDinerHasRelationship) && styles.saveButtonDisabled,
+                ]}
+                activeOpacity={0.86}
+                onPress={() =>
+                  currentDiner &&
+                  (currentDiner.relationship_status === 'liked'
+                    ? handleUnlikeDiner(currentDiner.user_id)
+                    : handleLikeDiner(currentDiner.user_id))
+                }
+                disabled={!currentDiner || likingUserId === currentDiner.user_id || currentDinerHasRelationship}
+              >
+                {likingUserId === currentDiner?.user_id ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <Ionicons name="heart" size={20} color={Colors.white} />
+                )}
+                <Text style={styles.discoveryButtonText} numberOfLines={1}>
+                  {currentDinerLikeLabel}
+                </Text>
+              </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.discoveryGiftButton, giftButtonDisabled && styles.saveButtonDisabled]}
+                activeOpacity={0.86}
+                onPress={openGiftSelector}
+                disabled={giftButtonDisabled}
+              >
+                <Text style={styles.discoveryButtonText} numberOfLines={1}>
+                  Enviar
+                </Text>
+                {giftProductsLoading ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <Ionicons name="gift-outline" size={20} color={Colors.white} />
+                )}
+
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
+              activeOpacity={0.86}
+              onPress={handleNextDiner}
+              disabled={diners.length <= 1}
+              accessibilityRole="button"
+              accessibilityLabel="Siguiente perfil"
+            >
+              <Ionicons name="chevron-forward" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
             </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            style={[styles.discoveryArrowButton, diners.length <= 1 && styles.discoveryArrowButtonDisabled]}
-            activeOpacity={0.86}
-            onPress={handleNextDiner}
-            disabled={diners.length <= 1}
-            accessibilityRole="button"
-            accessibilityLabel="Siguiente perfil"
-          >
-            <Ionicons name="chevron-forward" size={26} color={diners.length <= 1 ? Colors.textMuted : Colors.text} />
-          </TouchableOpacity>
         </View>
       </View>
     );
@@ -2144,7 +2157,7 @@ export default function SocialProfileScreen() {
     <SafeAreaView style={styles.safe}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <LinearGradient colors={['#F7F7FB', '#EEF1F7']} style={styles.heroBackground}>
+      <LinearGradient colors={[Colors.background, Colors.background]} style={styles.heroBackground}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.iconButton} onPress={() => router.back()} activeOpacity={0.8}>
             <Ionicons name="arrow-back" size={22} color={Colors.text} />
@@ -2243,7 +2256,7 @@ export default function SocialProfileScreen() {
         </View>
       </LinearGradient>
 
-      <View style={styles.contentArea}>
+      <View style={[styles.contentArea, socialView === 'discover' && modoSocial && styles.discoveryContentArea]}>
         {socialView === 'discover' && floatingLikeVisible && topReceivedLike ? (
           <TouchableOpacity style={styles.floatingLikeCard} activeOpacity={0.9} onPress={() => handleOpenLikesView('received')}>
             {topReceivedLike.foto_url ? (
@@ -2705,7 +2718,7 @@ export default function SocialProfileScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Perfil del comensal</Text>
               <View style={styles.modalHeaderActions}>
-                {detailDiner ? (
+                {detailDiner && canUseSocialActions ? (
                   <TouchableOpacity
                     onPress={openGiftSelector}
                     style={styles.headerGiftButton}
@@ -2882,6 +2895,40 @@ export default function SocialProfileScreen() {
         </View>
       </Modal>
 
+      <Modal visible={likeGiftPromptVisible} transparent animationType="fade" onRequestClose={closeLikeGiftPrompt}>
+        <View style={styles.promptOverlay}>
+          <Pressable style={styles.promptBackdrop} onPress={closeLikeGiftPrompt} />
+
+          <View style={styles.likeGiftPromptCard}>
+            <View style={styles.likeGiftPromptIcon}>
+              <Ionicons name={likeGiftPromptMatched ? 'sparkles' : 'heart'} size={28} color={Colors.white} />
+            </View>
+
+            <Text style={styles.likeGiftPromptTitle}>
+              {likeGiftPromptMatched ? '¡Es match!' : 'Like enviado'}
+            </Text>
+            <Text style={styles.likeGiftPromptText}>
+              {likeGiftPromptDiner
+                ? likeGiftPromptMatched
+                  ? `${likeGiftPromptDiner.nombre} también te dio like. ¿Quieres enviarle un regalo?`
+                  : `¿Quieres enviarle un regalo a ${likeGiftPromptDiner.nombre}?`
+                : '¿Quieres enviar un regalo ahora?'}
+            </Text>
+
+            <View style={styles.likeGiftPromptActions}>
+              <TouchableOpacity style={styles.likeGiftLaterButton} activeOpacity={0.85} onPress={closeLikeGiftPrompt}>
+                <Text style={styles.likeGiftLaterText}>Más tarde</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.likeGiftSendButton} activeOpacity={0.86} onPress={handleGiftAfterLike}>
+                <Text style={styles.likeGiftSendText}>Enviar regalo</Text>
+                <Ionicons name="gift-outline" size={18} color={Colors.white} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={giftsVisible} transparent animationType="slide" onRequestClose={closeGiftSelector}>
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={closeGiftSelector} />
@@ -2982,6 +3029,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   heroBackground: {
+    backgroundColor: Colors.background,
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 20,
@@ -3195,8 +3243,13 @@ const styles = StyleSheet.create({
   contentArea: {
     flex: 1,
     position: 'relative',
+    backgroundColor: Colors.background,
     paddingHorizontal: 20,
     paddingBottom: 16,
+  },
+  discoveryContentArea: {
+    paddingHorizontal: 10,
+    paddingBottom: 10,
   },
   floatingLikeCard: {
     position: 'absolute',
@@ -3281,52 +3334,55 @@ const styles = StyleSheet.create({
   carouselArea: {
     flex: 1,
     paddingTop: 0,
-    paddingBottom: 8,
-  },
-  counterText: {
-    marginBottom: 6,
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textSecondary,
+    paddingBottom: 0,
   },
   tinderCardContainer: {
+    flex: 1,
     width: '100%',
     alignItems: 'center',
+    position: 'relative',
   },
   tinderCard: {
+    flex: 1,
     width: '100%',
     maxWidth: 480,
   },
   discoveryActions: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 18,
+    zIndex: 12,
     flexDirection: 'row',
-    gap: 6,
+    gap: 8,
     alignItems: 'center',
-    marginTop: 8,
-    paddingBottom: 2,
+    maxWidth: 460,
+    alignSelf: 'center',
   },
   discoveryActionCenter: {
     flex: 1,
     flexDirection: 'row',
-    gap: 6,
+    gap: 8,
   },
   discoveryArrowButton: {
-    width: 44,
-    minHeight: 44,
-    borderRadius: 15,
+    width: 50,
+    minHeight: 50,
+    borderRadius: 17,
     borderWidth: 1,
     borderColor: '#D8DDE8',
-    backgroundColor: Colors.white,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    ...Shadows.sm,
   },
   discoveryArrowButtonDisabled: {
     opacity: 0.45,
   },
   likeButton: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 15,
+    minHeight: 50,
+    borderRadius: 17,
     backgroundColor: '#E11D48',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3336,8 +3392,8 @@ const styles = StyleSheet.create({
   },
   discoveryGiftButton: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 15,
+    minHeight: 50,
+    borderRadius: 17,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3352,15 +3408,16 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   dinerCard: {
+    flex: 1,
     borderRadius: 30,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: '#E7EAF0',
     overflow: 'hidden',
     ...Shadows.lg,
   },
   dinerImageWrap: {
-    height: 340,
+    flex: 1,
     backgroundColor: '#E8EBF3',
   },
   dinerImage: {
@@ -3427,9 +3484,10 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   dinerPreview: {
+    backgroundColor: Colors.background,
     paddingHorizontal: 22,
     paddingTop: 14,
-    paddingBottom: 14,
+    paddingBottom: 78,
   },
   previewEyebrow: {
     fontSize: 15,
@@ -3787,6 +3845,86 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: Colors.primary,
+  },
+  promptOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(18, 18, 42, 0.22)',
+  },
+  promptBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  likeGiftPromptCard: {
+    borderRadius: 28,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: 'center',
+    ...Shadows.lg,
+  },
+  likeGiftPromptIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 24,
+    backgroundColor: '#E11D48',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  likeGiftPromptTitle: {
+    fontSize: 23,
+    fontWeight: '900',
+    color: Colors.text,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  likeGiftPromptText: {
+    marginTop: 8,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  likeGiftPromptActions: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 22,
+  },
+  likeGiftLaterButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  likeGiftLaterText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  likeGiftSendButton: {
+    flex: 1.2,
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    ...Shadows.md,
+  },
+  likeGiftSendText: {
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '900',
+    color: Colors.white,
   },
   modalOverlay: {
     flex: 1,
