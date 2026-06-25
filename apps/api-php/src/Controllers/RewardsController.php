@@ -14,10 +14,13 @@ use Stripe\Stripe;
 
 class RewardsController
 {
+    private const MIN_TOPUP_AMOUNT = 100;
+    private const MAX_TOPUP_AMOUNT = 50000;
+
     private function isValidTopupAmount(float $amount): bool
     {
         $rounded = (int)round($amount);
-        return $rounded > 0 && $rounded <= 50000 && (float)$rounded === $amount;
+        return $rounded >= self::MIN_TOPUP_AMOUNT && $rounded <= self::MAX_TOPUP_AMOUNT && (float)$rounded === $amount;
     }
 
     private function getStripeSecret(): string
@@ -81,7 +84,7 @@ class RewardsController
         $amount = (float)($input['amount'] ?? 0);
 
         if (!$this->isValidTopupAmount($amount)) {
-            Response::validationError(['amount' => ['Ingresa un monto entero valido para recargar saldo']]);
+            Response::validationError(['amount' => ['El monto minimo de recarga es de $100 MXN']]);
         }
 
         try {
@@ -136,7 +139,7 @@ class RewardsController
                 Response::error('Stripe aun no confirma el pago de esta recarga.', 409);
             }
             if (!$this->isValidTopupAmount($amountMxn)) {
-                Response::error('El monto confirmado por Stripe no es valido para una recarga.', 409);
+                Response::error('El monto minimo de recarga es de $100 MXN.', 409);
             }
 
             $pdo = Database::getInstance();

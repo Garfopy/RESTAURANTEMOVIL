@@ -1,5 +1,7 @@
 import { apiClient } from './api';
 
+export const MIN_REWARDS_TOPUP_AMOUNT = 100;
+
 type ApiEnvelope<T> = {
   success?: boolean;
   data?: T;
@@ -154,6 +156,10 @@ export async function createRewardsTopupIntent(amountMxn: number): Promise<{
   payment_intent_id: string;
   amount_mxn: number;
 }> {
+  if (amountMxn > 0 && amountMxn < MIN_REWARDS_TOPUP_AMOUNT) {
+    throw new Error(`El monto minimo para recargar Saldo Amare es de $${MIN_REWARDS_TOPUP_AMOUNT} MXN.`);
+  }
+
   const response = await apiClient.post<
     ApiEnvelope<{
       client_secret: string;

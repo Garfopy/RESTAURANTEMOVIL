@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../../components/ui/Button';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import {
+  MIN_REWARDS_TOPUP_AMOUNT,
   confirmRewardsTopup,
   createRewardsTopupIntent,
   getRewardsWallet,
@@ -25,6 +26,8 @@ import {
 import { Colors, Shadows } from '../../theme';
 
 type TopupChoice = number | 'custom';
+
+const MIN_TOPUP_AMOUNT = MIN_REWARDS_TOPUP_AMOUNT;
 
 const FALLBACK_TOPUPS: RewardsTopupOption[] = [
   { amount_mxn: 500 },
@@ -71,6 +74,8 @@ export default function AmareBalanceScreen() {
     return selectedChoice;
   }, [customAmount, selectedChoice]);
 
+  const amountBelowMinimum = selectedAmount > 0 && selectedAmount < MIN_TOPUP_AMOUNT;
+
   async function handleTopup() {
     if (!STRIPE_IS_CONFIGURED) {
       Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para recargar saldo.');
@@ -78,6 +83,10 @@ export default function AmareBalanceScreen() {
     }
     if (!selectedAmount || selectedAmount <= 0) {
       Alert.alert('Monto requerido', 'Ingresa un monto válido para recargar tu prepago.');
+      return;
+    }
+    if (amountBelowMinimum) {
+      Alert.alert('Monto minimo', `El monto minimo para recargar Saldo Amare es de $${MIN_TOPUP_AMOUNT} MXN.`);
       return;
     }
     if (!cardComplete) {
@@ -169,6 +178,9 @@ export default function AmareBalanceScreen() {
               style={styles.input}
             />
           ) : null}
+          {amountBelowMinimum ? (
+            <Text style={styles.minimumHint}>El monto minimo de recarga es de $100 MXN.</Text>
+          ) : null}
 
           {STRIPE_IS_CONFIGURED ? (
             <>
@@ -188,7 +200,13 @@ export default function AmareBalanceScreen() {
               ) : null}
 
               <Button
-                label={selectedAmount > 0 ? `Recargar $${selectedAmount} con Stripe` : 'Ingresa un monto para recargar'}
+                label={
+                  amountBelowMinimum
+                    ? `Minimo $${MIN_TOPUP_AMOUNT} para recargar`
+                    : selectedAmount > 0
+                      ? `Recargar $${selectedAmount} con Stripe`
+                      : 'Ingresa un monto para recargar'
+                }
                 onPress={handleTopup}
                 fullWidth
                 loading={loading}
@@ -322,5 +340,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#6B7280',
     fontWeight: '600',
+  },
+  minimumHint: {
+    marginTop: -8,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#B91C1C',
+    fontWeight: '700',
   },
 });
