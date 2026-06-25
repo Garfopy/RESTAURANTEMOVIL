@@ -714,8 +714,7 @@ class WaiterController
         $sql = 'UPDATE rest_pedidos
                    SET ' . implode(', ', $set) . '
                  WHERE restaurante_id = :restaurant_id
-                   AND mesa_id = :table_id
-                   AND tipo_pedido IN ("eat_in", "dine_in")';
+                   AND mesa_id = :table_id';
         if (in_array('cuenta_abierta', $columns, true)) {
             $sql .= ' AND cuenta_abierta = 1';
         } else {
@@ -1459,8 +1458,7 @@ class WaiterController
         $sql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", $fields)) . '
                   FROM rest_pedidos
                  WHERE restaurante_id = :restaurant_id
-                   AND mesa_id = :table_id
-                   AND tipo_pedido IN ("eat_in", "dine_in")';
+                   AND mesa_id = :table_id';
         $params = [
             ':restaurant_id' => $restaurantId,
             ':table_id' => $tableId,
@@ -1502,8 +1500,7 @@ class WaiterController
                   FROM rest_pedidos
                  WHERE restaurante_id = :restaurant_id
                    AND mesa_id IS NOT NULL
-                   AND mesa_id > 0
-                   AND tipo_pedido IN ("eat_in", "dine_in")';
+                   AND mesa_id > 0';
         $params = [':restaurant_id' => $restaurantId];
 
         if (in_array('cuenta_abierta', $columns, true)) {
@@ -1603,7 +1600,8 @@ class WaiterController
                   FROM rest_pedidos
                  WHERE id = :id
                    AND restaurante_id = :restaurant_id
-                   AND tipo_pedido IN ("eat_in", "dine_in")';
+                   AND mesa_id IS NOT NULL
+                   AND mesa_id > 0';
         $params = [
             ':id' => $orderId,
             ':restaurant_id' => $restaurantId,

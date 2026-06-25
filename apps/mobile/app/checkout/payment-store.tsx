@@ -76,16 +76,6 @@ export default function StorePaymentScreen() {
       if (selectedMethod === 'card') {
         if (!params.clientSecret) throw new Error('Falta el secreto del cliente para procesar la tarjeta.');
 
-        const { error } = await stripeConfirm(params.clientSecret, {
-          paymentMethodType: 'Card',
-        });
-
-        if (error) {
-          Alert.alert('Pago rechazado', error.message);
-          setLoading(false);
-          return;
-        }
-
         const order = await createStoreOrder({
           product_id: Number(params.productId),
           quantity,
@@ -96,6 +86,16 @@ export default function StorePaymentScreen() {
           subtotal: total,
           payment_intent_id: params.intentId,
         });
+
+        const { error } = await stripeConfirm(params.clientSecret, {
+          paymentMethodType: 'Card',
+        });
+
+        if (error) {
+          Alert.alert('Pago rechazado', error.message);
+          setLoading(false);
+          return;
+        }
 
         await confirmPayment({
           pedido_id: order.id,

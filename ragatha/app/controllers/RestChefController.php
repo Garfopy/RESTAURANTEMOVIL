@@ -48,6 +48,10 @@ class RestChefController extends BaseController
                 $this->json(['ok' => true, 'store_ignored' => true]);
                 return;
             }
+            if ($this->isSocialGiftItem($itemId)) {
+                $this->json(['ok' => true, 'gift_ignored' => true]);
+                return;
+            }
 
             // Si ya estaba en preparación, no descontar stock de nuevo
             if ($item && $item['estado'] === 'en_preparacion') {
@@ -157,6 +161,10 @@ class RestChefController extends BaseController
                 $this->json(['ok' => true, 'store_ignored' => true]);
                 return;
             }
+            if ($this->isSocialGiftItem($itemId)) {
+                $this->json(['ok' => true, 'gift_ignored' => true]);
+                return;
+            }
         } catch (\Throwable $e) {
             // Si la columna tipo_origen no existe, continuar con el flujo normal.
         }
@@ -217,5 +225,66 @@ class RestChefController extends BaseController
         $pasos = $stmtPasos->fetchAll(PDO::FETCH_ASSOC);
 
         $this->json(['ingredientes' => $ingredientes, 'pasos' => $pasos]);
+    }
+
+    private function isSocialGiftItem(int $itemId): bool
+    {
+        if ($itemId <= 0) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $hasGiftItemLink = $this->tableHasColumn($db, 'social_gift_orders', 'pedido_item_id');
+            if ($hasGiftItemLink) {
+                $stmt = $db->prepare(
+                    'SELECT 1 FROM social_gift_orders WHERE pedido_item_id = ? LIMIT 1'
+                );
+                $stmt->execute([$itemId]);
+                if ($stmt->fetchColumn()) {
+                    return true;
+                }
+            }
+
+            if ($this->tableHasColumn($db, 'social_gift_account_products', 'platillo_id')) {
+                $stmt = $db->prepare(
+                    'SELECT 1
+                       FROM rest_pedido_items pi
+                       JOIN social_gift_account_products sgap ON sgap.platillo_id = pi.platillo_id
+                      WHERE pi.id = ?
+                      LIMIT 1'
+                );
+                $stmt->execute([$itemId]);
+                if ($stmt->fetchColumn()) {
+                    return true;
+                }
+            }
+
+            $stmt = $db->prepare(
+                "SELECT 1
+                   FROM rest_pedido_items pi
+                   JOIN rest_platillos pl ON pl.id = pi.platillo_id
+                  WHERE pi.id = ?
+                    AND COALESCE(pl.codigo, '') LIKE 'SG-%'
+                  LIMIT 1"
+            );
+            $stmt->execute([$itemId]);
+            return (bool)$stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function tableHasColumn(PDO $db, string $table, string $column): bool
+    {
+        $stmt = $db->prepare(
+            "SELECT COUNT(*)
+               FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND table_name = ?
+                AND column_name = ?"
+        );
+        $stmt->execute([$table, $column]);
+        return (int)$stmt->fetchColumn() > 0;
     }
 }

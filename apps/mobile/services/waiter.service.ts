@@ -232,6 +232,12 @@ export async function getWaiterAccount(tableId: number, restaurantId: number): P
 export async function getWaiterIncomingOrders(restaurantId: number): Promise<WaiterIncomingOrder[]> {
   const { data } = await apiClient.get<Envelope<{ orders: WaiterIncomingOrder[] }>>('/waiter/orders', {
     params: { restaurant_id: restaurantId },
+    _suppressConsoleError: true,
+  } as any).catch((error) => {
+    if (error?.response?.status === 404) {
+      return { data: { orders: [] } as { orders: WaiterIncomingOrder[] } };
+    }
+    throw error;
   });
   return (unwrap(data).orders ?? []).map((order) => ({
     ...order,

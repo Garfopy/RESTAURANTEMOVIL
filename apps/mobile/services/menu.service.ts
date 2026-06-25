@@ -14,16 +14,7 @@ export async function getCategories(restauranteId?: number): Promise<Categoria[]
     '/menu/categories',
     { params: restauranteId ? { branch_id: restauranteId } : undefined }
   );
-  const categories = data.data.categories.map(resolveImg);
-
-  if (restauranteId && categories.length === 0) {
-    const fallback = await apiClient.get<{ success: boolean; data: { categories: Categoria[] } }>(
-      '/menu/categories'
-    );
-    return fallback.data.data.categories.map(resolveImg);
-  }
-
-  return categories;
+  return data.data.categories.map(resolveImg);
 }
 
 export interface GetDishesParams {
@@ -45,38 +36,15 @@ export async function getDishes(restauranteId?: number, params?: GetDishesParams
     '/menu/products',
     { params: queryParams }
   );
-  const products = data.data.products.map(resolveImg);
-
-  if (branchId && products.length === 0) {
-    const fallbackParams: Record<string, string | number> = {};
-    if (params?.categoria_id) fallbackParams.category_id = params.categoria_id;
-    if (params?.q) fallbackParams.q = params.q;
-
-    const fallback = await apiClient.get<{ success: boolean; data: { products: Platillo[] } }>(
-      '/menu/products',
-      { params: fallbackParams }
-    );
-    return fallback.data.data.products.map(resolveImg);
-  }
-
-  return products;
+  return data.data.products.map(resolveImg);
 }
 
 export async function getDishById(restauranteId?: number, dishId?: number): Promise<Platillo> {
-  try {
-    const { data } = await apiClient.get<{ success: boolean; data: { product: Platillo } }>(
-      `/menu/products/${dishId}`,
-      { params: restauranteId ? { branch_id: restauranteId } : undefined }
-    );
-    return resolveImg(data.data.product);
-  } catch (error) {
-    if (!restauranteId) throw error;
-
-    const { data } = await apiClient.get<{ success: boolean; data: { product: Platillo } }>(
-      `/menu/products/${dishId}`
-    );
-    return resolveImg(data.data.product);
-  }
+  const { data } = await apiClient.get<{ success: boolean; data: { product: Platillo } }>(
+    `/menu/products/${dishId}`,
+    { params: restauranteId ? { branch_id: restauranteId } : undefined }
+  );
+  return resolveImg(data.data.product);
 }
 
 export async function getFeaturedDishes(restauranteId?: number): Promise<Platillo[]> {

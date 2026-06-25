@@ -23,6 +23,25 @@ class RestPedidoModel extends BaseModel
         return self::$columnCache[$key];
     }
 
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        $key = $table . '.' . $column;
+        if (array_key_exists($key, self::$columnCache)) {
+            return self::$columnCache[$key];
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*)
+               FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND table_name = ?
+                AND column_name = ?"
+        );
+        $stmt->execute([$table, $column]);
+        self::$columnCache[$key] = (int)$stmt->fetchColumn() > 0;
+        return self::$columnCache[$key];
+    }
+
     public function soportaTipoOrigen(): bool
     {
         return $this->hasColumn('tipo_origen');
@@ -42,6 +61,35 @@ class RestPedidoModel extends BaseModel
             return ' AND 1 = 0';
         }
         return " AND LOWER(COALESCE({$alias}.tipo_origen, '')) = 'store'";
+    }
+
+    private function sqlNoSocialGiftItems(string $itemAlias = 'pi', string $dishAlias = 'pl'): string
+    {
+        $conditions = [];
+
+        if ($this->tableHasColumn('social_gift_orders', 'pedido_item_id')) {
+            $conditions[] = "NOT EXISTS (
+                    SELECT 1
+                      FROM social_gift_orders sgo
+                     WHERE sgo.pedido_item_id = {$itemAlias}.id
+                )";
+        }
+
+        if ($this->tableHasColumn('social_gift_account_products', 'platillo_id')) {
+            $conditions[] = "NOT EXISTS (
+                    SELECT 1
+                      FROM social_gift_account_products sgap
+                     WHERE sgap.platillo_id = {$itemAlias}.platillo_id
+                )";
+        }
+
+        $conditions[] = "COALESCE({$dishAlias}.codigo, '') NOT LIKE 'SG-%'";
+
+        if (empty($conditions)) {
+            return '';
+        }
+
+        return ' AND ' . implode(' AND ', $conditions);
     }
 
     public function generarFolio(int $restauranteId): string
@@ -134,6 +182,7 @@ class RestPedidoModel extends BaseModel
     public function getKitchenQueue(int $restauranteId): array
     {
         $noStore = $this->sqlNoStore('p');
+        $noSocialGiftItems = $this->sqlNoSocialGiftItems('pi', 'pl');
 
         // Formato ingredientes_raw (separador ||, campos |):
         //   codigo | nombre | tipo | cantidad | unidad | notas | es_informativo
@@ -186,6 +235,7 @@ class RestPedidoModel extends BaseModel
                AND p.estado NOT IN ('cancelado', 'entregado')
                AND pi.estado IN ('pendiente','en_preparacion')
                $noStore
+               $noSocialGiftItems
              ORDER BY p.created_at ASC, pi.id ASC",
             [$restauranteId]
         );

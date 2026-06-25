@@ -258,6 +258,8 @@ export default function PaymentScreen() {
 
       if (selectedMethod === 'card') {
         const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
+        const order = existingOrderId ? null : await createOrderBackend('card', paymentIntent.intentId);
+        const targetOrderId = existingOrderId ?? order!.id;
         const { error } = await stripeConfirm(paymentIntent.clientSecret, {
           paymentMethodType: 'Card',
         });
@@ -267,8 +269,6 @@ export default function PaymentScreen() {
           return;
         }
 
-        const order = existingOrderId ? null : await createOrderBackend('card', paymentIntent.intentId);
-        const targetOrderId = existingOrderId ?? order!.id;
         const confirmation = await confirmPayment({
           pedido_id: targetOrderId,
           payment_intent_id: paymentIntent.intentId,

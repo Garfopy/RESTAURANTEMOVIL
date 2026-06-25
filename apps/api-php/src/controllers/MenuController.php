@@ -23,9 +23,6 @@ class MenuController
         $restaurantId = $branchId ? DishModifier::resolveRestaurantId($branchId) : null;
         if ($branchId && !$restaurantId) Response::notFound('Sucursal no encontrada.');
         $categories = Category::getAll($restaurantId);
-        if ($branchId && empty($categories)) {
-            $categories = Category::getAll(null);
-        }
         Response::success(['categories' => $categories]);
     }
 
@@ -38,9 +35,6 @@ class MenuController
         if ($branchId && !$restaurantId) Response::notFound('Sucursal no encontrada.');
         $q = isset($_GET['q']) ? trim((string)$_GET['q']) : null;
         $products = Product::getAll($categoryId, $restaurantId, $q);
-        if ($branchId && empty($products)) {
-            $products = Product::getAll($categoryId, null, $q);
-        }
         foreach ($products as &$product) {
             [$exclusionsEnabled, $extrasEnabled] = self::modifierFlags((int)$product['restaurante_id']);
             $payload = DishModifier::payload((int)$product['restaurante_id'], (int)$product['id'], $exclusionsEnabled, $extrasEnabled);
@@ -58,9 +52,6 @@ class MenuController
         $restaurantId = $branchId ? DishModifier::resolveRestaurantId($branchId) : null;
         if ($branchId && !$restaurantId) Response::notFound('Sucursal no encontrada.');
         $product = Product::findById($id, $restaurantId);
-        if (!$product && $branchId) {
-            $product = Product::findById($id, null);
-        }
         if (!$product) Response::notFound('Producto no encontrado');
 
         [$exclusionsEnabled, $extrasEnabled] = self::modifierFlags((int)$product['restaurante_id']);
