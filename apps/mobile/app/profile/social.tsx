@@ -48,6 +48,9 @@ import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
 
+const GIFT_TERMS_MESSAGE =
+  'La persona no esta obligada a recibirlo. El restaurante no se hace responsable de rechazos. El reembolso del 50% aplica solo en productos u objetos; no aplica en comida ni bebidas.';
+
 type SelectOption = {
   label: string;
   value: string;
@@ -2008,7 +2011,7 @@ export default function SocialProfileScreen() {
     showGiftSentAlert(payload.gift, 'wallet');
   }
 
-  async function handleSendGift() {
+  async function submitGiftAfterTerms() {
     if (!detailDiner || !selectedGift) {
       Alert.alert('Regalos', 'Selecciona un regalo para continuar.');
       return;
@@ -2041,6 +2044,23 @@ export default function SocialProfileScreen() {
     } finally {
       setGiftSending(false);
     }
+  }
+
+  async function handleSendGift() {
+    if (!detailDiner || !selectedGift) {
+      Alert.alert('Regalos', 'Selecciona un regalo para continuar.');
+      return;
+    }
+
+    if (!selectedBranch?.id) {
+      Alert.alert('Visitanos en una sucursal', 'Visitanos en alguna sucursal para conocer a los comensales.');
+      return;
+    }
+
+    Alert.alert('Condiciones del regalo', GIFT_TERMS_MESSAGE, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Aceptar y enviar', onPress: () => void submitGiftAfterTerms() },
+    ]);
   }
 
   function showSexualityInfo(value?: string | null) {
