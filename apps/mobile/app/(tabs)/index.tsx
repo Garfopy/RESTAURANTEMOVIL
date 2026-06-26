@@ -67,9 +67,9 @@ const HOME_BANNERS = [
   },
 ];
 
-const AUTO_SELECT_DISTANCE_METERS = 15;
-const CONFIRM_SELECT_DISTANCE_METERS = 50;
-const MIN_DISTANCE_GAP_METERS = 30;
+const AUTO_SELECT_DISTANCE_METERS = 100;
+const CONFIRM_SELECT_DISTANCE_METERS = 333;
+const MIN_DISTANCE_GAP_METERS = 200;
 
 type NearbyBranchState =
   | { kind: 'inside'; branch: Sucursal; distanceMeters: number }
@@ -382,7 +382,6 @@ export default function HomeScreen() {
           branchForMenu = fallbackBranch;
         }
       }
-      setTipoPedido('eat_in');
       clearTableSession();
 
       if (branchForMenu?.id) {
@@ -1349,12 +1348,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginTop: 14,
     marginBottom: 6,
-  },
-  detectedBranchText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#374151',
-    lineHeight: 18,
   },
   infoBox: {
     flexDirection: 'row',

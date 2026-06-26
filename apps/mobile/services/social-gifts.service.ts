@@ -1,6 +1,6 @@
 import { apiClient } from './api';
 
-export type GiftCheckoutMode = 'account' | 'stripe';
+export type GiftCheckoutMode = 'account' | 'stripe' | 'wallet';
 
 type ApiEnvelope<T> = {
   success?: boolean;
@@ -22,6 +22,10 @@ export type SocialGiftOrder = {
   pedido_id?: number | null;
   pedido_item_id?: number | null;
   charged_to_account?: boolean;
+  amare_wallet_used_mxn?: number | null;
+  amare_discount_mxn?: number | null;
+  amare_points_redeemed?: number | null;
+  amare_points_earned?: number | null;
 };
 
 export type CreateSocialGiftPaymentResult = {
@@ -33,14 +37,26 @@ export type CreateSocialGiftPaymentResult = {
   };
   client_secret?: string;
   payment_intent_id?: string;
+  paid_with_wallet?: boolean;
+  reward?: {
+    wallet_total: number;
+    discount_amount: number;
+    points_redeemed: number;
+    points_discount: number;
+    points_earned: number;
+    balance_after_mxn?: number;
+    points_after?: number;
+  };
 };
 
 type CreateSocialGiftPaymentParams = {
   restaurant_id: number;
   recipient_user_id: number;
   gift_product_id: number;
+  gift_type?: 'gift' | 'menu';
   request_key: string;
   payment_mode: GiftCheckoutMode;
+  use_points?: boolean;
 };
 
 function unwrapEnvelope<T>(payload: ApiEnvelope<T> | T): T {

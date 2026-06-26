@@ -27,6 +27,7 @@ import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { useThemeStore } from '../store/theme.store';
 import { notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
+import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -39,8 +40,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_KEY ?? '';
 
 // Guard para detectar configuración incorrecta de Stripe
 if (!STRIPE_PUBLISHABLE_KEY) {

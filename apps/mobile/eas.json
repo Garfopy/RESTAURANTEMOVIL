@@ -8,11 +8,25 @@
       "developmentClient": true,
       "distribution": "internal"
     },
+    "preview-apk": {
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "preview": {
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante"
+      }
     }
   },
   "submit": {
