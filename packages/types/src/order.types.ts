@@ -54,6 +54,9 @@ export interface Pedido {
   pedidos_count?: number;
   salida_qr_generado_at?: string | null;
   salida_validado_at?: string | null;
+  pagado_at?: string | null;
+  cerrado_at?: string | null;
+  metodo_pago?: string | null;
 }
 
 export interface ExitPass {

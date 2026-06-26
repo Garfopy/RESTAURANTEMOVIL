@@ -13,6 +13,22 @@ export function useOrders() {
     queryKey: orderKeys.list,
     queryFn: () => getOrders(),
     staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const orders = query.state.data as Pedido[] | undefined;
+      const hasActiveOrder = orders?.some((order) => {
+        if (order.estado === 'cancelado' || order.salida_validado_at || order.pagado_at || order.cerrado_at) {
+          return false;
+        }
+
+        return (
+          order.estado !== 'entregado' ||
+          Number(order.cuenta_abierta ?? 0) === 1 ||
+          Boolean(order.salida_qr_generado_at)
+        );
+      });
+
+      return hasActiveOrder ? 15000 : false;
+    },
   });
 }
 

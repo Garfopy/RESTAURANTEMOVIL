@@ -590,6 +590,7 @@ class WaiterController
         }
 
         Database::rowCount($sql, $params);
+        $this->clearDinerSessionsForOrders($orders);
         $this->markGiftOrdersPaid(array_map(
             static fn(array $order): int => (int)$order['id'],
             $orders
@@ -1116,6 +1117,67 @@ class WaiterController
         );
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $orders
+     */
+    private function clearDinerSessionsForOrders(array $orders): void
+    {
+        if (!$orders || !$this->tableExists('mobile_usuarios')) {
+            return;
+        }
+
+        $userIds = [];
+        foreach ($orders as $order) {
+            $userId = isset($order['mobile_usuario_id']) ? (int)$order['mobile_usuario_id'] : 0;
+            if ($userId > 0) {
+                $userIds[$userId] = true;
+            }
+        }
+
+        if (!$userIds) {
+            return;
+        }
+
+        $columns = $this->getTableColumns('mobile_usuarios');
+        $set = [];
+        if (in_array('is_social_active', $columns, true)) {
+            $set[] = 'is_social_active = 0';
+        }
+        if (in_array('modo_social', $columns, true)) {
+            $set[] = 'modo_social = 0';
+        }
+        if (in_array('current_restaurante_id', $columns, true)) {
+            $set[] = 'current_restaurante_id = NULL';
+        }
+        if (in_array('mesa', $columns, true)) {
+            $set[] = 'mesa = NULL';
+        }
+        if (in_array('social_updated_at', $columns, true)) {
+            $set[] = 'social_updated_at = NOW()';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+
+        if (!$set) {
+            return;
+        }
+
+        $params = [];
+        $placeholders = [];
+        foreach (array_keys($userIds) as $index => $userId) {
+            $key = ':diner_id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $userId;
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_usuarios SET ' . implode(', ', $set) .
+            ' WHERE id IN (' . implode(',', $placeholders) . ')',
+            $params
+        );
+    }
+
     private function requireWaiter(): array
     {
         $tokenUser = AuthMiddleware::authenticate();
@@ -1264,11 +1326,19 @@ class WaiterController
             $orderItems = $this->getOrderItems((int)$order['id']);
             $order['items'] = $orderItems;
             $total += (float)($order['total'] ?? 0);
+            $orderCustomerName = $order['cliente_nombre'] ?? null;
+            if (($orderCustomerName === null || trim((string)$orderCustomerName) === '') && !empty($order['mobile_usuario_id'])) {
+                $orderCustomerName = $this->getMobileUserName((int)$order['mobile_usuario_id']);
+            }
             foreach ($orderItems as $item) {
                 $items[] = $item + [
                     'pedido_id' => (int)$order['id'],
                     'pedido_folio' => $order['folio'] ?? null,
                     'pedido_created_at' => $order['created_at'] ?? null,
+                    'pedido_cliente_nombre' => $orderCustomerName,
+                    'pedido_mobile_usuario_id' => isset($order['mobile_usuario_id']) && $order['mobile_usuario_id'] !== null
+                        ? (int)$order['mobile_usuario_id']
+                        : null,
                 ];
             }
         }
@@ -1283,6 +1353,21 @@ class WaiterController
             'mesero_nombre' => $table['mesero_nombre'] ?? null,
             'active_split' => $this->getActiveSplit($restaurantId, $tableId),
         ];
+    }
+
+    private function getMobileUserName(int $userId): ?string
+    {
+        if ($userId <= 0 || !$this->tableExists('mobile_usuarios')) {
+            return null;
+        }
+
+        $user = Database::queryOne(
+            'SELECT nombre FROM mobile_usuarios WHERE id = :id LIMIT 1',
+            [':id' => $userId]
+        );
+        $name = trim((string)($user['nombre'] ?? ''));
+
+        return $name !== '' ? $name : null;
     }
 
     private function findOpenAccountForTable(int $restaurantId, int $tableId): ?array
@@ -1314,7 +1399,7 @@ class WaiterController
 
         $columns = $this->getTableColumns('rest_pedidos');
         $fields = ['id', 'folio', 'estado', 'subtotal', 'total', 'tipo_pedido', 'created_at'];
-        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'mesero_usuario_id', 'pedido_origen'] as $column) {
+        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mobile_usuario_id', 'mesero_nombre', 'mesero_usuario_id', 'pedido_origen'] as $column) {
             if (in_array($column, $columns, true)) {
                 $fields[] = $column;
             }

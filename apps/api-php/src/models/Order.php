@@ -335,6 +335,9 @@ class Order
         $isOpen = false;
         $validatedAt = null;
         $generatedAt = null;
+        $paidAt = null;
+        $closedAt = null;
+        $paymentMethod = null;
 
         foreach ($orders as $order) {
             $subtotal += (float)($order['subtotal'] ?? 0);
@@ -342,6 +345,9 @@ class Order
             $isOpen = $isOpen || (int)($order['cuenta_abierta'] ?? 0) === 1;
             $generatedAt = $generatedAt ?? ($order['salida_qr_generado_at'] ?? null);
             $validatedAt = $validatedAt ?? ($order['salida_validado_at'] ?? null);
+            $paidAt = $paidAt ?? ($order['pagado_at'] ?? null);
+            $closedAt = $closedAt ?? ($order['cerrado_at'] ?? null);
+            $paymentMethod = $paymentMethod ?? ($order['metodo_pago'] ?? null);
 
             foreach (self::getOrderItems((int)$order['id']) as $item) {
                 $item['pedido_id'] = (int)$order['id'];
@@ -355,11 +361,14 @@ class Order
         $anchor['subtotal'] = $subtotal;
         $anchor['total'] = $total;
         $anchor['items'] = $items;
-        $anchor['estado'] = $validatedAt ? 'entregado' : ($generatedAt ? 'listo' : 'pendiente');
+        $anchor['estado'] = ($validatedAt || $paidAt || $closedAt) ? 'entregado' : ($generatedAt ? 'listo' : 'pendiente');
         $anchor['created_at'] = $latest['created_at'] ?? $anchor['created_at'];
         $anchor['cuenta_abierta'] = $isOpen ? 1 : 0;
         $anchor['salida_qr_generado_at'] = $generatedAt;
         $anchor['salida_validado_at'] = $validatedAt;
+        $anchor['pagado_at'] = $paidAt;
+        $anchor['cerrado_at'] = $closedAt;
+        $anchor['metodo_pago'] = $paymentMethod;
         $anchor['pedidos_count'] = count($orders);
         $anchor['es_consumo'] = true;
         $anchor['consumo_id'] = $anchor['consumo_id'] ?? null;
@@ -497,7 +506,7 @@ class Order
         $hasConsumoId = self::columnExists('rest_pedidos', 'consumo_id');
 
         $extraFields = [];
-        foreach (['cuenta_abierta', 'mesa_id', 'salida_qr_generado_at', 'salida_validado_at', 'consumo_id'] as $column) {
+        foreach (['cuenta_abierta', 'mesa_id', 'salida_qr_generado_at', 'salida_validado_at', 'consumo_id', 'pagado_at', 'cerrado_at', 'metodo_pago'] as $column) {
             if (self::columnExists('rest_pedidos', $column)) {
                 $extraFields[] = "p.{$column}";
             }

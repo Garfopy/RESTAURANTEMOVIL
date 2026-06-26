@@ -193,6 +193,20 @@ export default function WaiterTableScreen() {
   const totalDue = sentTotal + cartTotal;
   const hasPendingCart = cartItems.length > 0;
   const canCloseAccount = sentItems.length > 0 && !hasPendingCart;
+  const sentGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; total: number; items: typeof sentItems }>();
+
+    sentItems.forEach((item) => {
+      const name = item.pedido_cliente_nombre?.trim() || customerName || 'Comensal';
+      const key = item.pedido_mobile_usuario_id ? `user-${item.pedido_mobile_usuario_id}` : `name-${name}`;
+      const group = groups.get(key) ?? { key, name, total: 0, items: [] };
+      group.total += Number(item.subtotal || 0);
+      group.items.push(item);
+      groups.set(key, group);
+    });
+
+    return Array.from(groups.values());
+  }, [customerName, sentItems]);
 
   useEffect(() => {
     if (!activeSplit || resumedSplitId.current === activeSplit.id) return;
@@ -536,17 +550,32 @@ export default function WaiterTableScreen() {
           {accountQuery.isLoading ? null : sentItems.length === 0 ? (
             <Text style={styles.emptyText}>Aun no hay productos enviados a cocina.</Text>
           ) : (
-            sentItems.map((item) => (
-              <View key={`${item.pedido_id}-${item.id}`} style={styles.sentItem}>
-                <Image source={item.imagen ? { uri: item.imagen } : PLACEHOLDER_FOOD} style={styles.sentImage} contentFit="cover" />
-                <View style={styles.lineCopy}>
-                  <Text style={styles.lineName} numberOfLines={2}>{item.cantidad}x {item.nombre}</Text>
-                  <Text style={styles.sentMeta} numberOfLines={1}>{item.pedido_folio ?? 'Comanda'} - {item.estado ?? 'pendiente'}</Text>
-                  {getPersistedModifierLabels(item.modificadores as unknown[]).map((label, index) => (
-                    <Text key={`${item.id}-modifier-${index}`} style={styles.extraText} numberOfLines={1}>{label}</Text>
-                  ))}
+            sentGroups.map((group) => (
+              <View key={group.key} style={styles.guestGroup}>
+                <View style={styles.guestGroupHeader}>
+                  <View style={styles.guestAvatar}>
+                    <Text style={styles.guestAvatarText}>{group.name.trim().charAt(0).toUpperCase() || 'C'}</Text>
+                  </View>
+                  <View style={styles.guestCopy}>
+                    <Text style={styles.guestName} numberOfLines={1}>{group.name}</Text>
+                    <Text style={styles.guestMeta}>{group.items.length} productos pedidos</Text>
+                  </View>
+                  <Text style={styles.guestTotal}>{formatMoney(group.total)}</Text>
                 </View>
-                <Text style={styles.linePrice}>{formatMoney(item.subtotal)}</Text>
+
+                {group.items.map((item) => (
+                  <View key={`${item.pedido_id}-${item.id}`} style={styles.sentItem}>
+                    <Image source={item.imagen ? { uri: item.imagen } : PLACEHOLDER_FOOD} style={styles.sentImage} contentFit="cover" />
+                    <View style={styles.lineCopy}>
+                      <Text style={styles.lineName} numberOfLines={2}>{item.cantidad}x {item.nombre}</Text>
+                      <Text style={styles.sentMeta} numberOfLines={1}>{item.pedido_folio ?? 'Comanda'} - {item.estado ?? 'pendiente'}</Text>
+                      {getPersistedModifierLabels(item.modificadores as unknown[]).map((label, index) => (
+                        <Text key={`${item.id}-modifier-${index}`} style={styles.extraText} numberOfLines={1}>{label}</Text>
+                      ))}
+                    </View>
+                    <Text style={styles.linePrice}>{formatMoney(item.subtotal)}</Text>
+                  </View>
+                ))}
               </View>
             ))
           )}
@@ -1133,6 +1162,56 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  guestGroup: {
+    marginTop: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    overflow: 'hidden',
+  },
+  guestGroupHeader: {
+    minHeight: 58,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#EEF2FF',
+  },
+  guestAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#111827',
+  },
+  guestAvatarText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  guestCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  guestName: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  guestMeta: {
+    marginTop: 2,
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  guestTotal: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
   },
   sentImage: {
     width: 46,

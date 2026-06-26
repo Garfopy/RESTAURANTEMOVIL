@@ -554,6 +554,21 @@ class SocialController
         if ((int)($file['size'] ?? 0) > 5 * 1024 * 1024) {
             Response::error('La imagen no debe pesar mas de 5 MB.', 400);
         }
+        if (!is_uploaded_file((string)$file['tmp_name'])) {
+            Response::error('La imagen no se recibio correctamente.', 400);
+        }
+
+        $imageInfo = @getimagesize((string)$file['tmp_name']);
+        if ($imageInfo === false) {
+            Response::error('La foto debe ser una imagen valida donde se vea una persona.', 400);
+        }
+        $width = (int)($imageInfo[0] ?? 0);
+        $height = (int)($imageInfo[1] ?? 0);
+        $mime = strtolower((string)($imageInfo['mime'] ?? ''));
+        $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+        if ($width < 240 || $height < 240 || !in_array($mime, $allowedMimes, true)) {
+            Response::error('Sube una foto clara de rostro o cuerpo en jpg, png o webp.', 400);
+        }
 
         if (!$this->hasSocialPhotosColumn()) {
             Response::serverError('La base de datos aun no tiene social_photos_json. Ejecuta la migracion 023.');
@@ -1416,6 +1431,26 @@ class SocialController
             $read = $pdo->prepare('SELECT * FROM social_gift_orders WHERE id = :id');
             $read->execute([':id' => $giftId]);
             $gift = $read->fetch();
+            $this->recordSocialAccountNotification(
+                $pdo,
+                $recipientUserId,
+                (int)$user->id,
+                'social_gift_received',
+                'Regalo recibido',
+                sprintf(
+                    '%s te envio %s.',
+                    (string)($sender['nombre'] ?? 'Alguien'),
+                    (string)($giftProduct['nombre'] ?? 'un regalo')
+                ),
+                [
+                    'gift_id' => $giftId,
+                    'folio' => $folio,
+                    'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
+                    'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                    'recipient_mesa' => $recipientMesaLabel,
+                    'payment_mode' => 'account',
+                ]
+            );
             $pdo->commit();
 
             Response::success([
@@ -1634,6 +1669,7 @@ class SocialController
         if (!$gift) Response::notFound('Regalo no encontrado');
         $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
         if ($intentId === '') Response::error('El regalo no tiene un intento de pago.', 409);
+        $shouldNotifyRecipient = empty($gift['pagado_at']);
 
         try {
             Stripe::setApiKey($this->getStripeSecret());
@@ -1710,6 +1746,28 @@ class SocialController
                 [':id' => $giftId, ':intent_id' => $intentId]
             );
             $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+            if ($paidGift && $shouldNotifyRecipient) {
+                $this->recordSocialAccountNotification(
+                    Database::getInstance(),
+                    (int)$paidGift['recipient_user_id'],
+                    (int)$user->id,
+                    'social_gift_received',
+                    'Regalo recibido',
+                    sprintf(
+                        '%s te envio %s.',
+                        (string)($paidGift['sender_nombre'] ?? 'Alguien'),
+                        (string)($paidGift['gift_nombre'] ?? 'un regalo')
+                    ),
+                    [
+                        'gift_id' => $giftId,
+                        'folio' => $paidGift['folio'] ?? null,
+                        'gift_nombre' => $paidGift['gift_nombre'] ?? 'Regalo',
+                        'sender_nombre' => $paidGift['sender_nombre'] ?? 'Comensal',
+                        'recipient_mesa' => $paidGift['recipient_mesa'] ?? null,
+                        'payment_mode' => 'stripe',
+                    ]
+                );
+            }
             Response::success($this->giftPaymentResponse($paidGift), 'Regalo pagado y enviado');
         } catch (\Stripe\Exception\InvalidRequestException $exception) {
             if (stripos((string)$exception->getMessage(), 'No such payment_intent') !== false) {

@@ -85,6 +85,7 @@ export default function WaiterHomeScreen() {
   const [customerName, setCustomerName] = useState('');
   const [claiming, setClaiming] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
+  const [tableGrouping, setTableGrouping] = useState<'status' | 'zone'>('status');
   const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
 
   const branchesQuery = useQuery({
@@ -174,6 +175,19 @@ export default function WaiterHomeScreen() {
       (table.status === 'cuenta_abierta' && table.mesero_usuario_id !== user?.id)
   );
   const freeTables = filteredTables.filter((table) => table.status === 'libre');
+  const zoneGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; title: string; tables: WaiterTable[] }>();
+
+    filteredTables.forEach((table) => {
+      const title = table.zona_nombre?.trim() || 'Sin area';
+      const key = table.zona_id ? `zone-${table.zona_id}` : `zone-${title}`;
+      const group = groups.get(key) ?? { key, title, tables: [] };
+      group.tables.push(table);
+      groups.set(key, group);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title, 'es'));
+  }, [filteredTables]);
 
   const summary = useMemo(() => {
     const mine = tables.filter(
@@ -280,6 +294,17 @@ export default function WaiterHomeScreen() {
           <Text style={styles.sectionEmptyText}>{empty}</Text>
         )}
       </View>
+    );
+  }
+
+  function renderZoneSection(group: { key: string; title: string; tables: WaiterTable[] }) {
+    const activeTotal = group.tables.reduce((sum, table) => sum + Number(table.total || 0), 0);
+    return renderTableSection(
+      group.title,
+      `${group.tables.length} mesas · ${money(activeTotal)} activo`,
+      group.tables,
+      'No hay mesas en esta area.',
+      'map-outline'
     );
   }
 
@@ -429,6 +454,26 @@ export default function WaiterHomeScreen() {
               </TouchableOpacity>
             ) : null}
           </View>
+
+          <View style={styles.groupSwitch}>
+            {([
+              ['status', 'Estado', 'list-outline'],
+              ['zone', 'Area', 'map-outline'],
+            ] as Array<[typeof tableGrouping, string, StatusIcon]>).map(([value, label, icon]) => {
+              const active = tableGrouping === value;
+              return (
+                <TouchableOpacity
+                  key={value}
+                  style={[styles.groupSwitchButton, active && styles.groupSwitchButtonActive]}
+                  onPress={() => setTableGrouping(value)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name={icon} size={16} color={active ? '#FFFFFF' : '#475569'} />
+                  <Text style={[styles.groupSwitchText, active && styles.groupSwitchTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </>
       ) : null}
 
@@ -468,11 +513,15 @@ export default function WaiterHomeScreen() {
               <Text style={styles.emptyText}>No encontramos mesas con ese nombre, zona o comensal.</Text>
             </View>
           ) : (
-            <>
-              {renderTableSection('Mis mesas', 'Cuentas asignadas a ti.', myTables, 'Todavia no tienes mesas asignadas.', 'person-outline')}
-              {renderTableSection('Disponibles', 'Toca una mesa libre para reclamarla.', freeTables, 'No hay mesas libres en este momento.', 'grid-outline')}
-              {renderTableSection('Apoyo', 'Mesas ocupadas que puedes apoyar.', supportTables, 'No hay mesas ocupadas por otros meseros.', 'people-outline')}
-            </>
+            tableGrouping === 'zone' ? (
+              <>{zoneGroups.map((group) => <React.Fragment key={group.key}>{renderZoneSection(group)}</React.Fragment>)}</>
+            ) : (
+              <>
+                {renderTableSection('Mis mesas', 'Cuentas asignadas a ti.', myTables, 'Todavia no tienes mesas asignadas.', 'person-outline')}
+                {renderTableSection('Disponibles', 'Toca una mesa libre para reclamarla.', freeTables, 'No hay mesas libres en este momento.', 'grid-outline')}
+                {renderTableSection('Apoyo', 'Mesas ocupadas que puedes apoyar.', supportTables, 'No hay mesas ocupadas por otros meseros.', 'people-outline')}
+              </>
+            )
           )}
         </ScrollView>
       )}
@@ -680,6 +729,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  groupSwitch: {
+    marginHorizontal: 18,
+    marginBottom: 12,
+    minHeight: 46,
+    borderRadius: 16,
+    padding: 4,
+    flexDirection: 'row',
+    gap: 4,
+    backgroundColor: '#E2E8F0',
+  },
+  groupSwitchButton: {
+    flex: 1,
+    borderRadius: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  groupSwitchButtonActive: {
+    backgroundColor: '#111827',
+  },
+  groupSwitchText: {
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  groupSwitchTextActive: {
+    color: '#FFFFFF',
   },
   tableList: {
     paddingHorizontal: 14,

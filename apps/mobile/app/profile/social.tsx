@@ -54,6 +54,9 @@ import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
 
+const GIFT_TERMS_MESSAGE =
+  'La persona no esta obligada a recibirlo. El restaurante no se hace responsable de rechazos; si el regalo se rechaza, se reembolsa el 50%.';
+
 type SelectOption = {
   label: string;
   value: string;
@@ -667,7 +670,7 @@ export default function SocialProfileScreen() {
   const discoveryCardHeight = Math.min(470, Math.max(400, width * 1.14));
   const discoveryImageHeight = Math.min(320, Math.max(270, discoveryCardHeight * 0.66));
   const topReceivedLike = receivedLikes[0] ?? null;
-  const latestAccountNotification = accountNotifications.find((item) => item.type === 'social_account_covered') ?? accountNotifications[0] ?? null;
+  const latestAccountNotification = accountNotifications[0] ?? null;
   const topReceivedLikeKey = getIncomingLikeKey(topReceivedLike);
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
@@ -1372,7 +1375,7 @@ export default function SocialProfileScreen() {
       return;
     }
 
-    Alert.alert('Agregar foto', 'Elige de donde tomar la imagen.', [
+    Alert.alert('Agregar foto', 'Usa una foto clara donde se vea tu rostro o cuerpo para evitar confusiones.', [
       { text: 'Camara', onPress: () => openPicker(true) },
       { text: 'Galeria', onPress: () => openPicker(false) },
       { text: 'Cancelar', style: 'cancel' },
@@ -1929,17 +1932,7 @@ export default function SocialProfileScreen() {
     showGiftSentAlert(paidGift, 'stripe');
   }
 
-  async function handleSendGift() {
-    if (!detailDiner || !selectedGift) {
-      Alert.alert('Regalos', 'Selecciona un regalo para continuar.');
-      return;
-    }
-
-    if (!selectedBranch?.id) {
-      Alert.alert('Regalos', 'Selecciona una sucursal antes de enviar un regalo.');
-      return;
-    }
-
+  async function submitGiftAfterTerms() {
     try {
       setGiftSending(true);
       if (giftCheckoutMode === 'stripe') {
@@ -1960,6 +1953,23 @@ export default function SocialProfileScreen() {
     } finally {
       setGiftSending(false);
     }
+  }
+
+  function handleSendGift() {
+    if (!detailDiner || !selectedGift) {
+      Alert.alert('Regalos', 'Selecciona un regalo para continuar.');
+      return;
+    }
+
+    if (!selectedBranch?.id) {
+      Alert.alert('Regalos', 'Selecciona una sucursal antes de enviar un regalo.');
+      return;
+    }
+
+    Alert.alert('Condiciones del regalo', GIFT_TERMS_MESSAGE, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Aceptar y enviar', onPress: () => void submitGiftAfterTerms() },
+    ]);
   }
 
   function showSexualityInfo(value?: string | null) {
@@ -2571,8 +2581,17 @@ export default function SocialProfileScreen() {
 
         {latestAccountNotification ? (
           <View style={styles.accountCoverNoticeCard}>
-            <View style={styles.accountCoverNoticeIcon}>
-              <Ionicons name="receipt-outline" size={20} color="#047857" />
+            <View
+              style={[
+                styles.accountCoverNoticeIcon,
+                latestAccountNotification.type === 'social_gift_received' && { backgroundColor: '#FCE7F3' },
+              ]}
+            >
+              <Ionicons
+                name={latestAccountNotification.type === 'social_gift_received' ? 'gift-outline' : 'receipt-outline'}
+                size={20}
+                color={latestAccountNotification.type === 'social_gift_received' ? '#BE185D' : '#047857'}
+              />
             </View>
             <View style={styles.accountCoverNoticeText}>
               <Text style={styles.accountCoverNoticeTitle} numberOfLines={1}>

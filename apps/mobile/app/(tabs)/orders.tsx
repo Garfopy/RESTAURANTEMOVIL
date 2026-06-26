@@ -47,6 +47,7 @@ function getOrderStatusLabel(order: Pedido) {
   }
 
   if (order.salida_validado_at) return 'Cerrada';
+  if (order.pagado_at || order.cerrado_at) return 'Cuenta saldada';
   if (order.salida_qr_generado_at) return 'Pagada';
   if (Number(order.cuenta_abierta ?? 0) === 1 || isEatInConsumption(order)) return 'Cuenta abierta';
 
@@ -56,6 +57,7 @@ function getOrderStatusLabel(order: Pedido) {
 function getOrderStatusColor(order: Pedido) {
   if (order.tipo_pedido === 'eat_in') {
     if (order.salida_validado_at) return Colors.success || '#10B981';
+    if (order.pagado_at || order.cerrado_at) return Colors.success || '#10B981';
     if (order.salida_qr_generado_at) return Colors.info || '#6366F1';
     return Colors.primary || '#111827';
   }

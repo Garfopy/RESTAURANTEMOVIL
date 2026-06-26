@@ -56,13 +56,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const inAuth = segments[0] === '(auth)';
     const inWaiter = segments[0] === '(waiter)';
+    const inHostess = segments[0] === '(hostess)';
     const isWaiter = user?.rol === 'mesero';
+    const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(String(user?.rol ?? '').toLowerCase());
 
     if (!isAuthenticated && !inAuth) {
       router.replace('/(auth)/login');
     } else if (isAuthenticated && isWaiter && !inWaiter) {
       router.replace('/(waiter)' as never);
-    } else if (isAuthenticated && !isWaiter && (inAuth || inWaiter)) {
+    } else if (isAuthenticated && isHostess && !inHostess) {
+      router.replace('/(hostess)' as never);
+    } else if (isAuthenticated && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)) {
       router.replace('/(tabs)');
     }
   }, [isAuthenticated, isLoading, segments, user?.rol]);
@@ -221,6 +225,7 @@ export default function RootLayout() {
                     <Stack.Screen name="(auth)" />
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="(waiter)" />
+                    <Stack.Screen name="(hostess)" />
                     <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
                     <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
                     <Stack.Screen name="product/[id]" />

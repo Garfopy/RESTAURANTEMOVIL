@@ -44,6 +44,8 @@ export type WaiterAccountItem = {
   pedido_id: number;
   pedido_folio?: string | null;
   pedido_created_at?: string | null;
+  pedido_cliente_nombre?: string | null;
+  pedido_mobile_usuario_id?: number | null;
   platillo_id: number;
   nombre: string;
   imagen?: string | null;
