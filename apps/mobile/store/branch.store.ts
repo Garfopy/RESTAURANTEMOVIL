@@ -1,9 +1,12 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Sucursal } from '@amare/types';
 import type { DishModifierConfig, RestaurantConfig } from '@amare/types';
 import { apiClient } from '../services/api';
 import { fetchRestaurantConfig } from '../services/config.service';
 import { normalizeBranch } from '../services/branches.service';
+
+const SELECTED_BRANCH_KEY = 'amare_selected_branch';
 
 interface BranchState {
   sucursales: Sucursal[];
@@ -26,14 +29,28 @@ export const useBranchStore = create<BranchState>((set, get) => ({
     get().autoSeleccionarSiUnica();
   },
 
-  seleccionar: (branch) => set({ seleccionada: branch }),
+  seleccionar: (branch) => {
+    const normalized = normalizeBranch(branch);
+    set({ seleccionada: normalized });
+    AsyncStorage.setItem(SELECTED_BRANCH_KEY, JSON.stringify(normalized)).catch(() => {});
+  },
 
-  clearSelection: () => set({ seleccionada: null }),
+  clearSelection: () => {
+    set({ seleccionada: null });
+    AsyncStorage.removeItem(SELECTED_BRANCH_KEY).catch(() => {});
+  },
 
   autoSeleccionarSiUnica: () => {
     const { sucursales, seleccionada } = get();
+    if (seleccionada) {
+      const updated = sucursales.find((item) => Number(item.id) === Number(seleccionada.id));
+      if (updated) {
+        set({ seleccionada: updated });
+      }
+      return;
+    }
     if (!seleccionada && sucursales.length === 1) {
-      set({ seleccionada: sucursales[0] });
+      get().seleccionar(sucursales[0]);
     }
   },
 
@@ -55,6 +72,20 @@ export const useBranchStore = create<BranchState>((set, get) => ({
     }
   }
 }));
+
+export async function hydrateBranchSelection(): Promise<void> {
+  try {
+    const json = await AsyncStorage.getItem(SELECTED_BRANCH_KEY);
+    if (!json) return;
+
+    const branch = normalizeBranch(JSON.parse(json));
+    if (!branch?.id) return;
+
+    useBranchStore.setState({ seleccionada: branch });
+  } catch {
+    // sin sucursal guardada
+  }
+}
 
 type BranchConfigEvent = { branch_id: number; version: number };
 type BranchConfigListener = (event: BranchConfigEvent) => void;

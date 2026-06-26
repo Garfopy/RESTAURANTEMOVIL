@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { TableScanResult } from '@amare/types';
+import { getBranchById } from '../services/branches.service';
 import { scanTableQr } from '../services/table-session.service';
 import { getApiError } from '../services/api';
 import { useBranchStore } from '../store/branch.store';
@@ -44,6 +45,7 @@ export default function TableScannerScreen() {
   const sucursales = useBranchStore((s) => s.sucursales);
   const { itemCount, restauranteId: cartRestaurantId, clear, setTipoPedido } = useCartStore();
   const setTableSession = useTableSessionStore((s) => s.setSession);
+  const deferScan = useTableSessionStore((s) => s.deferScan);
   const clearTableSession = useTableSessionStore((s) => s.clearSession);
   const updateProfile = useUserStore((s) => s.updateProfile);
 
@@ -59,7 +61,12 @@ export default function TableScannerScreen() {
     };
   }, []);
 
-  function navigateToDestination() {
+  function navigateToDestination(options?: { tableScanDeferred?: boolean }) {
+    if (resolvedDestination === '/(tabs)' && options?.tableScanDeferred) {
+      router.replace({ pathname: '/(tabs)', params: { tableScanDeferred: '1' } } as never);
+      return;
+    }
+
     if (resolvedDestination === '/(tabs)' && router.canGoBack()) {
       router.back();
       return;
@@ -85,16 +92,21 @@ export default function TableScannerScreen() {
     navigateToDestination();
   }
 
-  function handleScanLater() {
+  async function handleScanLater() {
     if (hasNavigatedRef.current) return;
     hasNavigatedRef.current = true;
 
     if (mode === 'eat_in') {
-      setTipoPedido('eat_in');
       clearTableSession();
-      const selectedBranch = branchId
+
+      let selectedBranch = branchId
         ? sucursales.find((item) => String(item.id) === String(branchId))
         : null;
+
+      if (!selectedBranch && branchId && Number(branchId) > 0) {
+        selectedBranch = await getBranchById(Number(branchId)).catch(() => null);
+      }
+
       const fallbackBranch =
         selectedBranch ??
         currentBranch ??
@@ -104,11 +116,16 @@ export default function TableScannerScreen() {
 
       if (fallbackBranch) {
         seleccionar(fallbackBranch);
+        deferScan(fallbackBranch);
         void queryClient.invalidateQueries({ queryKey: ['menu', fallbackBranch.id] });
+      } else {
+        deferScan(null);
       }
+
+      setTipoPedido(null);
     }
 
-    navigateToDestination();
+    navigateToDestination({ tableScanDeferred: mode === 'eat_in' });
   }
 
   async function handleBarcodeScanned(result: BarcodeScanningResult) {

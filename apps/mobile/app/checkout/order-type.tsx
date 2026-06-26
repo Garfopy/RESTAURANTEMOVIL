@@ -74,6 +74,7 @@ export default function OrderTypeScreen() {
   const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
   const orderTotal = useMemo(
     () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
     [items]
@@ -363,7 +364,17 @@ export default function OrderTypeScreen() {
     if (tipoPedido === 'eat_in' && !tableSession) {
       Alert.alert('Mesa requerida', 'Escanea el QR de tu mesa para poder pedir.', [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Escanear QR', onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } }) },
+        {
+          text: 'Escanear QR',
+          onPress: () => router.push({
+            pathname: '/table-scanner',
+            params: {
+              returnTo: '/checkout/order-type',
+              mode: 'eat_in',
+              branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
+            },
+          }),
+        },
       ]);
       return;
     }
@@ -374,7 +385,17 @@ export default function OrderTypeScreen() {
         'La mesa escaneada pertenece a otra sucursal. Escanea el QR de esta mesa o vacía el carrito para cambiar de sucursal.',
         [
           { text: 'Cancelar', style: 'cancel' },
-          { text: 'Escanear QR', onPress: () => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } }) },
+          {
+            text: 'Escanear QR',
+            onPress: () => router.push({
+              pathname: '/table-scanner',
+              params: {
+                returnTo: '/checkout/order-type',
+                mode: 'eat_in',
+                branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
+              },
+            }),
+          },
         ]
       );
       return;
@@ -559,7 +580,14 @@ export default function OrderTypeScreen() {
               {!tableSession ? (
                 <TouchableOpacity
                   style={styles.scanTableButton}
-                  onPress={() => router.push({ pathname: '/table-scanner', params: { returnTo: '/checkout/order-type' } })}
+                  onPress={() => router.push({
+                    pathname: '/table-scanner',
+                    params: {
+                      returnTo: '/checkout/order-type',
+                      mode: 'eat_in',
+                      branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
+                    },
+                  })}
                 >
                   <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.scanTableButtonText}>Escanear QR de mesa</Text>

@@ -59,14 +59,41 @@ export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const { items, removeItem, updateQty, clear, tipoPedido, setTipoPedido } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
   const displayTotal = useMemo(
     () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
     [items]
   );
 
   function handleCheckout() {
+    if (!tipoPedido && tableSession) {
+      setTipoPedido('eat_in');
+      router.replace('/checkout/order-type');
+      return;
+    }
+
+    if (!tipoPedido && deferredBranch?.id) {
+      setTipoPedido('eat_in');
+      router.push({
+        pathname: '/table-scanner',
+        params: {
+          returnTo: '/checkout/order-type',
+          mode: 'eat_in',
+          branchId: String(deferredBranch.id),
+        },
+      });
+      return;
+    }
+
     if (tipoPedido === 'eat_in' && !tableSession) {
-      router.push({ pathname: '/table-scanner', params: { returnTo: '/cart' } });
+      router.push({
+        pathname: '/table-scanner',
+        params: {
+          returnTo: '/checkout/order-type',
+          mode: 'eat_in',
+          branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
+        },
+      });
       return;
     }
 

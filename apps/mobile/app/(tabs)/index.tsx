@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -79,6 +79,7 @@ type NearbyBranchState =
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { tableScanDeferred } = useLocalSearchParams<{ tableScanDeferred?: string }>();
   const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const user = useUserStore((s) => s.user);
@@ -86,6 +87,7 @@ export default function HomeScreen() {
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
   const { tipoPedido, setTipoPedido, setDeliveryAddress, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const deferScan = useTableSessionStore((s) => s.deferScan);
   const clearTableSession = useTableSessionStore((s) => s.clearSession);
   
   const [showTypeModal, setShowTypeModal] = useState(false);
@@ -125,10 +127,21 @@ export default function HomeScreen() {
   // restauranteId queda undefined → las queries del menú nunca se habilitan.
   useBranches();
 
-  const restauranteId = branch?.id;
+  const menuBranch =
+    branch ??
+    sucursales.find((item) => item.tipos_entrega?.includes('eat_in')) ??
+    sucursales[0] ??
+    null;
+  const restauranteId = menuBranch?.id ?? user?.current_restaurante_id ?? undefined;
   const { data: categories, isLoading: loadingCats, refetch: refetchCategories } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured, refetch: refetchFeatured } = useFeaturedDishes(restauranteId);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+
+  useEffect(() => {
+    if (tipoPedido === 'eat_in' && !tableSession) {
+      setTipoPedido(null);
+    }
+  }, [setTipoPedido, tableSession, tipoPedido]);
 
   async function refreshHome() {
     setRefreshingHome(true);
@@ -297,6 +310,16 @@ export default function HomeScreen() {
 
   // Lógica para detectar ubicación y mostrar modal inicial
   useEffect(() => {
+    if (tableScanDeferred !== '1') return;
+
+    initialFlowStartedRef.current = true;
+    setShowTypeModal(false);
+    setSelectingPickupBranch(false);
+    setDetectedBranchMessage(null);
+    setTipoPedido(null);
+  }, [setTipoPedido, tableScanDeferred]);
+
+  useEffect(() => {
     if (tipoPedido || sucursales.length === 0) {
       return;
     }
@@ -410,22 +433,25 @@ export default function HomeScreen() {
   }
 
   function handleScanLater() {
-    let branchForMenu = branch;
+    let branchForMenu = menuBranch;
 
     if (availableTypes.includes('eat_in') || branch?.tipos_entrega?.includes('eat_in')) {
       if (!branch) {
-        const fallbackBranch = getFirstEatInBranch();
+        const fallbackBranch = menuBranch ?? getFirstEatInBranch();
         if (fallbackBranch) {
           syncDetectedBranchIfSafe(fallbackBranch);
           branchForMenu = fallbackBranch;
         }
       }
-      setTipoPedido('eat_in');
+      setTipoPedido(null);
       clearTableSession();
 
       if (branchForMenu?.id) {
+        deferScan(branchForMenu);
         void refreshBranchConfig(branchForMenu.id, { force: true }).catch(() => undefined);
         void queryClient.invalidateQueries({ queryKey: ['menu', branchForMenu.id] });
+      } else {
+        deferScan(null);
       }
     }
     closeDeliveryFlow();
@@ -690,7 +716,7 @@ export default function HomeScreen() {
             <Text style={styles.locationLabel}>{getOrderModeLabel()}</Text>
             <View style={styles.row}>
               <Text style={styles.locationName} numberOfLines={1}>
-                {branch?.nombre ?? 'Seleccionar sucursal'}
+                {menuBranch?.nombre ?? 'Seleccionar sucursal'}
               </Text>
               <Ionicons name="chevron-down" size={14} color="#8A8276" />
             </View>

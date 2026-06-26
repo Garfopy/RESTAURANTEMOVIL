@@ -44,6 +44,7 @@ export default function ProductScreen() {
   const addItem = useCartStore((s) => s.addItem);
   const tipoPedido = useCartStore((s) => s.tipoPedido);
   const tableSession = useTableSessionStore((s) => s.session);
+  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
   const { data: favorites, toggle } = useFavorites();
 
@@ -178,7 +179,11 @@ export default function ProductScreen() {
     if (tipoPedido === 'eat_in' && !tableSession) {
       router.replace({
         pathname: '/table-scanner',
-        params: { returnTo: '/(tabs)' },
+        params: {
+          returnTo: '/(tabs)',
+          mode: 'eat_in',
+          branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
+        },
       });
       return;
     }
@@ -190,7 +195,11 @@ export default function ProductScreen() {
     ) {
       router.replace({
         pathname: '/table-scanner',
-        params: { returnTo: '/(tabs)' },
+        params: {
+          returnTo: '/(tabs)',
+          mode: 'eat_in',
+          branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
+        },
       });
       return;
     }

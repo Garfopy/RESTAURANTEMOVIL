@@ -26,7 +26,7 @@ import { getMe } from '../services/auth.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { useThemeStore } from '../store/theme.store';
-import { notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
+import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -179,6 +179,7 @@ export default function RootLayout() {
     async function init() {
       await hydrateTheme();
       await hydrateFromStorage();
+      await hydrateBranchSelection();
       await hydrateCart();
       await hydrateTableSession();
 

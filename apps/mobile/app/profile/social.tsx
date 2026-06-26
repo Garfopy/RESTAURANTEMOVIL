@@ -593,6 +593,7 @@ export default function SocialProfileScreen() {
   const updateProfile = useUserStore((state) => state.updateProfile);
   const selectedBranch = useBranchStore((state) => state.seleccionada);
   const tableSession = useTableSessionStore((state) => state.session);
+  const deferredBranch = useTableSessionStore((state) => state.deferredBranch);
 
   const [form, setForm] = useState<SocialFormState>(EMPTY_FORM);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
@@ -1557,9 +1558,28 @@ export default function SocialProfileScreen() {
     );
   }
 
-  async function updateSocialStatus(nextValue: boolean) {
-    if (nextValue && !selectedBranch?.id) {
+  function openSocialScanner() {
+    const branchForScanner = selectedBranch ?? deferredBranch ?? tableSession?.branch ?? null;
+
+    if (!branchForScanner?.id) {
       showVisitBranchMessage();
+      return;
+    }
+
+    router.push({
+      pathname: '/table-scanner',
+      params: {
+        returnTo: '/profile/social',
+        activateSocial: '1',
+        mode: 'eat_in',
+        branchId: String(branchForScanner.id),
+      },
+    });
+  }
+
+  async function updateSocialStatus(nextValue: boolean) {
+    if (nextValue && !selectedBranch?.id && !deferredBranch?.id) {
+      openSocialScanner();
       return;
     }
 
@@ -1578,7 +1598,7 @@ export default function SocialProfileScreen() {
         return;
       }
 
-      showVisitBranchMessage();
+      openSocialScanner();
       return;
     }
 
@@ -1586,7 +1606,7 @@ export default function SocialProfileScreen() {
   }
 
   async function openMesaPrompt() {
-    showVisitBranchMessage();
+    openSocialScanner();
   }
 
   async function persistSocialStatus(nextValue: boolean, mesaValue: string | null, acceptsSocialPrivacy = false) {
