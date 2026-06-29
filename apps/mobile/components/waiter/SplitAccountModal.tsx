@@ -10,7 +10,7 @@ import {
   View,
   type View as ViewType,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -30,6 +30,7 @@ import {
   type WaiterPaymentMethod,
   type WaiterSplit,
 } from '../../services/waiter.service';
+import type { WaiterTicketStatus } from './WaiterTicketPreviewModal';
 
 type DraftAccount = { key: string; name: string; guestKey?: string };
 type Unit = {
@@ -53,7 +54,12 @@ type Props = {
   activeSplit?: WaiterSplit | null;
   onClose: () => void;
   onSplitChanged: (split: WaiterSplit | null) => void;
-  onFullyPaid: () => void;
+  onPreviewTicket: (preview: {
+    account: WaiterSplit['accounts'][number];
+    status: WaiterTicketStatus;
+    method?: WaiterPaymentMethod | null;
+    finishAfterClose?: boolean;
+  }) => void;
 };
 
 const PAYMENT_METHODS: Array<[WaiterPaymentMethod, string, keyof typeof Ionicons.glyphMap]> = [
@@ -169,8 +175,9 @@ export function SplitAccountModal({
   activeSplit,
   onClose,
   onSplitChanged,
-  onFullyPaid,
+  onPreviewTicket,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [accounts, setAccounts] = useState<DraftAccount[]>([]);
   const [allocation, setAllocation] = useState<Record<string, string | null>>({});
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
@@ -416,7 +423,11 @@ export function SplitAccountModal({
   }
 
   async function payCurrentAccount() {
-    const current = split?.accounts.find((account) => account.estado === 'pendiente');
+    const current = split
+      ? split.accounts.find((account) => account.estado === 'pendiente' && account.id === selectedPaymentAccountId) ??
+        split.accounts.find((account) => account.estado === 'pendiente') ??
+        null
+      : null;
     if (!split || !current) return;
     try {
       setSaving(true);
@@ -430,7 +441,12 @@ export function SplitAccountModal({
       setSplit(result.split);
       onSplitChanged(result.split);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (result.closed) onFullyPaid();
+      onPreviewTicket({
+        account: { ...current, estado: 'pagada', metodo_pago: paymentMethod },
+        status: 'paid',
+        method: paymentMethod,
+        finishAfterClose: result.closed,
+      });
     } catch (error) {
       Alert.alert('No se pudo registrar el pago', getApiError(error));
     } finally {
@@ -482,21 +498,21 @@ export function SplitAccountModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.iconButton} onPress={onClose} disabled={saving}>
-            <Ionicons name="close" size={23} color="#111827" />
-          </TouchableOpacity>
-          <View style={styles.headerCopy}>
-            <Text style={styles.title}>{split ? 'Cobrar cuentas' : 'Separar cuenta'}</Text>
-            <Text style={styles.subtitle}>{tableLabel}</Text>
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+          <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+            <TouchableOpacity style={styles.iconButton} onPress={onClose} disabled={saving}>
+              <Ionicons name="close" size={23} color="#111827" />
+            </TouchableOpacity>
+            <View style={styles.headerCopy}>
+              <Text style={styles.title}>{split ? 'Cobrar cuentas' : 'Separar cuenta'}</Text>
+              <Text style={styles.subtitle}>{tableLabel}</Text>
+            </View>
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>{split ? `${split.paid_count}/${split.accounts_count}` : payableAccounts.length}</Text>
+            </View>
           </View>
-          <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{split ? `${split.paid_count}/${split.accounts_count}` : payableAccounts.length}</Text>
-          </View>
-        </View>
 
-        {split ? (
+          {split ? (
           <ScrollView contentContainerStyle={styles.paymentContent} showsVerticalScrollIndicator={false}>
             <View style={styles.progressCard}>
               <Text style={styles.progressEyebrow}>PROGRESO DE COBRO</Text>
@@ -552,17 +568,36 @@ export function SplitAccountModal({
                         </View>
                       ))}
                       {!paid ? (
+                        <View style={styles.paymentDetailActions}>
+                          <TouchableOpacity
+                            style={styles.previewTicketButton}
+                            onPress={() => onPreviewTicket({ account, status: 'prebill' })}
+                            disabled={saving}
+                          >
+                            <Ionicons name="receipt-outline" size={18} color="#2563EB" />
+                            <Text style={styles.previewTicketText}>Precuenta</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.selectPayButton, active && styles.selectPayButtonActive]}
+                            onPress={() => setSelectedPaymentAccountId(account.id)}
+                            disabled={saving}
+                          >
+                            <Ionicons name={active ? 'checkmark-circle' : 'card-outline'} size={18} color={active ? '#FFFFFF' : '#2563EB'} />
+                            <Text style={[styles.selectPayText, active && styles.selectPayTextActive]}>
+                              {active ? 'Lista para cobrar' : 'Cobrar'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
                         <TouchableOpacity
-                          style={[styles.selectPayButton, active && styles.selectPayButtonActive]}
-                          onPress={() => setSelectedPaymentAccountId(account.id)}
+                          style={styles.previewPaidTicketButton}
+                          onPress={() => onPreviewTicket({ account, status: 'paid', method: account.metodo_pago })}
                           disabled={saving}
                         >
-                          <Ionicons name={active ? 'checkmark-circle' : 'card-outline'} size={18} color={active ? '#FFFFFF' : '#2563EB'} />
-                          <Text style={[styles.selectPayText, active && styles.selectPayTextActive]}>
-                            {active ? 'Cuenta lista para cobrar' : 'Cobrar esta cuenta'}
-                          </Text>
+                          <Ionicons name="print-outline" size={18} color="#047857" />
+                          <Text style={styles.previewPaidTicketText}>Ver ticket pagado</Text>
                         </TouchableOpacity>
-                      ) : null}
+                      )}
                     </View>
                   ) : null}
                 </View>
@@ -586,6 +621,14 @@ export function SplitAccountModal({
                     </View>
                   ))}
                 </View>
+                <TouchableOpacity
+                  style={styles.checkoutPreviewButton}
+                  onPress={() => onPreviewTicket({ account: currentPayment, status: 'prebill' })}
+                  disabled={saving}
+                >
+                  <Ionicons name="receipt-outline" size={18} color="#2563EB" />
+                  <Text style={styles.checkoutPreviewText}>Ver precuenta para imprimir</Text>
+                </TouchableOpacity>
                 {PAYMENT_METHODS.map(([value, label, icon]) => {
                   const selected = paymentMethod === value;
                   return (
@@ -786,7 +829,7 @@ export function SplitAccountModal({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F4F6F8' },
-  header: { height: 68, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
+  header: { minHeight: 68, paddingHorizontal: 16, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
   iconButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F5F9' },
   headerCopy: { flex: 1, marginHorizontal: 12 },
   title: { fontSize: 20, fontWeight: '800', color: '#111827' },
@@ -866,6 +909,11 @@ const styles = StyleSheet.create({
   paymentDetailName: { color: '#1F2937', fontSize: 13, fontWeight: '800' },
   paymentDetailMeta: { marginTop: 2, color: '#64748B', fontSize: 12, fontWeight: '600' },
   paymentDetailTotal: { color: '#111827', fontSize: 13, fontWeight: '900' },
+  paymentDetailActions: { marginTop: 8, flexDirection: 'row', gap: 8 },
+  previewTicketButton: { flex: 1, height: 42, borderRadius: 12, borderWidth: 1, borderColor: '#BFDBFE', backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  previewTicketText: { color: '#1D4ED8', fontSize: 13, fontWeight: '900' },
+  previewPaidTicketButton: { height: 42, marginTop: 4, borderRadius: 12, borderWidth: 1, borderColor: '#BBF7D0', backgroundColor: '#F0FDF4', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  previewPaidTicketText: { color: '#047857', fontSize: 13, fontWeight: '900' },
   selectPayButton: { height: 42, marginTop: 4, borderRadius: 12, borderWidth: 1, borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   selectPayButtonActive: { borderColor: '#2563EB', backgroundColor: '#2563EB' },
   selectPayText: { color: '#1D4ED8', fontSize: 13, fontWeight: '900' },
@@ -879,6 +927,8 @@ const styles = StyleSheet.create({
   checkoutItemRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   checkoutItemName: { flex: 1, color: '#475569', fontSize: 13, fontWeight: '600' },
   checkoutItemPrice: { color: '#1F2937', fontSize: 13, fontWeight: '800' },
+  checkoutPreviewButton: { height: 46, marginBottom: 8, borderRadius: 13, borderWidth: 1, borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  checkoutPreviewText: { color: '#1D4ED8', fontSize: 13, fontWeight: '900' },
   paymentOption: { height: 54, marginTop: 8, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', flexDirection: 'row', alignItems: 'center', gap: 11 },
   paymentOptionActive: { borderColor: '#60A5FA', backgroundColor: '#EFF6FF' },
   paymentOptionText: { flex: 1, color: '#1F2937', fontSize: 15, fontWeight: '700' },

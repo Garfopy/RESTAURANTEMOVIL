@@ -3,7 +3,10 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -14,7 +17,7 @@ import {
   View,
   type GestureResponderEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -82,6 +85,7 @@ function money(value: unknown): string {
 
 export default function WaiterHomeScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const user = useUserStore((state) => state.user);
   const logout = useUserStore((state) => state.logout);
   const toast = useToast();
@@ -811,38 +815,57 @@ export default function WaiterHomeScreen() {
       )}
 
       <Modal visible={Boolean(claimingTable)} transparent animationType="fade" onRequestClose={() => setClaimingTable(null)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setClaimingTable(null)}>
-          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalHeaderRow}>
-              <View style={styles.modalIcon}>
-                <Ionicons name="restaurant-outline" size={20} color="#FFFFFF" />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+          style={styles.modalKeyboard}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => {
+              Keyboard.dismiss();
+              setClaimingTable(null);
+            }}
+          >
+            <Pressable
+              style={[
+                styles.modalCard,
+                { paddingBottom: 22 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) },
+              ]}
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeaderRow}>
+                <View style={styles.modalIcon}>
+                  <Ionicons name="restaurant-outline" size={20} color="#FFFFFF" />
+                </View>
+                <View style={styles.modalHeaderCopy}>
+                  <Text style={styles.modalTitle}>Abrir {claimingTable?.label}</Text>
+                  <Text style={styles.modalText}>Nombre del comensal responsable</Text>
+                </View>
               </View>
-              <View style={styles.modalHeaderCopy}>
-                <Text style={styles.modalTitle}>Abrir {claimingTable?.label}</Text>
-                <Text style={styles.modalText}>Nombre del comensal responsable</Text>
+              <TextInput
+                value={customerName}
+                onChangeText={setCustomerName}
+                placeholder="Ej. Omar Bravo"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+                autoCapitalize="words"
+                returnKeyType="done"
+                blurOnSubmit
+                onSubmitEditing={handleClaimTable}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.secondaryAction} onPress={() => setClaimingTable(null)} disabled={claiming}>
+                  <Text style={styles.secondaryActionText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.primaryAction} onPress={handleClaimTable} disabled={claiming}>
+                  {claiming ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryActionText}>Abrir cuenta</Text>}
+                </TouchableOpacity>
               </View>
-            </View>
-            <TextInput
-              value={customerName}
-              onChangeText={setCustomerName}
-              placeholder="Ej. Armando Casas"
-              placeholderTextColor="#94A3B8"
-              style={styles.input}
-              autoCapitalize="words"
-              returnKeyType="done"
-              onSubmitEditing={handleClaimTable}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.secondaryAction} onPress={() => setClaimingTable(null)} disabled={claiming}>
-                <Text style={styles.secondaryActionText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.primaryAction} onPress={handleClaimTable} disabled={claiming}>
-                {claiming ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryActionText}>Abrir cuenta</Text>}
-              </TouchableOpacity>
-            </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {selectedBranch ? (
@@ -1385,6 +1408,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: '#64748B',
     fontWeight: '700',
+  },
+  modalKeyboard: {
+    flex: 1,
   },
   modalOverlay: {
     flex: 1,

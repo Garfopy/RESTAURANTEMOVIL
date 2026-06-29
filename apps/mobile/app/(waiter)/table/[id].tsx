@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -27,15 +29,29 @@ import {
   closeWaiterAccount,
   createWaiterOrder,
   getWaiterAccount,
+  type WaiterAccountItem,
   type WaiterPaymentMethod,
+  type WaiterSplitAccount,
 } from '../../../services/waiter.service';
 import { useWaiterCartStore } from '../../../store/waiter-cart.store';
 import { useBranchConfigStore } from '../../../store/branch.store';
 import { SplitAccountModal } from '../../../components/waiter/SplitAccountModal';
+import {
+  WaiterTicketPreviewModal,
+  type WaiterTicketLine,
+  type WaiterTicketStatus,
+} from '../../../components/waiter/WaiterTicketPreviewModal';
 
 const PLACEHOLDER_FOOD = require('../../../assets/placeholder-food.jpg');
 
 type IconName = keyof typeof Ionicons.glyphMap;
+type TicketCloseAction = 'none' | 'reopenSplit' | 'finishSplit' | 'goBack';
+type SplitTicketPreview = {
+  account: WaiterSplitAccount;
+  status: WaiterTicketStatus;
+  method?: WaiterPaymentMethod | null;
+  finishAfterClose?: boolean;
+};
 type MenuCategory = {
   id: number;
   nombre: string;
@@ -96,8 +112,9 @@ function defaultModifierSelection(platillo: Platillo): ModificadorSeleccionado[]
   return result;
 }
 
-function getPersistedModifierLabels(modifiers: unknown[] | undefined): string[] {
-  return (modifiers ?? []).flatMap((modifier: any) => {
+function getPersistedModifierLabels(modifiers: unknown): string[] {
+  const list = Array.isArray(modifiers) ? modifiers : [];
+  return list.flatMap((modifier: any) => {
     if (Array.isArray(modifier?.opciones)) {
       return modifier.opciones.map((option: any) =>
         `${option.opcion_nombre}${Number(option.cantidad || 1) > 1 ? ` x${option.cantidad}` : ''}`
@@ -106,6 +123,34 @@ function getPersistedModifierLabels(modifiers: unknown[] | undefined): string[] 
     if (!modifier?.nombre) return [];
     const prefix = modifier.tipo === 'exclusion' ? 'Sin ' : '+ ';
     return [`${prefix}${modifier.nombre}${Number(modifier.cantidad || 1) > 1 ? ` x${modifier.cantidad}` : ''}`];
+  });
+}
+
+function buildAccountTicketLines(items: WaiterAccountItem[]): WaiterTicketLine[] {
+  return items.map((item) => ({
+    key: `${item.pedido_id}-${item.id}`,
+    name: item.nombre,
+    quantity: Number(item.cantidad || 0),
+    unitPrice: Number(item.precio_unit || 0),
+    subtotal: Number(item.subtotal || 0),
+    notes: item.notas ?? null,
+    modifiers: getPersistedModifierLabels(item.modificadores),
+  }));
+}
+
+function buildSplitTicketLines(account: WaiterSplitAccount, items: WaiterAccountItem[]): WaiterTicketLine[] {
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  return account.items.map((item) => {
+    const source = itemsById.get(item.pedido_item_id);
+    return {
+      key: `${account.id}-${item.pedido_item_id}`,
+      name: source?.nombre ?? 'Producto',
+      quantity: Number(item.cantidad || 0),
+      unitPrice: Number(item.precio_unit || 0),
+      subtotal: Number(item.subtotal || 0),
+      notes: source?.notas ?? null,
+      modifiers: getPersistedModifierLabels(source?.modificadores),
+    };
   });
 }
 
@@ -145,6 +190,13 @@ export default function WaiterTableScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [closeVisible, setCloseVisible] = useState(false);
   const [splitVisible, setSplitVisible] = useState(false);
+  const [pendingReviewVisible, setPendingReviewVisible] = useState(false);
+  const [ticketVisible, setTicketVisible] = useState(false);
+  const [ticketStatus, setTicketStatus] = useState<WaiterTicketStatus>('prebill');
+  const [ticketPaymentMethod, setTicketPaymentMethod] = useState<WaiterPaymentMethod | null>(null);
+  const [ticketAccountName, setTicketAccountName] = useState<string | null>(null);
+  const [ticketLines, setTicketLines] = useState<WaiterTicketLine[]>([]);
+  const [ticketCloseAction, setTicketCloseAction] = useState<TicketCloseAction>('none');
   const [paymentMethod, setPaymentMethod] = useState<WaiterPaymentMethod>('efectivo');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [menuSearch, setMenuSearch] = useState('');
@@ -156,6 +208,7 @@ export default function WaiterTableScreen() {
   const [selectedMods, setSelectedMods] = useState<ModificadorSeleccionado[]>([]);
   const [sending, setSending] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const resumedSplitId = useRef<number | null>(null);
   const configVersion = useBranchConfigStore((state) => state.branchId === restaurantId ? state.version : 0);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
@@ -210,11 +263,31 @@ export default function WaiterTableScreen() {
     return Array.from(groups.values());
   }, [customerName, sentItems]);
 
+  const accountTicketLines = useMemo<WaiterTicketLine[]>(() => buildAccountTicketLines(sentItems), [sentItems]);
+
   useEffect(() => {
     if (!activeSplit || resumedSplitId.current === activeSplit.id) return;
     resumedSplitId.current = activeSplit.id;
     setSplitVisible(true);
   }, [activeSplit]);
+
+  useEffect(() => {
+    if (pendingReviewVisible && cartItems.length === 0) {
+      setPendingReviewVisible(false);
+    }
+  }, [cartItems.length, pendingReviewVisible]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const menuCategories = useMemo<MenuCategory[]>(
     () => [{ id: 0, nombre: 'Todo' }, ...((categoriesQuery.data ?? []) as MenuCategory[])],
@@ -336,6 +409,7 @@ export default function WaiterTableScreen() {
   function addSelectedProduct() {
     if (!selectedProduct) return;
 
+    Keyboard.dismiss();
     waiterCart.addItem({
       tableId,
       restaurantId,
@@ -352,8 +426,19 @@ export default function WaiterTableScreen() {
     if (cartItems.length === 0) return;
     Alert.alert('Vaciar comanda', 'Se quitarán los productos pendientes antes de enviarlos a cocina.', [
       { text: 'Conservar', style: 'cancel' },
-      { text: 'Vaciar', style: 'destructive', onPress: () => waiterCart.clear() },
+      { text: 'Vaciar', style: 'destructive', onPress: () => {
+        waiterCart.clear();
+        setPendingReviewVisible(false);
+      } },
     ]);
+  }
+
+  function requestSendOrder() {
+    if (cartItems.length === 0) {
+      Alert.alert('Comanda vacía', 'Agrega productos antes de enviar a cocina.');
+      return;
+    }
+    setPendingReviewVisible(true);
   }
 
   async function sendOrder() {
@@ -377,6 +462,7 @@ export default function WaiterTableScreen() {
         })),
       });
       waiterCart.clear();
+      setPendingReviewVisible(false);
       setMenuVisible(false);
       await accountQuery.refetch();
       Alert.alert('Comanda enviada', 'El pedido fue enviado a cocina.');
@@ -406,12 +492,12 @@ export default function WaiterTableScreen() {
       });
       waiterCart.clear();
       setCloseVisible(false);
-      Alert.alert('Cuenta cerrada', 'La cuenta se marcó como pagada y la mesa quedó disponible.', [
-        {
-          text: 'Aceptar',
-          onPress: () => router.replace('/(waiter)' as never),
-        },
-      ]);
+      setTicketStatus('paid');
+      setTicketPaymentMethod(paymentMethod);
+      setTicketAccountName(null);
+      setTicketLines(accountTicketLines);
+      setTicketCloseAction('goBack');
+      showTicketAfterModalTransition();
     } catch (error) {
       Alert.alert('No se pudo cerrar', getApiError(error));
     } finally {
@@ -439,6 +525,65 @@ export default function WaiterTableScreen() {
     ]);
   }
 
+  function showTicketAfterModalTransition() {
+    const delayMs = Platform.OS === 'ios' ? 360 : 80;
+    setTimeout(() => setTicketVisible(true), delayMs);
+  }
+
+  function openAccountTicket(status: WaiterTicketStatus) {
+    if (sentItems.length === 0) {
+      Alert.alert('Ticket', 'No hay productos enviados para generar la precuenta.');
+      return;
+    }
+    setTicketStatus(status);
+    setTicketPaymentMethod(status === 'paid' ? paymentMethod : null);
+    setTicketAccountName(null);
+    setTicketLines(accountTicketLines);
+    setTicketCloseAction('none');
+    setCloseVisible(false);
+    showTicketAfterModalTransition();
+  }
+
+  function openSplitTicketPreview(preview: SplitTicketPreview) {
+    const lines = buildSplitTicketLines(preview.account, sentItems);
+    if (lines.length === 0) {
+      Alert.alert('Ticket', 'No hay productos para generar la precuenta.');
+      return;
+    }
+
+    setTicketStatus(preview.status);
+    setTicketPaymentMethod(
+      preview.status === 'paid'
+        ? preview.method ?? preview.account.metodo_pago ?? paymentMethod
+        : null
+    );
+    setTicketAccountName(preview.account.nombre ?? null);
+    setTicketLines(lines);
+    setTicketCloseAction(preview.finishAfterClose ? 'finishSplit' : 'reopenSplit');
+    setSplitVisible(false);
+    showTicketAfterModalTransition();
+  }
+
+  function closeTicketPreview() {
+    const nextAction = ticketCloseAction;
+    setTicketVisible(false);
+    setTicketAccountName(null);
+    setTicketPaymentMethod(null);
+    setTicketCloseAction('none');
+
+    if (nextAction === 'reopenSplit') {
+      setSplitVisible(true);
+      return;
+    }
+    if (nextAction === 'finishSplit') {
+      finishSplitPayment();
+      return;
+    }
+    if (nextAction === 'goBack') {
+      router.replace('/(waiter)' as never);
+    }
+  }
+
   function renderPendingItem(item: (typeof cartItems)[number]) {
     return (
       <View key={item.id} style={styles.pendingItem}>
@@ -464,6 +609,108 @@ export default function WaiterTableScreen() {
           </View>
         </View>
       </View>
+    );
+  }
+
+  function renderReviewItem(item: (typeof cartItems)[number]) {
+    return (
+      <View key={`review-${item.id}`} style={styles.reviewItem}>
+        <Image source={item.platillo.imagen ? { uri: item.platillo.imagen } : PLACEHOLDER_FOOD} style={styles.reviewImage} contentFit="cover" />
+        <View style={styles.reviewCopy}>
+          <View style={styles.reviewTitleRow}>
+            <Text style={styles.reviewName} numberOfLines={2}>{item.cantidad}x {item.platillo.nombre}</Text>
+            <Text style={styles.reviewPrice}>{formatMoney(item.subtotal)}</Text>
+          </View>
+          {getSelectedExtras(item.modificadores).map((extra) => (
+            <Text key={`review-extra-${item.id}-${extra.key}`} style={styles.reviewMeta} numberOfLines={1}>
+              + {extra.nombre} {formatMoney(extra.precio)}
+            </Text>
+          ))}
+          {item.notas ? (
+            <View style={styles.reviewNoteRow}>
+              <Ionicons name="chatbox-ellipses-outline" size={14} color="#92400E" />
+              <Text style={styles.reviewNote} numberOfLines={3}>{item.notas}</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.reviewQtyActions}>
+          <TouchableOpacity onPress={() => waiterCart.updateQty(item.id, item.cantidad - 1)} style={styles.qtyButton}>
+            <Ionicons name={item.cantidad > 1 ? 'remove' : 'trash-outline'} size={15} color="#111827" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => waiterCart.updateQty(item.id, item.cantidad + 1)} style={styles.qtyButton}>
+            <Ionicons name="add" size={15} color="#111827" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  function renderPendingReviewSheet(inline = false) {
+    return (
+      <Pressable
+        style={[styles.reviewOverlay, inline && styles.reviewInlineOverlay]}
+        onPress={() => setPendingReviewVisible(false)}
+      >
+        <Pressable
+          style={[
+            styles.reviewSheet,
+            { paddingBottom: 16 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) },
+          ]}
+          onPress={(event) => event.stopPropagation()}
+        >
+          <View style={styles.sheetHandle} />
+          <View style={styles.reviewHeader}>
+            <View style={styles.reviewIcon}>
+              <Ionicons name="receipt-outline" size={20} color="#FFFFFF" />
+            </View>
+            <View style={styles.reviewHeaderCopy}>
+              <Text style={styles.reviewTitle}>Revisar comanda</Text>
+              <Text style={styles.reviewSubtitle}>{tableLabel} - {cartItems.length} productos pendientes</Text>
+            </View>
+            <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setPendingReviewVisible(false)}>
+              <Ionicons name="close" size={20} color="#111827" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.reviewList}
+            contentContainerStyle={styles.reviewListContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {cartItems.map(renderReviewItem)}
+          </ScrollView>
+
+          <View style={styles.reviewTotals}>
+            <View>
+              <Text style={styles.reviewTotalLabel}>Total por enviar</Text>
+              <Text style={styles.reviewTotal}>{formatMoney(cartTotal)}</Text>
+            </View>
+            <Text style={styles.reviewHint}>Confirma antes de mandar a cocina.</Text>
+          </View>
+
+          <View style={styles.reviewActions}>
+            <TouchableOpacity style={styles.reviewClearButton} onPress={requestClearCart} disabled={sending}>
+              <Ionicons name="trash-outline" size={17} color="#B91C1C" />
+              <Text style={styles.reviewClearText}>Vaciar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.reviewSendButton, (sending || cartItems.length === 0) && styles.actionButtonDisabled]}
+              onPress={sendOrder}
+              disabled={sending || cartItems.length === 0}
+              activeOpacity={0.88}
+            >
+              {sending ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="send-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.reviewSendText}>Enviar a cocina</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
     );
   }
 
@@ -548,11 +795,11 @@ export default function WaiterTableScreen() {
           {cartItems.length > 0 ? (
             <>
               {cartItems.map(renderPendingItem)}
-              <TouchableOpacity style={styles.sendButton} activeOpacity={0.88} onPress={sendOrder} disabled={sending}>
+              <TouchableOpacity style={styles.sendButton} activeOpacity={0.88} onPress={requestSendOrder} disabled={sending}>
                 {sending ? <ActivityIndicator color="#FFFFFF" /> : (
                   <>
-                    <Ionicons name="send-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.sendButtonText}>Enviar comanda - {formatMoney(cartTotal)}</Text>
+                    <Ionicons name="list-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.sendButtonText}>Revisar comanda - {formatMoney(cartTotal)}</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -596,7 +843,7 @@ export default function WaiterTableScreen() {
                     <View style={styles.lineCopy}>
                       <Text style={styles.lineName} numberOfLines={2}>{item.cantidad}x {item.nombre}</Text>
                       <Text style={styles.sentMeta} numberOfLines={1}>{item.pedido_folio ?? 'Comanda'} - {item.estado ?? 'pendiente'}</Text>
-                      {getPersistedModifierLabels(item.modificadores as unknown[]).map((label, index) => (
+                      {getPersistedModifierLabels(item.modificadores).map((label, index) => (
                         <Text key={`${item.id}-modifier-${index}`} style={styles.extraText} numberOfLines={1}>{label}</Text>
                       ))}
                     </View>
@@ -648,11 +895,23 @@ export default function WaiterTableScreen() {
         activeSplit={activeSplit}
         onClose={() => setSplitVisible(false)}
         onSplitChanged={() => { void accountQuery.refetch(); }}
-        onFullyPaid={finishSplitPayment}
+        onPreviewTicket={openSplitTicketPreview}
+      />
+
+      <WaiterTicketPreviewModal
+        visible={ticketVisible}
+        status={ticketStatus}
+        tableLabel={tableLabel}
+        customerName={customerName}
+        waiterName={waiterName}
+        accountName={ticketAccountName}
+        paymentMethod={ticketPaymentMethod}
+        lines={ticketLines}
+        onClose={closeTicketPreview}
       />
 
       <Modal visible={menuVisible} animationType="slide" onRequestClose={() => setMenuVisible(false)}>
-        <SafeAreaView style={styles.modalSafe}>
+        <SafeAreaView style={styles.modalSafe} edges={['top', 'left', 'right']}>
           <View style={styles.menuHeader}>
             <TouchableOpacity style={styles.iconButton} onPress={() => setMenuVisible(false)} activeOpacity={0.8}>
               <Ionicons name="close" size={22} color="#111827" />
@@ -790,135 +1049,179 @@ export default function WaiterTableScreen() {
           </View>
 
           {cartItems.length > 0 ? (
-            <View style={[styles.menuCartBar, { bottom: 12 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}>
+            <TouchableOpacity
+              style={[styles.menuCartBar, { bottom: 12 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}
+              activeOpacity={0.9}
+              onPress={requestSendOrder}
+              accessibilityRole="button"
+              accessibilityLabel="Revisar comanda pendiente"
+            >
               <View>
                 <Text style={styles.menuCartLabel}>{cartItems.length} productos pendientes</Text>
                 <Text style={styles.menuCartTotal}>{formatMoney(cartTotal)}</Text>
               </View>
-              <TouchableOpacity style={styles.menuSendButton} onPress={sendOrder} disabled={sending} activeOpacity={0.88}>
-                {sending ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.menuSendText}>Enviar</Text>}
-              </TouchableOpacity>
-            </View>
+              <View style={styles.menuSendButton}>
+                {sending ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.menuSendText}>Revisar</Text>}
+              </View>
+            </TouchableOpacity>
           ) : null}
 
           {Boolean(selectedProduct) || productLoading ? (
-            <Pressable style={styles.productOverlay} onPress={() => !productLoading && setSelectedProduct(null)}>
-              <Pressable
-                style={[
-                  styles.productSheet,
-                  { paddingBottom: 14 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) },
-                ]}
-                onPress={(event) => event.stopPropagation()}
+            <Pressable
+              style={styles.productOverlay}
+              onPress={() => {
+                Keyboard.dismiss();
+                if (!productLoading) setSelectedProduct(null);
+              }}
+            >
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={0}
+                style={styles.productKeyboardAvoider}
               >
-                <View style={styles.sheetHandle} />
-                {productLoading || !selectedProduct ? (
-                  <View style={styles.sheetLoading}>
-                    <ActivityIndicator color="#111827" />
-                    <Text style={styles.loadingText}>Abriendo producto...</Text>
-                  </View>
-                ) : (
-                  <>
-                    <View style={styles.sheetHeader}>
-                      <Image source={selectedProduct.imagen ? { uri: selectedProduct.imagen } : PLACEHOLDER_FOOD} style={styles.sheetImage} contentFit="cover" />
-                      <View style={styles.sheetTitleCopy}>
-                        <Text style={styles.productModalTitle} numberOfLines={2}>{selectedProduct.nombre}</Text>
-                        <Text style={styles.productModalPrice}>Base {formatMoney(selectedProduct.precio)}</Text>
-                      </View>
-                      <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setSelectedProduct(null)}>
-                        <Ionicons name="close" size={20} color="#111827" />
-                      </TouchableOpacity>
+                <Pressable
+                  style={[
+                    styles.productSheet,
+                    {
+                      paddingBottom: keyboardVisible
+                        ? 6
+                        : 14 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0),
+                    },
+                  ]}
+                  onPress={(event) => event.stopPropagation()}
+                >
+                  <View style={styles.sheetHandle} />
+                  {productLoading || !selectedProduct ? (
+                    <View style={styles.sheetLoading}>
+                      <ActivityIndicator color="#111827" />
+                      <Text style={styles.loadingText}>Abriendo producto...</Text>
                     </View>
-
-                    <ScrollView style={styles.modifierScroll} contentContainerStyle={styles.modifierContent} showsVerticalScrollIndicator={false}>
-                      {(selectedProduct.modificadores ?? []).length === 0 ? (
-                        <Text style={styles.noModsText}>Sin modificadores. Puedes agregar notas para cocina.</Text>
-                      ) : null}
-                      {(selectedProduct.modificadores ?? []).map((mod) => (
-                        <View key={mod.id} style={styles.modifierBlock}>
-                          <View style={styles.modifierHeader}>
-                            <Text style={styles.modifierTitle}>{mod.nombre}</Text>
-                            <Text style={styles.modifierHint}>
-                              {mod.categoria === 'exclusion' ? 'Desmarca para omitir' : mod.tipo === 'radio' ? 'Elige una' : 'Opcional'}
-                            </Text>
-                          </View>
-                          {mod.opciones.map((option) => {
-                            const storedSelection = isOptionSelected(mod.id, option.id);
-                            const included = option.tipo_modificador === 'exclusion';
-                            const selected = included ? !storedSelection : storedSelection;
-                            const canToggle = !included || option.puede_omitirse !== false;
-                            const selectedOption = selectedMods
-                              .find((group) => group.modificador_id === mod.id)
-                              ?.opciones.find((item) => item.opcion_id === option.id);
-                            const optionQuantity = Number(selectedOption?.cantidad ?? 1);
-                            const maxQuantity = Math.max(1, Number(option.max_cantidad ?? 1));
-                            return (
-                              <TouchableOpacity
-                                key={option.id}
-                                style={[styles.optionRow, selected && styles.optionRowActive, !canToggle && styles.optionDisabled]}
-                                disabled={!canToggle}
-                                activeOpacity={0.85}
-                                onPress={() => toggleOption(mod, option)}
-                              >
-                                <View style={[styles.checkbox, mod.tipo === 'radio' && styles.radioBox, selected && styles.checkboxActive]}>
-                                  {selected ? <Ionicons name="checkmark" size={15} color="#FFFFFF" /> : null}
-                                </View>
-                                <Text style={styles.optionName} numberOfLines={2}>{option.nombre}</Text>
-                                {included ? (
-                                  <Text style={[styles.includedBadge, !selected && styles.omittedBadge]}>
-                                    {selected ? 'Incluido' : 'Omitir'}
-                                  </Text>
-                                ) : null}
-                                {selected && maxQuantity > 1 ? (
-                                  <View style={styles.optionQuantity}>
-                                    <TouchableOpacity onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, -1, maxQuantity); }}>
-                                      <Ionicons name="remove-circle-outline" size={22} color="#334155" />
-                                    </TouchableOpacity>
-                                    <Text style={styles.optionQuantityText}>{optionQuantity}</Text>
-                                    <TouchableOpacity
-                                      disabled={optionQuantity >= maxQuantity}
-                                      onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, 1, maxQuantity); }}
-                                    >
-                                      <Ionicons name="add-circle-outline" size={22} color={optionQuantity >= maxQuantity ? '#CBD5E1' : '#334155'} />
-                                    </TouchableOpacity>
-                                  </View>
-                                ) : null}
-                                <Text style={styles.optionPrice}>+{formatMoney(option.precio_extra)}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
+                  ) : (
+                    <>
+                      <View style={styles.sheetHeader}>
+                        <Image source={selectedProduct.imagen ? { uri: selectedProduct.imagen } : PLACEHOLDER_FOOD} style={styles.sheetImage} contentFit="cover" />
+                        <View style={styles.sheetTitleCopy}>
+                          <Text style={styles.productModalTitle} numberOfLines={2}>{selectedProduct.nombre}</Text>
+                          <Text style={styles.productModalPrice}>Base {formatMoney(selectedProduct.precio)}</Text>
                         </View>
-                      ))}
-
-                      <TextInput
-                        value={notes}
-                        onChangeText={setNotes}
-                        placeholder="Notas para cocina"
-                        placeholderTextColor="#94A3B8"
-                        style={styles.notesInput}
-                        multiline
-                      />
-                    </ScrollView>
-
-                    <View style={styles.productFooter}>
-                      <View style={styles.quantityPill}>
-                        <TouchableOpacity onPress={() => setQuantity((current) => Math.max(1, current - 1))} style={styles.sheetQtyButton}>
-                          <Ionicons name="remove" size={16} color="#111827" />
-                        </TouchableOpacity>
-                        <Text style={styles.quantityText}>{quantity}</Text>
-                        <TouchableOpacity onPress={() => setQuantity((current) => current + 1)} style={styles.sheetQtyButton}>
-                          <Ionicons name="add" size={16} color="#111827" />
+                        <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setSelectedProduct(null)}>
+                          <Ionicons name="close" size={20} color="#111827" />
                         </TouchableOpacity>
                       </View>
-                      <TouchableOpacity style={styles.addToCartButton} onPress={addSelectedProduct} activeOpacity={0.88}>
-                        <Text style={styles.addToCartText}>Agregar - {formatMoney(productUnitPrice * quantity)}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
-              </Pressable>
+
+                      <ScrollView
+                        style={styles.modifierScroll}
+                        contentContainerStyle={styles.modifierContent}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                      >
+                        {(selectedProduct.modificadores ?? []).length === 0 ? (
+                          <Text style={styles.noModsText}>Sin modificadores. Puedes agregar notas para cocina.</Text>
+                        ) : null}
+                        {(selectedProduct.modificadores ?? []).map((mod) => (
+                          <View key={mod.id} style={styles.modifierBlock}>
+                            <View style={styles.modifierHeader}>
+                              <Text style={styles.modifierTitle}>{mod.nombre}</Text>
+                              <Text style={styles.modifierHint}>
+                                {mod.categoria === 'exclusion' ? 'Desmarca para omitir' : mod.tipo === 'radio' ? 'Elige una' : 'Opcional'}
+                              </Text>
+                            </View>
+                            {mod.opciones.map((option) => {
+                              const storedSelection = isOptionSelected(mod.id, option.id);
+                              const included = option.tipo_modificador === 'exclusion';
+                              const selected = included ? !storedSelection : storedSelection;
+                              const canToggle = !included || option.puede_omitirse !== false;
+                              const selectedOption = selectedMods
+                                .find((group) => group.modificador_id === mod.id)
+                                ?.opciones.find((item) => item.opcion_id === option.id);
+                              const optionQuantity = Number(selectedOption?.cantidad ?? 1);
+                              const maxQuantity = Math.max(1, Number(option.max_cantidad ?? 1));
+                              return (
+                                <TouchableOpacity
+                                  key={option.id}
+                                  style={[styles.optionRow, selected && styles.optionRowActive, !canToggle && styles.optionDisabled]}
+                                  disabled={!canToggle}
+                                  activeOpacity={0.85}
+                                  onPress={() => toggleOption(mod, option)}
+                                >
+                                  <View style={[styles.checkbox, mod.tipo === 'radio' && styles.radioBox, selected && styles.checkboxActive]}>
+                                    {selected ? <Ionicons name="checkmark" size={15} color="#FFFFFF" /> : null}
+                                  </View>
+                                  <Text style={styles.optionName} numberOfLines={2}>{option.nombre}</Text>
+                                  {included ? (
+                                    <Text style={[styles.includedBadge, !selected && styles.omittedBadge]}>
+                                      {selected ? 'Incluido' : 'Omitir'}
+                                    </Text>
+                                  ) : null}
+                                  {selected && maxQuantity > 1 ? (
+                                    <View style={styles.optionQuantity}>
+                                      <TouchableOpacity onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, -1, maxQuantity); }}>
+                                        <Ionicons name="remove-circle-outline" size={22} color="#334155" />
+                                      </TouchableOpacity>
+                                      <Text style={styles.optionQuantityText}>{optionQuantity}</Text>
+                                      <TouchableOpacity
+                                        disabled={optionQuantity >= maxQuantity}
+                                        onPress={(event) => { event.stopPropagation(); changeOptionQuantity(mod.id, option.id, 1, maxQuantity); }}
+                                      >
+                                        <Ionicons name="add-circle-outline" size={22} color={optionQuantity >= maxQuantity ? '#CBD5E1' : '#334155'} />
+                                      </TouchableOpacity>
+                                    </View>
+                                  ) : null}
+                                  <Text style={styles.optionPrice}>+{formatMoney(option.precio_extra)}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ))}
+
+                        <TextInput
+                          value={notes}
+                          onChangeText={setNotes}
+                          placeholder="Notas para cocina"
+                          placeholderTextColor="#94A3B8"
+                          style={styles.notesInput}
+                          multiline
+                          textAlignVertical="top"
+                          returnKeyType="done"
+                          blurOnSubmit
+                          onSubmitEditing={Keyboard.dismiss}
+                          maxLength={240}
+                        />
+                      </ScrollView>
+
+                      <View style={styles.productFooter}>
+                        <View style={styles.quantityPill}>
+                          <TouchableOpacity onPress={() => setQuantity((current) => Math.max(1, current - 1))} style={styles.sheetQtyButton}>
+                            <Ionicons name="remove" size={16} color="#111827" />
+                          </TouchableOpacity>
+                          <Text style={styles.quantityText}>{quantity}</Text>
+                          <TouchableOpacity onPress={() => setQuantity((current) => current + 1)} style={styles.sheetQtyButton}>
+                            <Ionicons name="add" size={16} color="#111827" />
+                          </TouchableOpacity>
+                        </View>
+                        <TouchableOpacity style={styles.addToCartButton} onPress={addSelectedProduct} activeOpacity={0.88}>
+                          <Text style={styles.addToCartText}>Agregar - {formatMoney(productUnitPrice * quantity)}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </Pressable>
+              </KeyboardAvoidingView>
             </Pressable>
           ) : null}
+
+          {pendingReviewVisible ? renderPendingReviewSheet(true) : null}
         </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={pendingReviewVisible && !menuVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPendingReviewVisible(false)}
+      >
+        {renderPendingReviewSheet(false)}
       </Modal>
 
       <Modal visible={closeVisible} transparent animationType="fade" onRequestClose={() => setCloseVisible(false)}>
@@ -934,6 +1237,11 @@ export default function WaiterTableScreen() {
             <Text style={styles.closeTitle}>Cerrar cuenta</Text>
             <Text style={styles.closeText}>Selecciona el método de pago para liberar {tableLabel}.</Text>
             <Text style={styles.closeTotal}>{formatMoney(sentTotal)}</Text>
+
+            <TouchableOpacity style={styles.ticketPreviewButton} onPress={() => openAccountTicket('prebill')} disabled={closing}>
+              <Ionicons name="receipt-outline" size={18} color="#2563EB" />
+              <Text style={styles.ticketPreviewText}>Ver precuenta para imprimir</Text>
+            </TouchableOpacity>
 
             {([
               ['efectivo', 'Efectivo'],
@@ -1655,6 +1963,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.50)',
     justifyContent: 'flex-end',
   },
+  productKeyboardAvoider: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   productSheet: {
     maxHeight: '88%',
     borderTopLeftRadius: 26,
@@ -1860,6 +2172,187 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 15,
   },
+  reviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.52)',
+    justifyContent: 'flex-end',
+  },
+  reviewInlineOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  reviewSheet: {
+    maxHeight: '86%',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  reviewIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviewHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reviewTitle: {
+    color: '#111827',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  reviewSubtitle: {
+    marginTop: 2,
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reviewList: {
+    marginTop: 14,
+  },
+  reviewListContent: {
+    gap: 10,
+    paddingBottom: 8,
+  },
+  reviewItem: {
+    minHeight: 94,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F8FAFC',
+    padding: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  reviewImage: {
+    width: 54,
+    height: 62,
+    borderRadius: 14,
+    backgroundColor: '#E2E8F0',
+  },
+  reviewCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reviewTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  reviewName: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  reviewPrice: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  reviewMeta: {
+    marginTop: 4,
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reviewNoteRow: {
+    marginTop: 7,
+    borderRadius: 12,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  reviewNote: {
+    flex: 1,
+    color: '#92400E',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  reviewQtyActions: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reviewTotals: {
+    marginTop: 8,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  reviewTotalLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  reviewTotal: {
+    marginTop: 2,
+    color: '#111827',
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  reviewHint: {
+    flex: 1,
+    textAlign: 'right',
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+  },
+  reviewActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  reviewClearButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  reviewClearText: {
+    color: '#B91C1C',
+    fontWeight: '900',
+  },
+  reviewSendButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#111827',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  reviewSendText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
   closeOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.50)',
@@ -1890,6 +2383,23 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '900',
     color: '#111827',
+  },
+  ticketPreviewButton: {
+    minHeight: 50,
+    marginBottom: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  ticketPreviewText: {
+    color: '#1D4ED8',
+    fontSize: 14,
+    fontWeight: '900',
   },
   paymentOption: {
     minHeight: 58,
