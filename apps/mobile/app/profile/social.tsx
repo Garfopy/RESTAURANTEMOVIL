@@ -42,6 +42,14 @@ import {
   type GiftCheckoutMode,
   type SocialGiftOrder,
 } from '../../services/social-gifts.service';
+import {
+  confirmSocialAccountCoverPayment,
+  coverSocialDinerAccount,
+  getSocialAccountNotifications,
+  getSocialDinerAccount,
+  type SocialAccountNotification,
+  type SocialDinerAccountResult,
+} from '../../services/social-account.service';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 import { useBranchStore } from '../../store/branch.store';
@@ -623,6 +631,14 @@ export default function SocialProfileScreen() {
   const [giftRewardsQuote, setGiftRewardsQuote] = useState<RewardsQuote | null>(null);
   const [giftRewardsLoading, setGiftRewardsLoading] = useState(false);
   const [useGiftRewardsPoints, setUseGiftRewardsPoints] = useState(false);
+  const [coverAccountVisible, setCoverAccountVisible] = useState(false);
+  const [coverAccountDiner, setCoverAccountDiner] = useState<SocialDiner | null>(null);
+  const [coverAccountResult, setCoverAccountResult] = useState<SocialDinerAccountResult | null>(null);
+  const [coverAccountLoading, setCoverAccountLoading] = useState(false);
+  const [coverAccountSending, setCoverAccountSending] = useState(false);
+  const [coverAccountMode, setCoverAccountMode] = useState<'account' | 'stripe'>('account');
+  const [coverAccountCardComplete, setCoverAccountCardComplete] = useState(false);
+  const [accountNotifications, setAccountNotifications] = useState<SocialAccountNotification[]>([]);
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
@@ -698,6 +714,7 @@ export default function SocialProfileScreen() {
   const detailImageWidth = Math.max(260, width - 36);
   const isCompactDiscovery = height < 760 || width < 380;
   const topReceivedLike = receivedLikes[0] ?? null;
+  const latestAccountNotification = accountNotifications[0] ?? null;
   const topReceivedLikeKey = getIncomingLikeKey(topReceivedLike);
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
@@ -924,6 +941,15 @@ export default function SocialProfileScreen() {
       setMesaInput(nextMesa);
     }
   }, [userSocialActive, user?.requires_social_consent, user?.mesa]);
+
+  useEffect(() => {
+    if (!modoSocial) {
+      setAccountNotifications([]);
+      return;
+    }
+
+    void refreshAccountNotifications();
+  }, [modoSocial]);
 
   useEffect(() => {
     if (activateSocial !== '1' || socialScanActivationHandledRef.current || !tableSession?.mesaValue || modoSocial) {
@@ -1176,6 +1202,15 @@ export default function SocialProfileScreen() {
     }
   }
 
+  async function refreshAccountNotifications() {
+    try {
+      const notifications = await getSocialAccountNotifications();
+      setAccountNotifications(notifications);
+    } catch {
+      setAccountNotifications([]);
+    }
+  }
+
   async function refreshReceivedLikes(trackLoading = false) {
     try {
       if (trackLoading) {
@@ -1285,6 +1320,101 @@ export default function SocialProfileScreen() {
     setFocusedDiner(null);
   }
 
+  function closeCoverAccountModal() {
+    setCoverAccountVisible(false);
+    setCoverAccountDiner(null);
+    setCoverAccountResult(null);
+    setCoverAccountLoading(false);
+    setCoverAccountSending(false);
+    setCoverAccountMode('account');
+    setCoverAccountCardComplete(false);
+  }
+
+  async function openCoverAccountModal(diner?: SocialDiner | null) {
+    const target = diner ?? detailDiner;
+    if (!target) return;
+    if (!selectedBranch?.id) {
+      Alert.alert('Sucursal requerida', 'Activa el modo social en una sucursal para cubrir la cuenta de otro comensal.');
+      return;
+    }
+
+    setCoverAccountDiner(target);
+    setCoverAccountVisible(true);
+    setCoverAccountLoading(true);
+    setCoverAccountResult(null);
+    setCoverAccountMode('account');
+    setCoverAccountCardComplete(false);
+
+    try {
+      const result = await getSocialDinerAccount(target.user_id, selectedBranch.id);
+      setCoverAccountResult(result);
+    } catch (error) {
+      Alert.alert('No se pudo consultar la cuenta', getApiError(error));
+      closeCoverAccountModal();
+    } finally {
+      setCoverAccountLoading(false);
+    }
+  }
+
+  function buildCoverRequestKey(dinerUserId: number, mode: 'account' | 'stripe'): string {
+    return `cover_${user?.id ?? 'u'}_${dinerUserId}_${mode}_${Date.now().toString(36)}`;
+  }
+
+  async function handleCoverAccountSubmit(mode: 'account' | 'stripe') {
+    const target = coverAccountDiner;
+    if (!target || !selectedBranch?.id || !coverAccountResult?.account) return;
+
+    if (mode === 'stripe') {
+      if (!stripeAvailable) {
+        Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para pagar ahora.');
+        return;
+      }
+      if (!coverAccountCardComplete) {
+        Alert.alert('Tarjeta incompleta', 'Captura una tarjeta valida para pagar la cuenta.');
+        return;
+      }
+    }
+
+    setCoverAccountSending(true);
+    try {
+      const prepared = await coverSocialDinerAccount({
+        dinerUserId: target.user_id,
+        restaurantId: selectedBranch.id,
+        paymentMode: mode,
+        requestKey: buildCoverRequestKey(target.user_id, mode),
+      });
+
+      if (mode === 'stripe') {
+        if (!prepared.client_secret || !prepared.cover?.id) {
+          throw new Error('No se recibio el cliente de pago de Stripe.');
+        }
+        const { error } = await stripeConfirm(prepared.client_secret, {
+          paymentMethodType: 'Card',
+        });
+        if (error) {
+          Alert.alert('Pago rechazado', error.message);
+          return;
+        }
+        const confirmation = await confirmSocialAccountCoverPayment(prepared.cover.id);
+        Alert.alert(
+          'Cuenta pagada',
+          confirmation.cover?.message || `Pagaste la cuenta de ${target.nombre}. Le avisamos que su consumo fue cubierto.`
+        );
+      } else {
+        Alert.alert(
+          'Agregado a tu cuenta',
+          prepared.cover?.message || `El consumo de ${target.nombre} se agrego a tu cuenta. Le avisamos que su consumo fue cubierto.`
+        );
+      }
+
+      closeCoverAccountModal();
+    } catch (error) {
+      Alert.alert('No se pudo cubrir la cuenta', getApiError(error));
+    } finally {
+      setCoverAccountSending(false);
+    }
+  }
+
   function handleNextDiner() {
     advanceToDiner('next');
   }
@@ -1384,7 +1514,7 @@ export default function SocialProfileScreen() {
       return;
     }
 
-    Alert.alert('Agregar foto', 'Elige de dónde tomar la imagen.', [
+    Alert.alert('Agregar foto', 'Usa una foto clara donde se vea tu rostro o cuerpo para evitar confusiones.', [
       { text: 'Camara', onPress: () => openPicker(true) },
       { text: 'Galería', onPress: () => openPicker(false) },
       { text: 'Cancelar', style: 'cancel' },
@@ -2053,7 +2183,7 @@ export default function SocialProfileScreen() {
     }
 
     if (!selectedBranch?.id) {
-      Alert.alert('Visitanos en una sucursal', 'Visitanos en alguna sucursal para conocer a los comensales.');
+      Alert.alert('Regalos', 'Selecciona una sucursal antes de enviar un regalo.');
       return;
     }
 
@@ -2226,6 +2356,13 @@ export default function SocialProfileScreen() {
           <TouchableOpacity activeOpacity={0.88} onPress={() => openGiftSelector()} style={styles.giftButton}>
             <Ionicons name="gift-outline" size={20} color={Colors.white} />
             <Text style={styles.giftButtonText}>Regalo</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {canUseSocialActions ? (
+          <TouchableOpacity activeOpacity={0.88} onPress={() => openCoverAccountModal(diner)} style={styles.coverAccountButton}>
+            <Ionicons name="receipt-outline" size={20} color={Colors.primary} />
+            <Text style={styles.coverAccountButtonText}>Cubrir su cuenta</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -2664,6 +2801,31 @@ export default function SocialProfileScreen() {
             </View>
             <Ionicons name="heart" size={18} color="#E11D48" />
           </TouchableOpacity>
+        ) : null}
+
+        {latestAccountNotification ? (
+          <View style={styles.accountCoverNoticeCard}>
+            <View
+              style={[
+                styles.accountCoverNoticeIcon,
+                latestAccountNotification.type === 'social_gift_received' && { backgroundColor: '#FCE7F3' },
+              ]}
+            >
+              <Ionicons
+                name={latestAccountNotification.type === 'social_gift_received' ? 'gift-outline' : 'receipt-outline'}
+                size={20}
+                color={latestAccountNotification.type === 'social_gift_received' ? '#BE185D' : '#047857'}
+              />
+            </View>
+            <View style={styles.accountCoverNoticeText}>
+              <Text style={styles.accountCoverNoticeTitle} numberOfLines={1}>
+                {latestAccountNotification.title || 'Cuenta cubierta'}
+              </Text>
+              <Text style={styles.accountCoverNoticeBody} numberOfLines={2}>
+                {latestAccountNotification.body || 'Tu consumo fue cubierto por otro comensal.'}
+              </Text>
+            </View>
+          </View>
         ) : null}
 
         {profileLoading ? (
@@ -3196,6 +3358,151 @@ export default function SocialProfileScreen() {
                 </View>
               </ScrollView>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={coverAccountVisible} transparent animationType="slide" onRequestClose={closeCoverAccountModal}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={coverAccountSending ? undefined : closeCoverAccountModal} />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cubrir cuenta</Text>
+              <TouchableOpacity
+                onPress={closeCoverAccountModal}
+                style={styles.closeButton}
+                activeOpacity={0.8}
+                disabled={coverAccountSending}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.coverAccountContent} showsVerticalScrollIndicator={false}>
+              {coverAccountLoading ? (
+                <View style={styles.coverAccountLoading}>
+                  <ActivityIndicator color={Colors.primary} />
+                  <Text style={styles.centerStateText}>Consultando consumo...</Text>
+                </View>
+              ) : coverAccountResult?.available && coverAccountResult.account ? (
+                <>
+                  <View style={styles.coverAccountHero}>
+                    <View style={styles.coverAccountIcon}>
+                      <Ionicons name="receipt-outline" size={24} color={Colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.coverAccountTitle}>
+                        Cuenta de {coverAccountResult.recipient?.nombre ?? coverAccountDiner?.nombre ?? 'comensal'}
+                      </Text>
+                      <Text style={styles.coverAccountSubtitle}>
+                        {coverAccountResult.recipient?.mesa ? `Mesa ${coverAccountResult.recipient.mesa}` : 'Mesa del comensal'}
+                      </Text>
+                    </View>
+                    <Text style={styles.coverAccountTotal}>${coverAccountResult.account.total_mxn.toFixed(2)}</Text>
+                  </View>
+
+                  <View style={styles.coverAccountItems}>
+                    {coverAccountResult.account.items.slice(0, 4).map((item) => (
+                      <View key={`${item.pedido_id}-${item.id}`} style={styles.coverAccountItemRow}>
+                        <Text style={styles.coverAccountItemName} numberOfLines={1}>
+                          {item.cantidad}x {item.nombre}
+                        </Text>
+                        <Text style={styles.coverAccountItemPrice}>${item.subtotal.toFixed(2)}</Text>
+                      </View>
+                    ))}
+                    {coverAccountResult.account.items.length > 4 ? (
+                      <Text style={styles.coverAccountMoreText}>
+                        +{coverAccountResult.account.items.length - 4} productos mas
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.giftPaymentModes}>
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={() => setCoverAccountMode('account')}
+                      style={[
+                        styles.giftPaymentModeCard,
+                        coverAccountMode === 'account' && styles.giftPaymentModeCardActive,
+                      ]}
+                    >
+                      <Ionicons name="add-circle-outline" size={18} color={coverAccountMode === 'account' ? Colors.primary : Colors.textSecondary} />
+                      <Text style={[styles.giftPaymentModeTitle, coverAccountMode === 'account' && styles.giftPaymentModeTitleActive]}>
+                        A mi cuenta
+                      </Text>
+                      <Text style={styles.giftPaymentModeText}>Lo pagas al cerrar tu consumo.</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={() => stripeAvailable && setCoverAccountMode('stripe')}
+                      style={[
+                        styles.giftPaymentModeCard,
+                        coverAccountMode === 'stripe' && styles.giftPaymentModeCardActive,
+                        !stripeAvailable && styles.giftPaymentModeCardDisabled,
+                      ]}
+                      disabled={!stripeAvailable}
+                    >
+                      <Ionicons name="card-outline" size={18} color={coverAccountMode === 'stripe' ? Colors.primary : Colors.textSecondary} />
+                      <Text style={[styles.giftPaymentModeTitle, coverAccountMode === 'stripe' && styles.giftPaymentModeTitleActive]}>
+                        Pagar ahora
+                      </Text>
+                      <Text style={styles.giftPaymentModeText}>Cubre su consumo con tarjeta.</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {coverAccountMode === 'stripe' ? (
+                    stripeAvailable ? (
+                      <View style={styles.giftStripeBox}>
+                        <CardField
+                          postalCodeEnabled={false}
+                          placeholders={{ number: '4242 4242 4242 4242' }}
+                          cardStyle={{
+                            backgroundColor: '#FFFFFF',
+                            textColor: '#111827',
+                            borderColor: '#D8DDE8',
+                            borderWidth: 1,
+                            borderRadius: 12,
+                          }}
+                          style={styles.giftStripeCardField}
+                          onCardChange={(details) => setCoverAccountCardComplete(Boolean(details.complete))}
+                        />
+                      </View>
+                    ) : (
+                      <Text style={styles.giftUnavailableText}>Configura EXPO_PUBLIC_STRIPE_KEY para pagar ahora.</Text>
+                    )
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={[styles.giftSendButton, coverAccountSending && styles.saveButtonDisabled]}
+                    activeOpacity={0.86}
+                    disabled={coverAccountSending}
+                    onPress={() => handleCoverAccountSubmit(coverAccountMode)}
+                  >
+                    {coverAccountSending ? (
+                      <ActivityIndicator size="small" color={Colors.white} />
+                    ) : (
+                      <Ionicons name={coverAccountMode === 'stripe' ? 'card-outline' : 'add-circle-outline'} size={18} color={Colors.white} />
+                    )}
+                    <Text style={styles.giftSendButtonText}>
+                      {coverAccountMode === 'stripe'
+                        ? `Pagar $${coverAccountResult.account.total_mxn.toFixed(2)}`
+                        : `Agregar $${coverAccountResult.account.total_mxn.toFixed(2)} a mi cuenta`}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <View style={styles.coverAccountEmpty}>
+                  <Ionicons name="checkmark-circle-outline" size={42} color={Colors.success || '#059669'} />
+                  <Text style={styles.centerStateTitle}>Sin consumo pendiente</Text>
+                  <Text style={styles.centerStateText}>
+                    {coverAccountResult?.message || 'Este comensal no tiene productos pendientes por cubrir.'}
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -3796,6 +4103,43 @@ const styles = StyleSheet.create({
     gap: 10,
     ...Shadows.card,
   },
+  accountCoverNoticeCard: {
+    marginTop: 10,
+    marginBottom: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    ...Shadows.card,
+  },
+  accountCoverNoticeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#D1FAE5',
+  },
+  accountCoverNoticeText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  accountCoverNoticeTitle: {
+    color: '#065F46',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  accountCoverNoticeBody: {
+    marginTop: 3,
+    color: '#047857',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
   centerStateCard: {
     flex: 1,
     backgroundColor: Colors.white,
@@ -4140,6 +4484,24 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.white,
   },
+  coverAccountButton: {
+    minHeight: 54,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#BFD7D0',
+    backgroundColor: '#F0FDF8',
+    marginTop: 4,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  coverAccountButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
   detailHeroCard: {
     borderRadius: 28,
     borderWidth: 1,
@@ -4372,6 +4734,88 @@ const styles = StyleSheet.create({
   giftPaymentModes: {
     gap: 8,
   },
+  coverAccountContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 26,
+    gap: 14,
+  },
+  coverAccountLoading: {
+    minHeight: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverAccountEmpty: {
+    minHeight: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  coverAccountHero: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    backgroundColor: '#ECFDF5',
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  coverAccountIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverAccountTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: Colors.text,
+  },
+  coverAccountSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  coverAccountTotal: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: Colors.primary,
+  },
+  coverAccountItems: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    gap: 8,
+  },
+  coverAccountItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  coverAccountItemName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  coverAccountItemPrice: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: Colors.primary,
+  },
+  coverAccountMoreText: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
   giftPaymentModeCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -4402,6 +4846,12 @@ const styles = StyleSheet.create({
   },
   giftPaymentModeDescription: {
     marginTop: 2,
+    color: '#64748B',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  giftPaymentModeText: {
+    flex: 1,
     color: '#64748B',
     fontSize: 11,
     lineHeight: 15,
@@ -4444,12 +4894,37 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 8,
   },
+  giftStripeBox: {
+    marginTop: 4,
+    gap: 8,
+  },
   giftStripeCardField: {
     width: '100%',
     height: 54,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#D8DDE8',
+  },
+  giftUnavailableText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#B45309',
+    textAlign: 'center',
+  },
+  giftSendButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    ...Shadows.md,
+  },
+  giftSendButtonText: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '900',
   },
   giftStripeNote: {
     fontSize: 12,

@@ -67,9 +67,9 @@ const HOME_BANNERS = [
   },
 ];
 
-const AUTO_SELECT_DISTANCE_METERS = 15;
-const CONFIRM_SELECT_DISTANCE_METERS = 50;
-const MIN_DISTANCE_GAP_METERS = 30;
+const AUTO_SELECT_DISTANCE_METERS = 100;
+const CONFIRM_SELECT_DISTANCE_METERS = 333;
+const MIN_DISTANCE_GAP_METERS = 200;
 
 type NearbyBranchState =
   | { kind: 'inside'; branch: Sucursal; distanceMeters: number }
@@ -443,7 +443,7 @@ export default function HomeScreen() {
           branchForMenu = fallbackBranch;
         }
       }
-      setTipoPedido(null);
+      setTipoPedido('eat_in');
       clearTableSession();
 
       if (branchForMenu?.id) {

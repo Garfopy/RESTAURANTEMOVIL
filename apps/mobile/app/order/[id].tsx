@@ -184,6 +184,8 @@ export default function OrderDetailScreen() {
       Number(order?.cuenta_abierta ?? 0) === 1);
   const accountStatusLabel = order?.salida_validado_at
     ? 'Cuenta cerrada'
+    : order?.pagado_at || order?.cerrado_at
+      ? 'Cuenta saldada'
     : order?.salida_qr_generado_at
       ? 'Cuenta pagada'
       : 'Cuenta abierta';

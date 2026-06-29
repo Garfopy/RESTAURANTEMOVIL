@@ -18,6 +18,7 @@ class AddressController
 
         // Devolver array directamente en data para compatibilidad con app móvil
         Response::success($addresses, 'Direcciones obtenidas exitosamente !');
+
     }
 
     public function show(int $id): void

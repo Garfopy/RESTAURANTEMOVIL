@@ -31,9 +31,18 @@ import {
   type WaiterSplit,
 } from '../../services/waiter.service';
 
-type DraftAccount = { key: string; name: string };
-type Unit = { key: string; itemId: number; name: string; price: number; image?: string | null };
+type DraftAccount = { key: string; name: string; guestKey?: string };
+type Unit = {
+  key: string;
+  itemId: number;
+  name: string;
+  price: number;
+  image?: string | null;
+  guestKey: string;
+  guestName: string;
+};
 type Zone = { key: string; x: number; y: number; width: number; height: number };
+type GuestGroup = { key: string; name: string; count: number; total: number; units: Unit[] };
 
 type Props = {
   visible: boolean;
@@ -56,6 +65,16 @@ const PLACEHOLDER_FOOD = require('../../assets/placeholder-food.jpg');
 
 function money(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+function normalizeGuestName(item: WaiterAccountItem): string {
+  const name = item.pedido_cliente_nombre?.trim();
+  return name && name.length > 0 ? name : 'Comensal sin nombre';
+}
+
+function guestKeyForItem(item: WaiterAccountItem): string {
+  if (item.pedido_mobile_usuario_id) return `user-${item.pedido_mobile_usuario_id}`;
+  return `order-${item.pedido_id}-${normalizeGuestName(item).toLowerCase()}`;
 }
 
 function DraggableUnit({
@@ -160,6 +179,9 @@ export function SplitAccountModal({
   const [saving, setSaving] = useState(false);
   const [split, setSplit] = useState<WaiterSplit | null>(activeSplit ?? null);
   const [paymentMethod, setPaymentMethod] = useState<WaiterPaymentMethod>('efectivo');
+  const [selectedPaymentAccountId, setSelectedPaymentAccountId] = useState<number | null>(null);
+  const [expandedPaymentAccountId, setExpandedPaymentAccountId] = useState<number | null>(null);
+  const [expandedGuestKey, setExpandedGuestKey] = useState<string | null>(null);
   const zoneRefs = useRef<Record<string, ViewType | null>>({});
   const zones = useRef<Zone[]>([]);
   const nextAccountNumber = useRef(3);
@@ -171,29 +193,77 @@ export function SplitAccountModal({
       name: item.nombre,
       price: Number(item.precio_unit),
       image: item.imagen,
+      guestKey: guestKeyForItem(item),
+      guestName: normalizeGuestName(item),
     }))
   ), [items]);
 
+  const guestGroups = useMemo<GuestGroup[]>(() => {
+    const groups = new Map<string, GuestGroup>();
+    units.forEach((unit) => {
+      const existing = groups.get(unit.guestKey);
+      if (existing) {
+        existing.count += 1;
+        existing.total += unit.price;
+        existing.units.push(unit);
+        return;
+      }
+      groups.set(unit.guestKey, {
+        key: unit.guestKey,
+        name: unit.guestName,
+        count: 1,
+        total: unit.price,
+        units: [unit],
+      });
+    });
+
+    return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [units]);
+
   useEffect(() => {
     setSplit(activeSplit ?? null);
+    setSelectedPaymentAccountId(null);
+    setExpandedPaymentAccountId(null);
   }, [activeSplit]);
 
   useEffect(() => {
+    if (!split) {
+      setSelectedPaymentAccountId(null);
+      setExpandedPaymentAccountId(null);
+      return;
+    }
+
+    const pending = split.accounts.filter((account) => account.estado === 'pendiente');
+    setSelectedPaymentAccountId((current) =>
+      current && pending.some((account) => account.id === current)
+        ? current
+        : pending[0]?.id ?? null
+    );
+    setExpandedPaymentAccountId((current) => current ?? pending[0]?.id ?? split.accounts[0]?.id ?? null);
+  }, [split]);
+
+  useEffect(() => {
     if (!visible || activeSplit) return;
-    setAccounts([
-      { key: 'account-1', name: 'Cuenta 1' },
-      { key: 'account-2', name: 'Cuenta 2' },
-    ]);
-    nextAccountNumber.current = 3;
-    setAllocation(Object.fromEntries(units.map((unit) => [unit.key, null])));
+    const singleGuest = guestGroups.length <= 1 ? guestGroups[0] ?? null : null;
+    const initialAccounts = singleGuest
+      ? [{ key: 'account-1', name: singleGuest.name, guestKey: singleGuest.key }]
+      : [
+          { key: 'account-1', name: 'Cuenta 1' },
+          { key: 'account-2', name: 'Cuenta 2' },
+        ];
+    setAccounts(initialAccounts);
+    nextAccountNumber.current = initialAccounts.length + 1;
+    setAllocation(Object.fromEntries(units.map((unit) => [unit.key, singleGuest ? 'account-1' : null])));
     setSelectedUnit(null);
     setHoveredZone(null);
-  }, [activeSplit, units, visible]);
+    setExpandedGuestKey(guestGroups[0]?.key ?? null);
+  }, [activeSplit, guestGroups, units, visible]);
 
   const sourceItemsById = useMemo(() => Object.fromEntries(items.map((item) => [item.id, item])), [items]);
   const unassigned = units.filter((unit) => !allocation[unit.key]);
   const accountUnits = (key: string) => units.filter((unit) => allocation[unit.key] === key);
   const accountTotal = (key: string) => accountUnits(key).reduce((sum, unit) => sum + unit.price, 0);
+  const payableAccounts = accounts.filter((account) => accountUnits(account.key).length > 0);
 
   function measureZones() {
     const keys = ['unassigned', ...accounts.map((account) => account.key)];
@@ -252,7 +322,7 @@ export function SplitAccountModal({
   }
 
   function removeAccount(key: string) {
-    if (accounts.length <= 2 || accountUnits(key).length > 0) return;
+    if (accounts.length <= 1 || accountUnits(key).length > 0) return;
     setAccounts((current) => current.filter((account) => account.key !== key));
   }
 
@@ -284,13 +354,40 @@ export function SplitAccountModal({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
 
+  function splitByGuests() {
+    const groups = guestGroups.filter((group) => group.units.length > 0);
+    if (groups.length <= 1) {
+      Alert.alert('Separar por comensal', 'Necesitas pedidos de al menos dos comensales para usar esta opcion.');
+      return;
+    }
+
+    const nextAccounts = groups.map((group, index) => ({
+      key: `account-${index + 1}`,
+      name: group.name,
+      guestKey: group.key,
+    }));
+    const nextAllocation = Object.fromEntries(
+      units.map((unit) => {
+        const account = nextAccounts.find((candidate) => candidate.guestKey === unit.guestKey);
+        return [unit.key, account?.key ?? null];
+      })
+    );
+
+    setAccounts(nextAccounts);
+    nextAccountNumber.current = nextAccounts.length + 1;
+    setAllocation(nextAllocation);
+    setSelectedUnit(null);
+    setHoveredZone(null);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
   async function createSplit() {
     if (unassigned.length > 0) {
       Alert.alert('Faltan productos', 'Asigna todos los productos antes de continuar.');
       return;
     }
-    if (accounts.some((account) => accountUnits(account.key).length === 0)) {
-      Alert.alert('Cuenta vacía', 'Cada cuenta debe tener al menos un producto.');
+    if (payableAccounts.length === 0) {
+      Alert.alert('Cuenta vacía', 'Asigna al menos un producto para poder cobrar.');
       return;
     }
 
@@ -299,7 +396,7 @@ export function SplitAccountModal({
       const created = await createWaiterSplit({
         tableId,
         restaurantId,
-        accounts: accounts.map((account) => {
+        accounts: payableAccounts.map((account) => {
           const grouped = new Map<number, number>();
           accountUnits(account.key).forEach((unit) => grouped.set(unit.itemId, (grouped.get(unit.itemId) ?? 0) + 1));
           return {
@@ -365,7 +462,23 @@ export function SplitAccountModal({
     ]);
   }
 
-  const currentPayment = split?.accounts.find((account) => account.estado === 'pendiente') ?? null;
+  const currentPayment = split
+    ? split.accounts.find((account) => account.estado === 'pendiente' && account.id === selectedPaymentAccountId) ??
+      split.accounts.find((account) => account.estado === 'pendiente') ??
+      null
+    : null;
+
+  function getSplitAccountItems(account: WaiterSplit['accounts'][number]) {
+    return account.items.map((item) => {
+      const source = sourceItemsById[item.pedido_item_id];
+      return {
+        ...item,
+        name: source?.nombre ?? 'Producto',
+        image: source?.imagen ?? null,
+        guestName: source ? normalizeGuestName(source) : null,
+      };
+    });
+  }
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -379,7 +492,7 @@ export function SplitAccountModal({
             <Text style={styles.subtitle}>{tableLabel}</Text>
           </View>
           <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{split ? `${split.paid_count}/${split.accounts_count}` : accounts.length}</Text>
+            <Text style={styles.countBadgeText}>{split ? `${split.paid_count}/${split.accounts_count}` : payableAccounts.length}</Text>
           </View>
         </View>
 
@@ -396,16 +509,62 @@ export function SplitAccountModal({
             {split.accounts.map((account) => {
               const paid = account.estado === 'pagada';
               const active = currentPayment?.id === account.id;
+              const expanded = expandedPaymentAccountId === account.id;
+              const detailItems = getSplitAccountItems(account);
               return (
                 <View key={account.id} style={[styles.paymentAccount, active && styles.paymentAccountActive]}>
-                  <View style={[styles.accountNumber, paid && styles.accountNumberPaid]}>
-                    <Ionicons name={paid ? 'checkmark' : 'receipt-outline'} size={18} color={paid ? '#FFFFFF' : '#2563EB'} />
-                  </View>
-                  <View style={styles.paymentAccountCopy}>
-                    <Text style={styles.paymentAccountName}>{account.nombre}</Text>
-                    <Text style={styles.paymentAccountMeta}>{paid ? `Pagada con ${account.metodo_pago}` : `${account.items.reduce((sum, item) => sum + item.cantidad, 0)} productos`}</Text>
-                  </View>
-                  <Text style={styles.paymentAccountTotal}>{money(account.total)}</Text>
+                  <TouchableOpacity
+                    style={styles.paymentAccountMain}
+                    activeOpacity={0.86}
+                    onPress={() => {
+                      setExpandedPaymentAccountId((current) => current === account.id ? null : account.id);
+                      if (!paid) setSelectedPaymentAccountId(account.id);
+                    }}
+                  >
+                    <View style={[styles.accountNumber, paid && styles.accountNumberPaid]}>
+                      <Ionicons name={paid ? 'checkmark' : 'receipt-outline'} size={18} color={paid ? '#FFFFFF' : '#2563EB'} />
+                    </View>
+                    <View style={styles.paymentAccountCopy}>
+                      <Text style={styles.paymentAccountName}>{account.nombre}</Text>
+                      <Text style={styles.paymentAccountMeta}>
+                        {paid ? `Pagada con ${account.metodo_pago}` : `${account.items.reduce((sum, item) => sum + item.cantidad, 0)} productos por cobrar`}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentAccountRight}>
+                      <Text style={styles.paymentAccountTotal}>{money(account.total)}</Text>
+                      <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#64748B" />
+                    </View>
+                  </TouchableOpacity>
+                  {expanded ? (
+                    <View style={styles.paymentDetails}>
+                      {detailItems.map((item) => (
+                        <View key={`${account.id}-${item.pedido_item_id}`} style={styles.paymentDetailRow}>
+                          <Image
+                            source={item.image ? { uri: item.image } : PLACEHOLDER_FOOD}
+                            style={styles.paymentDetailImage}
+                            contentFit="cover"
+                          />
+                          <View style={styles.paymentDetailCopy}>
+                            <Text style={styles.paymentDetailName} numberOfLines={1}>{item.name}</Text>
+                            <Text style={styles.paymentDetailMeta}>{item.cantidad} x {money(item.precio_unit)}</Text>
+                          </View>
+                          <Text style={styles.paymentDetailTotal}>{money(item.subtotal)}</Text>
+                        </View>
+                      ))}
+                      {!paid ? (
+                        <TouchableOpacity
+                          style={[styles.selectPayButton, active && styles.selectPayButtonActive]}
+                          onPress={() => setSelectedPaymentAccountId(account.id)}
+                          disabled={saving}
+                        >
+                          <Ionicons name={active ? 'checkmark-circle' : 'card-outline'} size={18} color={active ? '#FFFFFF' : '#2563EB'} />
+                          <Text style={[styles.selectPayText, active && styles.selectPayTextActive]}>
+                            {active ? 'Cuenta lista para cobrar' : 'Cobrar esta cuenta'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               );
             })}
@@ -477,6 +636,56 @@ export function SplitAccountModal({
               onScrollEndDrag={measureZones}
               onMomentumScrollEnd={measureZones}
             >
+              {guestGroups.length > 0 ? (
+                <View style={styles.guestPanel}>
+                  <View style={styles.guestPanelHeader}>
+                    <View>
+                      <Text style={styles.guestPanelTitle}>Por comensal</Text>
+                      <Text style={styles.guestPanelMeta}>{guestGroups.length} comensales detectados</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.guestAutoButton, guestGroups.length <= 1 && styles.buttonDisabled]}
+                      onPress={splitByGuests}
+                      disabled={guestGroups.length <= 1 || saving}
+                    >
+                      <Ionicons name="people-outline" size={17} color="#2563EB" />
+                      <Text style={styles.guestAutoText}>Usar comensales</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {guestGroups.map((group) => {
+                    const expanded = expandedGuestKey === group.key;
+                    return (
+                      <View key={group.key} style={styles.guestSummary}>
+                        <TouchableOpacity
+                          style={styles.guestSummaryHeader}
+                          activeOpacity={0.86}
+                          onPress={() => setExpandedGuestKey((current) => current === group.key ? null : group.key)}
+                        >
+                          <View style={styles.guestSummaryAvatar}>
+                            <Text style={styles.guestSummaryAvatarText}>{group.name.trim().charAt(0).toUpperCase() || 'C'}</Text>
+                          </View>
+                          <View style={styles.guestSummaryCopy}>
+                            <Text style={styles.guestSummaryName} numberOfLines={1}>{group.name}</Text>
+                            <Text style={styles.guestSummaryMeta}>{group.count} productos</Text>
+                          </View>
+                          <Text style={styles.guestSummaryTotal}>{money(group.total)}</Text>
+                          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={17} color="#64748B" />
+                        </TouchableOpacity>
+                        {expanded ? (
+                          <View style={styles.guestSummaryDetails}>
+                            {group.units.map((unit) => (
+                              <View key={`guest-${unit.key}`} style={styles.guestSummaryItem}>
+                                <Text style={styles.guestSummaryItemName} numberOfLines={1}>{unit.name}</Text>
+                                <Text style={styles.guestSummaryItemPrice}>{money(unit.price)}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
               <TouchableOpacity activeOpacity={1} onPress={() => handleZonePress('unassigned')}>
                 <View
                   ref={(ref) => { zoneRefs.current.unassigned = ref; }}
@@ -525,7 +734,7 @@ export function SplitAccountModal({
                         </View>
                         <View style={styles.accountRight}>
                           <Text style={styles.zoneTotal}>{money(accountTotal(account.key))}</Text>
-                          {accounts.length > 2 && assigned.length === 0 ? (
+                          {accounts.length > 1 && assigned.length === 0 ? (
                             <TouchableOpacity onPress={() => removeAccount(account.key)} accessibilityLabel={`Eliminar ${account.name}`}>
                               <Ionicons name="trash-outline" size={18} color="#B91C1C" />
                             </TouchableOpacity>
@@ -561,9 +770,9 @@ export function SplitAccountModal({
                 <Text style={styles.footerTotal}>{money(units.reduce((sum, unit) => sum + unit.price, 0) - unassigned.reduce((sum, unit) => sum + unit.price, 0))}</Text>
               </View>
               <TouchableOpacity
-                style={[styles.continueButton, (unassigned.length > 0 || accounts.some((account) => accountUnits(account.key).length === 0)) && styles.buttonDisabled]}
+                style={[styles.continueButton, (unassigned.length > 0 || payableAccounts.length === 0) && styles.buttonDisabled]}
                 onPress={createSplit}
-                disabled={saving || unassigned.length > 0 || accounts.some((account) => accountUnits(account.key).length === 0)}
+                disabled={saving || unassigned.length > 0 || payableAccounts.length === 0}
               >
                 {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.continueText}>Continuar al cobro</Text>}
               </TouchableOpacity>
@@ -589,6 +798,24 @@ const styles = StyleSheet.create({
   autoAssignButton: { minHeight: 34, borderRadius: 12, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: '#DBEAFE' },
   autoAssignButtonDisabled: { opacity: 0.45 },
   autoAssignText: { color: '#1D4ED8', fontSize: 12, fontWeight: '900' },
+  guestPanel: { padding: 14, borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', gap: 10 },
+  guestPanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  guestPanelTitle: { color: '#111827', fontSize: 16, fontWeight: '900' },
+  guestPanelMeta: { marginTop: 2, color: '#64748B', fontSize: 12, fontWeight: '600' },
+  guestAutoButton: { minHeight: 38, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', flexDirection: 'row', alignItems: 'center', gap: 7 },
+  guestAutoText: { color: '#1D4ED8', fontSize: 12, fontWeight: '900' },
+  guestSummary: { borderRadius: 14, borderWidth: 1, borderColor: '#E5E7EB', overflow: 'hidden', backgroundColor: '#F8FAFC' },
+  guestSummaryHeader: { minHeight: 58, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  guestSummaryAvatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEE2E2' },
+  guestSummaryAvatarText: { color: '#B91C1C', fontSize: 14, fontWeight: '900' },
+  guestSummaryCopy: { flex: 1 },
+  guestSummaryName: { color: '#111827', fontSize: 14, fontWeight: '800' },
+  guestSummaryMeta: { marginTop: 2, color: '#64748B', fontSize: 12 },
+  guestSummaryTotal: { color: '#111827', fontSize: 14, fontWeight: '900' },
+  guestSummaryDetails: { paddingHorizontal: 12, paddingBottom: 10, gap: 7 },
+  guestSummaryItem: { minHeight: 32, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  guestSummaryItemName: { flex: 1, color: '#475569', fontSize: 12, fontWeight: '700' },
+  guestSummaryItemPrice: { color: '#111827', fontSize: 12, fontWeight: '800' },
   splitContent: { padding: 14, paddingBottom: 28, gap: 14 },
   zone: { padding: 14, borderRadius: 18, borderWidth: 2, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
   unassignedZone: { borderStyle: 'dashed', backgroundColor: '#FFFDF7' },
@@ -624,12 +851,25 @@ const styles = StyleSheet.create({
   progressTitle: { marginTop: 7, color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
   progressTrack: { marginTop: 14, height: 7, borderRadius: 4, overflow: 'hidden', backgroundColor: '#374151' },
   progressFill: { height: '100%', borderRadius: 4, backgroundColor: '#3B82F6' },
-  paymentAccount: { padding: 14, borderRadius: 17, borderWidth: 1, borderColor: '#E2E8F0', flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFFFFF' },
+  paymentAccount: { borderRadius: 17, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden', backgroundColor: '#FFFFFF' },
   paymentAccountActive: { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' },
+  paymentAccountMain: { minHeight: 72, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11 },
   paymentAccountCopy: { flex: 1 },
   paymentAccountName: { color: '#111827', fontSize: 15, fontWeight: '800' },
   paymentAccountMeta: { marginTop: 3, color: '#64748B', fontSize: 12 },
+  paymentAccountRight: { alignItems: 'flex-end', gap: 5 },
   paymentAccountTotal: { color: '#111827', fontSize: 17, fontWeight: '800' },
+  paymentDetails: { paddingHorizontal: 14, paddingBottom: 14, gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2E8F0' },
+  paymentDetailRow: { minHeight: 52, paddingTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  paymentDetailImage: { width: 38, height: 38, borderRadius: 10, backgroundColor: '#E2E8F0' },
+  paymentDetailCopy: { flex: 1 },
+  paymentDetailName: { color: '#1F2937', fontSize: 13, fontWeight: '800' },
+  paymentDetailMeta: { marginTop: 2, color: '#64748B', fontSize: 12, fontWeight: '600' },
+  paymentDetailTotal: { color: '#111827', fontSize: 13, fontWeight: '900' },
+  selectPayButton: { height: 42, marginTop: 4, borderRadius: 12, borderWidth: 1, borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  selectPayButtonActive: { borderColor: '#2563EB', backgroundColor: '#2563EB' },
+  selectPayText: { color: '#1D4ED8', fontSize: 13, fontWeight: '900' },
+  selectPayTextActive: { color: '#FFFFFF' },
   checkoutCard: { marginTop: 6, padding: 17, borderRadius: 20, backgroundColor: '#FFFFFF' },
   checkoutLabel: { color: '#2563EB', fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
   checkoutHeading: { marginTop: 7, marginBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

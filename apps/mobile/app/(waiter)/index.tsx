@@ -94,6 +94,7 @@ export default function WaiterHomeScreen() {
   const [activeFilter, setActiveFilter] = useState<TableFilter>('all');
   const [incomingExpanded, setIncomingExpanded] = useState(false);
   const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
+  const [tableGrouping, setTableGrouping] = useState<'status' | 'zone'>('status');
   const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
   const seenClientOrderIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
 
@@ -281,6 +282,19 @@ export default function WaiterHomeScreen() {
     { key: 'support', label: 'Apoyo', count: supportTables.length, icon: 'people-outline' },
     { key: 'gifts', label: 'Regalos', count: giftInbox.active.length, icon: 'gift-outline' },
   ];
+  const zoneGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; title: string; tables: WaiterTable[] }>();
+
+    filteredTables.forEach((table) => {
+      const title = table.zona_nombre?.trim() || 'Sin area';
+      const key = table.zona_id ? `zone-${table.zona_id}` : `zone-${title}`;
+      const group = groups.get(key) ?? { key, title, tables: [] };
+      group.tables.push(table);
+      groups.set(key, group);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => a.title.localeCompare(b.title, 'es'));
+  }, [filteredTables]);
 
   const summary = useMemo(() => {
     const mine = tables.filter(
@@ -497,6 +511,49 @@ export default function WaiterHomeScreen() {
     );
   }
 
+  function renderZoneSection(group: { key: string; title: string; tables: WaiterTable[] }) {
+    const activeTotal = group.tables.reduce((sum, table) => sum + Number(table.total || 0), 0);
+    return renderTableSection(
+      group.title,
+      `${group.tables.length} mesas · ${money(activeTotal)} activo`,
+      group.tables,
+      'No hay mesas en esta area.',
+      'map-outline'
+    );
+  }
+
+  function renderTableSection(
+    title: string,
+    subtitle: string,
+    sectionTables: WaiterTable[],
+    emptyText: string,
+    icon: StatusIcon
+  ) {
+    return (
+      <View style={styles.tableSection}>
+        <View style={styles.tableSectionHeader}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionIcon}>
+              <Ionicons name={icon} size={18} color="#111827" />
+            </View>
+            <View style={styles.sectionTitleCopy}>
+              <Text style={styles.tableSectionTitle}>{title}</Text>
+              <Text style={styles.tableSectionSubtitle}>{subtitle}</Text>
+            </View>
+          </View>
+          <View style={styles.countPill}>
+            <Text style={styles.countText}>{Math.min(99, sectionTables.length)}</Text>
+          </View>
+        </View>
+        {sectionTables.length > 0 ? (
+          <View style={styles.tableGrid}>{sectionTables.map(renderTableCard)}</View>
+        ) : (
+          <Text style={styles.sectionEmptyText}>{emptyText}</Text>
+        )}
+      </View>
+    );
+  }
+
   async function handleClaimTable() {
     if (!selectedBranch || !claimingTable) return;
     if (!customerName.trim()) {
@@ -678,6 +735,26 @@ export default function WaiterHomeScreen() {
               </TouchableOpacity>
             ) : null}
           </View>
+
+          <View style={styles.groupSwitch}>
+            {([
+              ['status', 'Estado', 'list-outline'],
+              ['zone', 'Area', 'map-outline'],
+            ] as Array<[typeof tableGrouping, string, StatusIcon]>).map(([value, label, icon]) => {
+              const active = tableGrouping === value;
+              return (
+                <TouchableOpacity
+                  key={value}
+                  style={[styles.groupSwitchButton, active && styles.groupSwitchButtonActive]}
+                  onPress={() => setTableGrouping(value)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name={icon} size={16} color={active ? '#FFFFFF' : '#475569'} />
+                  <Text style={[styles.groupSwitchText, active && styles.groupSwitchTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </>
       ) : null}
 
@@ -717,14 +794,18 @@ export default function WaiterHomeScreen() {
               <Text style={styles.emptyText}>No encontramos mesas con ese nombre, zona o comensal.</Text>
             </View>
           ) : (
-            <View style={styles.tableSection}>
-              <View style={styles.filterRow}>{filters.map(renderTableFilter)}</View>
-              {activeTables.length > 0 ? (
-                <View style={styles.tableGrid}>{activeTables.map(renderTableCard)}</View>
-              ) : (
-                <Text style={styles.sectionEmptyText}>{activeEmptyText}</Text>
-              )}
-            </View>
+            tableGrouping === 'zone' ? (
+              <>{zoneGroups.map((group) => <React.Fragment key={group.key}>{renderZoneSection(group)}</React.Fragment>)}</>
+            ) : (
+              <View style={styles.tableSection}>
+                <View style={styles.filterRow}>{filters.map(renderTableFilter)}</View>
+                {activeTables.length > 0 ? (
+                  <View style={styles.tableGrid}>{activeTables.map(renderTableCard)}</View>
+                ) : (
+                  <Text style={styles.sectionEmptyText}>{activeEmptyText}</Text>
+                )}
+              </View>
+            )
           )}
         </ScrollView>
       )}
@@ -1045,6 +1126,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  groupSwitch: {
+    marginHorizontal: 18,
+    marginBottom: 12,
+    minHeight: 46,
+    borderRadius: 16,
+    padding: 4,
+    flexDirection: 'row',
+    gap: 4,
+    backgroundColor: '#E2E8F0',
+  },
+  groupSwitchButton: {
+    flex: 1,
+    borderRadius: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  groupSwitchButtonActive: {
+    backgroundColor: '#111827',
+  },
+  groupSwitchText: {
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  groupSwitchTextActive: {
+    color: '#FFFFFF',
   },
   tableList: {
     paddingHorizontal: 14,

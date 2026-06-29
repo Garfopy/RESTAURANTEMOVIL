@@ -347,6 +347,46 @@ class SocialController
         Response::success(['matches' => $matches]);
     }
 
+    public function accountNotifications(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        if (!$this->tableExists('social_account_notifications')) {
+            Response::success(['notifications' => []]);
+        }
+
+        $rows = Database::query(
+            "SELECT id, actor_user_id, type, title, body, payload_json, read_at, created_at
+               FROM social_account_notifications
+              WHERE user_id = :user_id
+              ORDER BY created_at DESC
+              LIMIT 10",
+            [':user_id' => (int)$user->id]
+        );
+
+        $notifications = array_map(static function (array $row): array {
+            $payload = [];
+            if (!empty($row['payload_json'])) {
+                $decoded = json_decode((string)$row['payload_json'], true);
+                if (is_array($decoded)) {
+                    $payload = $decoded;
+                }
+            }
+
+            return [
+                'id' => (int)$row['id'],
+                'actor_user_id' => isset($row['actor_user_id']) ? (int)$row['actor_user_id'] : null,
+                'type' => (string)$row['type'],
+                'title' => (string)$row['title'],
+                'body' => (string)$row['body'],
+                'payload' => $payload,
+                'read_at' => $row['read_at'] ?? null,
+                'created_at' => $row['created_at'] ?? null,
+            ];
+        }, $rows);
+
+        Response::success(['notifications' => $notifications]);
+    }
+
     public function receivedLikes(): void
     {
         $user = AuthMiddleware::authenticate();
@@ -515,6 +555,21 @@ class SocialController
         if ((int)($file['size'] ?? 0) > 5 * 1024 * 1024) {
             Response::error('La imagen no debe pesar más de 5 MB.', 400);
         }
+        if (!is_uploaded_file((string)$file['tmp_name'])) {
+            Response::error('La imagen no se recibio correctamente.', 400);
+        }
+
+        $imageInfo = @getimagesize((string)$file['tmp_name']);
+        if ($imageInfo === false) {
+            Response::error('La foto debe ser una imagen valida donde se vea una persona.', 400);
+        }
+        $width = (int)($imageInfo[0] ?? 0);
+        $height = (int)($imageInfo[1] ?? 0);
+        $mime = strtolower((string)($imageInfo['mime'] ?? ''));
+        $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+        if ($width < 240 || $height < 240 || !in_array($mime, $allowedMimes, true)) {
+            Response::error('Sube una foto clara de rostro o cuerpo en jpg, png o webp.', 400);
+        }
 
         if (!$this->hasSocialPhotosColumn()) {
             Response::serverError('La base de datos aún no tiene social_photos_json. Ejecuta la migración 023.');
@@ -674,6 +729,329 @@ class SocialController
         $result['relationship_status'] = $this->getRelationshipStatus((int)$user->id, (int)$result['user_id']);
 
         Response::success($result);
+    }
+
+    public function dinerAccount(int $targetUserId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $restaurantId = (int)($_GET['restaurant_id'] ?? 0);
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+
+        [$sender, $senderMesaLabel, $senderMesa, $recipient, $recipientMesaLabel, $recipientMesa] = $this->resolveSocialCoverContext(
+            (int)$user->id,
+            $targetUserId,
+            $restaurantId
+        );
+
+        $consumption = $this->findOpenDinerConsumption($restaurantId, $targetUserId, (int)$recipientMesa['id']);
+        if ($consumption === null) {
+            Response::success([
+                'available' => false,
+                'recipient' => [
+                    'user_id' => $targetUserId,
+                    'nombre' => $recipient['nombre'] ?? 'Comensal',
+                    'mesa' => $recipientMesaLabel,
+                ],
+                'message' => 'Este comensal no tiene consumo pendiente por cubrir.',
+            ]);
+        }
+
+        Response::success([
+            'available' => true,
+            'recipient' => [
+                'user_id' => $targetUserId,
+                'nombre' => $recipient['nombre'] ?? 'Comensal',
+                'mesa' => $recipientMesaLabel,
+            ],
+            'payer' => [
+                'user_id' => (int)$user->id,
+                'nombre' => $sender['nombre'] ?? 'Comensal',
+            ],
+            'account' => $this->socialConsumptionSummary($consumption),
+        ]);
+    }
+
+    public function coverDinerAccount(int $targetUserId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $restaurantId = (int)($input['restaurant_id'] ?? 0);
+        $paymentMode = strtolower(trim((string)($input['payment_mode'] ?? 'account')));
+        $requestKey = trim((string)($input['request_key'] ?? ''));
+
+        $errors = [];
+        if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
+        if ($targetUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
+        if ($targetUserId === (int)$user->id) $errors['recipient_user_id'] = ['No puedes cubrir tu propia cuenta desde social'];
+        if (!in_array($paymentMode, ['account', 'stripe'], true)) $errors['payment_mode'] = ['Selecciona una forma de pago valida'];
+        if (!preg_match('/^[A-Za-z0-9_-]{16,80}$/', $requestKey)) $errors['request_key'] = ['La clave de solicitud no es valida'];
+        if ($errors) Response::validationError($errors);
+
+        $this->ensureSocialAccountCoverTables();
+
+        [$sender, $senderMesaLabel, $senderMesa, $recipient, $recipientMesaLabel, $recipientMesa] =
+            $this->resolveSocialCoverContext((int)$user->id, $targetUserId, $restaurantId);
+
+        $consumption = $this->findOpenDinerConsumption($restaurantId, $targetUserId, (int)$recipientMesa['id']);
+        if ($consumption === null) {
+            Response::error('Este comensal no tiene consumo pendiente por cubrir.', 409);
+        }
+
+        $summary = $this->socialConsumptionSummary($consumption);
+        if ((float)$summary['total_mxn'] <= 0) {
+            Response::error('La cuenta del comensal no tiene importe pendiente.', 409);
+        }
+
+        $existing = Database::queryOne(
+            'SELECT * FROM social_account_covers WHERE payer_user_id = :payer_id AND payment_request_key = :request_key LIMIT 1',
+            [':payer_id' => (int)$user->id, ':request_key' => $requestKey]
+        );
+        if ($existing) {
+            if ((int)$existing['covered_user_id'] !== $targetUserId || (int)$existing['restaurante_id'] !== $restaurantId) {
+                Response::error('La clave de solicitud ya pertenece a otra cuenta social.', 409);
+            }
+            if ($paymentMode === 'account' && $existing['status'] === 'charged_to_account') {
+                Response::success([
+                    'cover' => $this->socialAccountCoverResponse($existing),
+                    'account' => $summary,
+                    'charged_to_account' => true,
+                ], 'La cuenta ya fue agregada a tu consumo.');
+            }
+        }
+
+        if ($paymentMode === 'stripe') {
+            $cover = $existing ?: $this->createSocialAccountCoverRecord(
+                $restaurantId,
+                (int)$user->id,
+                $targetUserId,
+                (int)$senderMesa['id'],
+                (int)$recipientMesa['id'],
+                $senderMesaLabel,
+                $recipientMesaLabel,
+                $consumption['consumo_id'],
+                $paymentMode,
+                'pending_payment',
+                (float)$summary['total_mxn'],
+                (int)$summary['items_count'],
+                $requestKey,
+                null,
+                $this->buildCoverMessage((string)($sender['nombre'] ?? 'Alguien'), (float)$summary['total_mxn'], $paymentMode)
+            );
+
+            try {
+                Stripe::setApiKey($this->getStripeSecret());
+                $intentId = (string)($cover['stripe_payment_intent_id'] ?? '');
+                $intent = null;
+                if ($intentId !== '') {
+                    try {
+                        $intent = PaymentIntent::retrieve($intentId);
+                    } catch (\Stripe\Exception\InvalidRequestException $exception) {
+                        if (stripos((string)$exception->getMessage(), 'No such payment_intent') === false) {
+                            throw $exception;
+                        }
+                        $intentId = '';
+                    }
+                }
+                if ($intent === null) {
+                    $intent = PaymentIntent::create([
+                        'amount' => (int)round((float)$summary['total_mxn'] * 100),
+                        'currency' => 'mxn',
+                        'description' => 'Cuenta social cubierta para ' . (string)($recipient['nombre'] ?? 'comensal'),
+                        'metadata' => [
+                            'social_account_cover_id' => (string)$cover['id'],
+                            'payer_user_id' => (string)$user->id,
+                            'covered_user_id' => (string)$targetUserId,
+                        ],
+                        'automatic_payment_methods' => ['enabled' => true],
+                    ], ['idempotency_key' => 'social_account_cover_' . $requestKey]);
+                }
+                Database::rowCount(
+                    "UPDATE social_account_covers
+                        SET stripe_payment_intent_id = :intent_id, updated_at = NOW()
+                      WHERE id = :id",
+                    [':intent_id' => $intent->id, ':id' => (int)$cover['id']]
+                );
+                $cover['stripe_payment_intent_id'] = $intent->id;
+
+                Response::success([
+                    'cover' => $this->socialAccountCoverResponse($cover),
+                    'account' => $summary,
+                    'client_secret' => $intent->client_secret,
+                    'payment_intent_id' => $intent->id,
+                ], 'Pago de cuenta preparado', 201);
+            } catch (\Throwable $exception) {
+                error_log('SocialController::coverDinerAccount STRIPE ERROR: ' . $exception->getMessage());
+                Response::serverError('No se pudo iniciar el pago de la cuenta.');
+            }
+        }
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $cover = $existing ?: $this->createSocialAccountCoverRecord(
+                $restaurantId,
+                (int)$user->id,
+                $targetUserId,
+                (int)$senderMesa['id'],
+                (int)$recipientMesa['id'],
+                $senderMesaLabel,
+                $recipientMesaLabel,
+                $consumption['consumo_id'],
+                $paymentMode,
+                'pending',
+                (float)$summary['total_mxn'],
+                (int)$summary['items_count'],
+                $requestKey,
+                null,
+                $this->buildCoverMessage((string)($sender['nombre'] ?? 'Alguien'), (float)$summary['total_mxn'], $paymentMode),
+                $pdo
+            );
+
+            $payerOrderId = $this->createCoveredConsumptionOrder(
+                $pdo,
+                $restaurantId,
+                (int)$user->id,
+                (string)($sender['nombre'] ?? 'Comensal'),
+                (int)$senderMesa['id'],
+                $senderMesaLabel,
+                $recipient,
+                $recipientMesaLabel,
+                $consumption,
+                true,
+                null,
+                null
+            );
+            $this->markConsumptionCovered($pdo, $consumption, 'social_cover');
+            $this->updateSocialAccountCover($pdo, (int)$cover['id'], [
+                'payer_pedido_id' => $payerOrderId,
+                'status' => 'charged_to_account',
+            ]);
+            $this->recordSocialAccountNotification(
+                $pdo,
+                $targetUserId,
+                (int)$user->id,
+                'social_account_covered',
+                'Cuenta cubierta',
+                $this->buildCoverMessage((string)($sender['nombre'] ?? 'Alguien'), (float)$summary['total_mxn'], $paymentMode),
+                ['cover_id' => (int)$cover['id'], 'amount_mxn' => (float)$summary['total_mxn']]
+            );
+            $pdo->commit();
+
+            $cover['payer_pedido_id'] = $payerOrderId;
+            $cover['status'] = 'charged_to_account';
+            Response::success([
+                'cover' => $this->socialAccountCoverResponse($cover),
+                'account' => $summary,
+                'charged_to_account' => true,
+            ], 'Cuenta agregada a tu consumo.');
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('SocialController::coverDinerAccount ACCOUNT ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo agregar la cuenta del comensal a tu consumo.');
+        }
+    }
+
+    public function confirmAccountCoverPayment(int $coverId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $this->ensureSocialAccountCoverTables();
+
+        $cover = Database::queryOne(
+            'SELECT * FROM social_account_covers WHERE id = :id AND payer_user_id = :payer_id LIMIT 1',
+            [':id' => $coverId, ':payer_id' => (int)$user->id]
+        );
+        if (!$cover) Response::notFound('Cobertura social no encontrada');
+        if ((string)$cover['payment_mode'] !== 'stripe') Response::error('Esta cobertura no requiere confirmacion Stripe.', 409);
+        if ((string)$cover['status'] === 'paid') {
+            Response::success(['cover' => $this->socialAccountCoverResponse($cover)], 'Cuenta ya pagada.');
+        }
+
+        $intentId = (string)($cover['stripe_payment_intent_id'] ?? '');
+        if ($intentId === '') Response::error('La cobertura no tiene intento de pago.', 409);
+
+        try {
+            Stripe::setApiKey($this->getStripeSecret());
+            $intent = PaymentIntent::retrieve($intentId);
+            $expectedCents = (int)round((float)$cover['amount_mxn'] * 100);
+            if (
+                (int)$intent->amount !== $expectedCents ||
+                strtolower((string)$intent->currency) !== 'mxn' ||
+                (int)($intent->metadata['social_account_cover_id'] ?? 0) !== $coverId ||
+                (int)($intent->metadata['payer_user_id'] ?? 0) !== (int)$user->id
+            ) {
+                Response::error('La informacion del pago no coincide con la cuenta social.', 409);
+            }
+            if ($intent->status !== 'succeeded') {
+                Response::error('Stripe aun no confirma el pago de la cuenta.', 409);
+            }
+        } catch (\Stripe\Exception\InvalidRequestException $exception) {
+            if (stripos((string)$exception->getMessage(), 'No such payment_intent') !== false) {
+                Response::error('Stripe no encuentra este intento. Reabre la accion e intenta de nuevo.', 409);
+            }
+            error_log('SocialController::confirmAccountCoverPayment STRIPE ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo verificar el pago con Stripe.');
+        } catch (\Stripe\Exception\ApiErrorException $exception) {
+            error_log('SocialController::confirmAccountCoverPayment STRIPE ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo verificar el pago con Stripe.');
+        }
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $recipient = $this->fetchSocialProfile((int)$cover['covered_user_id']) ?? [];
+            $consumption = $this->findConsumptionById(
+                (int)$cover['restaurante_id'],
+                (int)$cover['covered_user_id'],
+                (string)$cover['covered_consumo_id']
+            );
+            if ($consumption === null) {
+                throw new \DomainException('La cuenta original ya no esta disponible.');
+            }
+            $payerOrderId = $this->createCoveredConsumptionOrder(
+                $pdo,
+                (int)$cover['restaurante_id'],
+                (int)$user->id,
+                (string)($user->nombre ?? 'Comensal'),
+                (int)($cover['payer_mesa_id'] ?? 0),
+                (string)($cover['payer_mesa'] ?? ''),
+                $recipient,
+                (string)($cover['covered_mesa'] ?? ''),
+                $consumption,
+                false,
+                $intentId,
+                'tarjeta'
+            );
+            $this->markConsumptionCovered($pdo, $consumption, 'tarjeta');
+            $this->updateSocialAccountCover($pdo, $coverId, [
+                'payer_pedido_id' => $payerOrderId,
+                'status' => 'paid',
+                'paid_at' => date('Y-m-d H:i:s'),
+            ]);
+            $this->recordSocialAccountNotification(
+                $pdo,
+                (int)$cover['covered_user_id'],
+                (int)$user->id,
+                'social_account_paid',
+                'Cuenta pagada',
+                $this->buildCoverMessage((string)($user->nombre ?? 'Alguien'), (float)$cover['amount_mxn'], 'stripe'),
+                ['cover_id' => $coverId, 'amount_mxn' => (float)$cover['amount_mxn']]
+            );
+            $pdo->commit();
+
+            $cover['payer_pedido_id'] = $payerOrderId;
+            $cover['status'] = 'paid';
+            $cover['paid_at'] = date('Y-m-d H:i:s');
+            Response::success(['cover' => $this->socialAccountCoverResponse($cover)], 'Cuenta pagada y comensal avisado.');
+        } catch (\DomainException $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            Response::error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('SocialController::confirmAccountCoverPayment ERROR: ' . $exception->getMessage());
+            Response::serverError('Stripe cobro la cuenta, pero no pudimos registrar la cobertura.');
+        }
     }
 
     public function giftProducts(): void
@@ -1081,6 +1459,26 @@ class SocialController
             $read = $pdo->prepare('SELECT * FROM social_gift_orders WHERE id = :id');
             $read->execute([':id' => $giftId]);
             $gift = $read->fetch();
+            $this->recordSocialAccountNotification(
+                $pdo,
+                $recipientUserId,
+                (int)$user->id,
+                'social_gift_received',
+                'Regalo recibido',
+                sprintf(
+                    '%s te envio %s.',
+                    (string)($sender['nombre'] ?? 'Alguien'),
+                    (string)($giftProduct['nombre'] ?? 'un regalo')
+                ),
+                [
+                    'gift_id' => $giftId,
+                    'folio' => $folio,
+                    'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
+                    'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                    'recipient_mesa' => $recipientMesaLabel,
+                    'payment_mode' => 'account',
+                ]
+            );
             $pdo->commit();
 
             Response::success([
@@ -1453,6 +1851,7 @@ class SocialController
         if (!$gift) Response::notFound('Regalo no encontrado');
         $intentId = (string)($gift['stripe_payment_intent_id'] ?? '');
         if ($intentId === '') Response::error('El regalo no tiene un intento de pago.', 409);
+        $shouldNotifyRecipient = empty($gift['pagado_at']);
 
         try {
             Stripe::setApiKey($this->getStripeSecret());
@@ -1529,6 +1928,28 @@ class SocialController
                 [':id' => $giftId, ':intent_id' => $intentId]
             );
             $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+            if ($paidGift && $shouldNotifyRecipient) {
+                $this->recordSocialAccountNotification(
+                    Database::getInstance(),
+                    (int)$paidGift['recipient_user_id'],
+                    (int)$user->id,
+                    'social_gift_received',
+                    'Regalo recibido',
+                    sprintf(
+                        '%s te envio %s.',
+                        (string)($paidGift['sender_nombre'] ?? 'Alguien'),
+                        (string)($paidGift['gift_nombre'] ?? 'un regalo')
+                    ),
+                    [
+                        'gift_id' => $giftId,
+                        'folio' => $paidGift['folio'] ?? null,
+                        'gift_nombre' => $paidGift['gift_nombre'] ?? 'Regalo',
+                        'sender_nombre' => $paidGift['sender_nombre'] ?? 'Comensal',
+                        'recipient_mesa' => $paidGift['recipient_mesa'] ?? null,
+                        'payment_mode' => 'stripe',
+                    ]
+                );
+            }
             Response::success($this->giftPaymentResponse($paidGift), 'Regalo pagado y enviado');
         } catch (\Stripe\Exception\InvalidRequestException $exception) {
             if (stripos((string)$exception->getMessage(), 'No such payment_intent') !== false) {
@@ -1543,6 +1964,423 @@ class SocialController
             error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo verificar el pago con Stripe.');
         }
+    }
+
+    private function ensureSocialAccountCoverTables(): void
+    {
+        if (!$this->tableExists('social_account_covers')) {
+            Response::serverError('Ejecuta la migracion 034 antes de cubrir cuentas sociales.');
+        }
+    }
+
+    /**
+     * @return array{0:array,1:string,2:array,3:array,4:string,5:array}
+     */
+    private function resolveSocialCoverContext(int $senderUserId, int $recipientUserId, int $restaurantId): array
+    {
+        if ($recipientUserId === $senderUserId) {
+            Response::error('No puedes cubrir tu propia cuenta desde social.', 400);
+        }
+
+        $sender = $this->fetchSocialProfile($senderUserId);
+        if (!$sender || !$this->hasSocialProfile($sender)) {
+            Response::error('Completa tu perfil social antes de cubrir una cuenta.', 400);
+        }
+        if (!(bool)($sender['is_social_active'] ?? false) || (int)($sender['current_restaurante_id'] ?? 0) !== $restaurantId) {
+            Response::error('Activa tu modo social en la sucursal actual antes de cubrir una cuenta.', 400);
+        }
+        $senderMesaLabel = $this->sanitizeNullableString($sender['mesa'] ?? null);
+        if ($senderMesaLabel === null) Response::error('Necesitas seleccionar tu mesa antes de cubrir una cuenta.', 400);
+        $senderMesa = $this->resolveMesaForRestaurant($restaurantId, $senderMesaLabel);
+        if ($senderMesa === null) Response::error('No encontramos tu mesa en la sucursal actual.', 409);
+
+        $recipient = $this->fetchSocialProfile($recipientUserId);
+        if (!$recipient || !$this->hasSocialProfile($recipient)) {
+            Response::notFound('Comensal no encontrado o sin perfil social completo.');
+        }
+        if (!(bool)($recipient['is_social_active'] ?? false) || (int)($recipient['current_restaurante_id'] ?? 0) !== $restaurantId) {
+            Response::error('Este comensal ya no esta disponible en la sucursal seleccionada.', 409);
+        }
+        $recipientMesaLabel = $this->sanitizeNullableString($recipient['mesa'] ?? null);
+        if ($recipientMesaLabel === null) Response::error('No pudimos ubicar la mesa del comensal seleccionado.', 409);
+        $recipientMesa = $this->resolveMesaForRestaurant($restaurantId, $recipientMesaLabel);
+        if ($recipientMesa === null) Response::error('No encontramos la mesa del comensal en la sucursal actual.', 409);
+
+        return [$sender, $senderMesaLabel, $senderMesa, $recipient, $recipientMesaLabel, $recipientMesa];
+    }
+
+    private function findOpenDinerConsumption(int $restaurantId, int $userId, int $mesaId): ?array
+    {
+        $orderColumns = $this->getTableColumns('rest_pedidos');
+        $where = [
+            'restaurante_id = :restaurant_id',
+            'mobile_usuario_id = :user_id',
+            'mesa_id = :mesa_id',
+            "tipo_pedido = 'eat_in'",
+        ];
+        if (in_array('cuenta_abierta', $orderColumns, true)) {
+            $where[] = 'cuenta_abierta = 1';
+        }
+        if (in_array('salida_qr_generado_at', $orderColumns, true)) {
+            $where[] = 'salida_qr_generado_at IS NULL';
+        }
+        if (in_array('salida_validado_at', $orderColumns, true)) {
+            $where[] = 'salida_validado_at IS NULL';
+        }
+
+        $anchor = Database::queryOne(
+            'SELECT * FROM rest_pedidos WHERE ' . implode(' AND ', $where) . ' ORDER BY created_at DESC, id DESC LIMIT 1',
+            [
+                ':restaurant_id' => $restaurantId,
+                ':user_id' => $userId,
+                ':mesa_id' => $mesaId,
+            ]
+        );
+        if (!$anchor) return null;
+
+        if (in_array('consumo_id', $orderColumns, true) && !empty($anchor['consumo_id'])) {
+            return $this->findConsumptionById($restaurantId, $userId, (string)$anchor['consumo_id']);
+        }
+
+        return $this->buildSocialConsumption([$anchor]);
+    }
+
+    private function findConsumptionById(int $restaurantId, int $userId, string $consumoId): ?array
+    {
+        if ($consumoId === '') return null;
+        if (str_starts_with($consumoId, 'ORD-')) {
+            $ids = array_values(array_filter(array_map('intval', explode('-', substr($consumoId, 4)))));
+            if (!$ids) return null;
+            $params = [
+                ':restaurant_id' => $restaurantId,
+                ':user_id' => $userId,
+            ];
+            $placeholders = [];
+            foreach ($ids as $index => $id) {
+                $key = ':id_' . $index;
+                $placeholders[] = $key;
+                $params[$key] = $id;
+            }
+            $orders = Database::query(
+                'SELECT * FROM rest_pedidos
+                  WHERE restaurante_id = :restaurant_id AND mobile_usuario_id = :user_id
+                    AND id IN (' . implode(',', $placeholders) . ')',
+                $params
+            );
+            return $orders ? $this->buildSocialConsumption($orders) : null;
+        }
+
+        $orders = Database::query(
+            "SELECT * FROM rest_pedidos
+              WHERE restaurante_id = :restaurant_id
+                AND mobile_usuario_id = :user_id
+                AND consumo_id = :consumo_id
+                AND tipo_pedido = 'eat_in'
+              ORDER BY id ASC",
+            [
+                ':restaurant_id' => $restaurantId,
+                ':user_id' => $userId,
+                ':consumo_id' => $consumoId,
+            ]
+        );
+        return $orders ? $this->buildSocialConsumption($orders) : null;
+    }
+
+    private function buildSocialConsumption(array $orders): array
+    {
+        $orderIds = array_values(array_map(static fn(array $order): int => (int)$order['id'], $orders));
+        $items = $this->fetchOrderItemsForCopy($orderIds);
+        $total = 0.0;
+        $subtotal = 0.0;
+        foreach ($orders as $order) {
+            $total += (float)($order['total'] ?? 0);
+            $subtotal += (float)($order['subtotal'] ?? 0);
+        }
+        $consumoId = (string)($orders[0]['consumo_id'] ?? '');
+        if ($consumoId === '') {
+            $consumoId = 'ORD-' . implode('-', $orderIds);
+        }
+
+        return [
+            'consumo_id' => $consumoId,
+            'orders' => $orders,
+            'order_ids' => $orderIds,
+            'items' => $items,
+            'subtotal' => round($subtotal, 2),
+            'total' => round($total, 2),
+        ];
+    }
+
+    private function fetchOrderItemsForCopy(array $orderIds): array
+    {
+        if (!$orderIds) return [];
+        $params = [];
+        $placeholders = [];
+        foreach (array_values(array_unique($orderIds)) as $index => $orderId) {
+            $key = ':order_id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+
+        return Database::query(
+            'SELECT pi.*, p.nombre AS platillo_nombre
+               FROM rest_pedido_items pi
+          LEFT JOIN rest_platillos p ON p.id = pi.platillo_id
+              WHERE pi.pedido_id IN (' . implode(',', $placeholders) . ')
+           ORDER BY pi.id ASC',
+            $params
+        );
+    }
+
+    private function socialConsumptionSummary(array $consumption): array
+    {
+        $items = array_map(static function (array $item): array {
+            return [
+                'id' => (int)($item['id'] ?? 0),
+                'pedido_id' => (int)($item['pedido_id'] ?? 0),
+                'platillo_id' => isset($item['platillo_id']) ? (int)$item['platillo_id'] : null,
+                'nombre' => $item['platillo_nombre'] ?? 'Producto',
+                'cantidad' => (int)($item['cantidad'] ?? 1),
+                'precio_unit' => (float)($item['precio_unit'] ?? 0),
+                'subtotal' => (float)($item['subtotal'] ?? 0),
+            ];
+        }, $consumption['items'] ?? []);
+
+        return [
+            'consumo_id' => $consumption['consumo_id'],
+            'order_ids' => $consumption['order_ids'],
+            'subtotal_mxn' => (float)$consumption['subtotal'],
+            'total_mxn' => (float)$consumption['total'],
+            'items_count' => count($items),
+            'items' => $items,
+        ];
+    }
+
+    private function createSocialAccountCoverRecord(
+        int $restaurantId,
+        int $payerUserId,
+        int $coveredUserId,
+        int $payerMesaId,
+        int $coveredMesaId,
+        string $payerMesa,
+        string $coveredMesa,
+        string $coveredConsumoId,
+        string $paymentMode,
+        string $status,
+        float $amount,
+        int $itemsCount,
+        string $requestKey,
+        ?string $paymentIntentId,
+        string $message,
+        ?\PDO $pdo = null
+    ): array {
+        $pdo = $pdo ?? Database::getInstance();
+        $now = date('Y-m-d H:i:s');
+        $record = [
+            'restaurante_id' => $restaurantId,
+            'payer_user_id' => $payerUserId,
+            'covered_user_id' => $coveredUserId,
+            'payer_mesa_id' => $payerMesaId,
+            'covered_mesa_id' => $coveredMesaId,
+            'payer_mesa' => $payerMesa,
+            'covered_mesa' => $coveredMesa,
+            'covered_consumo_id' => $coveredConsumoId,
+            'payment_mode' => $paymentMode,
+            'status' => $status,
+            'amount_mxn' => $amount,
+            'items_count' => $itemsCount,
+            'payment_request_key' => $requestKey,
+            'stripe_payment_intent_id' => $paymentIntentId,
+            'message' => $message,
+            'payer_pedido_id' => null,
+            'paid_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+        $id = $this->insertDynamicRow($pdo, 'social_account_covers', $record);
+        if ($id <= 0) throw new \RuntimeException('No se pudo crear la cobertura social.');
+        return ['id' => $id] + $record;
+    }
+
+    private function createCoveredConsumptionOrder(
+        \PDO $pdo,
+        int $restaurantId,
+        int $payerUserId,
+        string $payerName,
+        int $payerMesaId,
+        string $payerMesa,
+        array $recipient,
+        string $recipientMesa,
+        array $consumption,
+        bool $openAccount,
+        ?string $paymentIntentId,
+        ?string $paymentMethod
+    ): int {
+        $orderColumns = $this->getTableColumns('rest_pedidos');
+        $total = round((float)($consumption['total'] ?? 0), 2);
+        $subtotal = round((float)($consumption['subtotal'] ?? $total), 2);
+        $notes = 'Cuenta social cubierta de ' . (string)($recipient['nombre'] ?? 'Comensal') . ' - ' . $this->formatMesaLabel($recipientMesa);
+        $orderData = [
+            'restaurante_id' => $restaurantId,
+            'mobile_usuario_id' => $payerUserId,
+            'folio' => 'AM-' . substr(md5(uniqid((string)mt_rand(), true)), 0, 10),
+            'estado' => $openAccount ? 'pendiente' : 'en_preparacion',
+            'subtotal' => $subtotal,
+            'total' => $total,
+            'tipo_pedido' => 'eat_in',
+            'pedido_origen' => 'cliente',
+            'cliente_nombre' => substr($payerName, 0, 120),
+            'notas' => $notes,
+            'cuenta_abierta' => $openAccount ? 1 : 0,
+            'mesa_id' => $payerMesaId > 0 ? $payerMesaId : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        if ($openAccount && in_array('consumo_id', $orderColumns, true)) {
+            $orderData['consumo_id'] = $this->resolveOpenConsumptionIdForGift($pdo, $restaurantId, $payerUserId, $payerMesaId);
+        }
+        if (in_array('tipo_origen', $orderColumns, true)) {
+            $orderData['tipo_origen'] = 'menu';
+        }
+        if ($paymentIntentId !== null) {
+            if (in_array('stripe_payment_intent_id', $orderColumns, true)) {
+                $orderData['stripe_payment_intent_id'] = $paymentIntentId;
+            } elseif (in_array('payment_intent_id', $orderColumns, true)) {
+                $orderData['payment_intent_id'] = $paymentIntentId;
+            }
+        }
+        if ($paymentMethod !== null) {
+            if (in_array('metodo_pago', $orderColumns, true)) {
+                $orderData['metodo_pago'] = $paymentMethod;
+            } elseif (in_array('payment_method', $orderColumns, true)) {
+                $orderData['payment_method'] = $paymentMethod;
+            }
+        }
+        if (!$openAccount && in_array('pagado_at', $orderColumns, true)) {
+            $orderData['pagado_at'] = date('Y-m-d H:i:s');
+        }
+
+        $orderId = $this->insertDynamicRow($pdo, 'rest_pedidos', $orderData);
+        if ($orderId <= 0) throw new \RuntimeException('No se pudo crear la cuenta cubierta.');
+
+        foreach (($consumption['items'] ?? []) as $item) {
+            $itemData = [
+                'pedido_id' => $orderId,
+                'platillo_id' => $item['platillo_id'] ?? null,
+                'cantidad' => $item['cantidad'] ?? 1,
+                'precio_unit' => $item['precio_unit'] ?? 0,
+                'subtotal' => $item['subtotal'] ?? 0,
+                'notas' => $item['notas'] ?? null,
+                'estado' => $item['estado'] ?? 'pendiente',
+                'origen' => $item['origen'] ?? 'menu',
+                'extras_json' => $item['extras_json'] ?? null,
+            ];
+            $itemId = $this->insertDynamicRow($pdo, 'rest_pedido_items', $itemData);
+            if ($itemId <= 0) throw new \RuntimeException('No se pudo copiar un producto de la cuenta cubierta.');
+        }
+
+        if ($payerMesaId > 0) {
+            $this->markTableOccupiedForGift($pdo, $payerMesaId);
+        }
+        return $orderId;
+    }
+
+    private function markConsumptionCovered(\PDO $pdo, array $consumption, string $method): void
+    {
+        $orderIds = array_values(array_filter(array_map('intval', $consumption['order_ids'] ?? [])));
+        if (!$orderIds) return;
+        $columns = $this->getTableColumns('rest_pedidos');
+        $set = ['estado = :estado'];
+        $params = [':estado' => 'en_preparacion'];
+        if (in_array('cuenta_abierta', $columns, true)) {
+            $set[] = 'cuenta_abierta = 0';
+        }
+        if (in_array('metodo_pago', $columns, true)) {
+            $set[] = 'metodo_pago = :method';
+            $params[':method'] = $method;
+        } elseif (in_array('payment_method', $columns, true)) {
+            $set[] = 'payment_method = :method';
+            $params[':method'] = $method;
+        }
+        if (in_array('pagado_at', $columns, true)) {
+            $set[] = 'pagado_at = COALESCE(pagado_at, NOW())';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+        $placeholders = [];
+        foreach ($orderIds as $index => $orderId) {
+            $key = ':order_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+        $statement = $pdo->prepare(
+            'UPDATE rest_pedidos SET ' . implode(', ', $set) . ' WHERE id IN (' . implode(',', $placeholders) . ')'
+        );
+        $statement->execute($params);
+    }
+
+    private function updateSocialAccountCover(\PDO $pdo, int $coverId, array $data): void
+    {
+        $allowed = ['payer_pedido_id', 'status', 'paid_at'];
+        $set = [];
+        $params = [':id' => $coverId];
+        foreach ($data as $key => $value) {
+            if (!in_array($key, $allowed, true)) continue;
+            $set[] = "{$key} = :{$key}";
+            $params[":{$key}"] = $value;
+        }
+        $set[] = 'updated_at = NOW()';
+        $statement = $pdo->prepare('UPDATE social_account_covers SET ' . implode(', ', $set) . ' WHERE id = :id');
+        $statement->execute($params);
+    }
+
+    private function socialAccountCoverResponse(array $cover): array
+    {
+        return [
+            'id' => (int)$cover['id'],
+            'restaurante_id' => (int)$cover['restaurante_id'],
+            'payer_user_id' => (int)$cover['payer_user_id'],
+            'covered_user_id' => (int)$cover['covered_user_id'],
+            'payer_pedido_id' => isset($cover['payer_pedido_id']) ? (int)$cover['payer_pedido_id'] : null,
+            'payment_mode' => $cover['payment_mode'],
+            'status' => $cover['status'],
+            'amount_mxn' => (float)$cover['amount_mxn'],
+            'items_count' => (int)$cover['items_count'],
+            'payer_mesa' => $cover['payer_mesa'] ?? null,
+            'covered_mesa' => $cover['covered_mesa'] ?? null,
+            'message' => $cover['message'] ?? null,
+            'paid_at' => $cover['paid_at'] ?? null,
+        ];
+    }
+
+    private function recordSocialAccountNotification(
+        \PDO $pdo,
+        int $userId,
+        int $actorUserId,
+        string $type,
+        string $title,
+        string $body,
+        array $payload
+    ): void {
+        if (!$this->tableExists('social_account_notifications')) {
+            return;
+        }
+        $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $this->insertDynamicRow($pdo, 'social_account_notifications', [
+            'user_id' => $userId,
+            'actor_user_id' => $actorUserId,
+            'type' => $type,
+            'title' => $title,
+            'body' => $body,
+            'payload_json' => $payloadJson === false ? null : $payloadJson,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function buildCoverMessage(string $payerName, float $amount, string $mode): string
+    {
+        $verb = $mode === 'stripe' ? 'pago' : 'agrego a su cuenta';
+        return sprintf('%s %s tu consumo por $%.2f MXN.', $payerName, $verb, $amount);
     }
 
     private function getStripeSecret(): string

@@ -9,11 +9,13 @@ export function GlobalCartButton() {
   const [rootSegment, childSegment] = segments;
 
   if (isLoading || !isAuthenticated) return null;
-  if (user?.rol === 'mesero') return null;
+  const role = String(user?.rol ?? '').toLowerCase();
+  if (role === 'mesero' || ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(role)) return null;
 
   if (
     rootSegment === '(auth)' ||
     rootSegment === '(waiter)' ||
+    rootSegment === '(hostess)' ||
     rootSegment === 'branch-selector' ||
     rootSegment === 'cart' ||
     rootSegment === 'checkout' ||
