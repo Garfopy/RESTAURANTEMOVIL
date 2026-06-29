@@ -52,6 +52,7 @@ type SplitTicketPreview = {
   method?: WaiterPaymentMethod | null;
   finishAfterClose?: boolean;
 };
+type TipMode = 'none' | '10' | '15' | '20' | 'custom';
 type MenuCategory = {
   id: number;
   nombre: string;
@@ -197,7 +198,10 @@ export default function WaiterTableScreen() {
   const [ticketAccountName, setTicketAccountName] = useState<string | null>(null);
   const [ticketLines, setTicketLines] = useState<WaiterTicketLine[]>([]);
   const [ticketCloseAction, setTicketCloseAction] = useState<TicketCloseAction>('none');
+  const [ticketTipAmount, setTicketTipAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<WaiterPaymentMethod>('efectivo');
+  const [tipMode, setTipMode] = useState<TipMode>('none');
+  const [customTip, setCustomTip] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [menuSearch, setMenuSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Platillo | null>(null);
@@ -244,6 +248,12 @@ export default function WaiterTableScreen() {
   const waiterName = account?.mesero_nombre || account?.table?.mesero_nombre || initialWaiterName || 'Mesero';
   const sentItems = account?.items ?? [];
   const sentTotal = account?.total ?? 0;
+  const selectedTipAmount = useMemo(() => {
+    if (tipMode === 'custom') return Math.max(0, money(customTip));
+    if (tipMode === 'none') return 0;
+    return Math.round(sentTotal * Number(tipMode)) / 100;
+  }, [customTip, sentTotal, tipMode]);
+  const closeGrandTotal = sentTotal + selectedTipAmount;
   const activeSplit = account?.active_split ?? null;
   const totalDue = sentTotal + cartTotal;
   const hasPendingCart = cartItems.length > 0;
@@ -489,6 +499,7 @@ export default function WaiterTableScreen() {
         tableId,
         restaurantId,
         metodoPago: paymentMethod,
+        propina: selectedTipAmount,
       });
       waiterCart.clear();
       setCloseVisible(false);
@@ -496,6 +507,7 @@ export default function WaiterTableScreen() {
       setTicketPaymentMethod(paymentMethod);
       setTicketAccountName(null);
       setTicketLines(accountTicketLines);
+      setTicketTipAmount(selectedTipAmount);
       setTicketCloseAction('goBack');
       showTicketAfterModalTransition();
     } catch (error) {
@@ -539,6 +551,7 @@ export default function WaiterTableScreen() {
     setTicketPaymentMethod(status === 'paid' ? paymentMethod : null);
     setTicketAccountName(null);
     setTicketLines(accountTicketLines);
+    setTicketTipAmount(selectedTipAmount);
     setTicketCloseAction('none');
     setCloseVisible(false);
     showTicketAfterModalTransition();
@@ -559,6 +572,7 @@ export default function WaiterTableScreen() {
     );
     setTicketAccountName(preview.account.nombre ?? null);
     setTicketLines(lines);
+    setTicketTipAmount(0);
     setTicketCloseAction(preview.finishAfterClose ? 'finishSplit' : 'reopenSplit');
     setSplitVisible(false);
     showTicketAfterModalTransition();
@@ -569,6 +583,7 @@ export default function WaiterTableScreen() {
     setTicketVisible(false);
     setTicketAccountName(null);
     setTicketPaymentMethod(null);
+    setTicketTipAmount(0);
     setTicketCloseAction('none');
 
     if (nextAction === 'reopenSplit') {
@@ -907,6 +922,7 @@ export default function WaiterTableScreen() {
         accountName={ticketAccountName}
         paymentMethod={ticketPaymentMethod}
         lines={ticketLines}
+        tipAmount={ticketTipAmount}
         onClose={closeTicketPreview}
       />
 
@@ -1236,12 +1252,50 @@ export default function WaiterTableScreen() {
             <View style={styles.sheetHandle} />
             <Text style={styles.closeTitle}>Cerrar cuenta</Text>
             <Text style={styles.closeText}>Selecciona el método de pago para liberar {tableLabel}.</Text>
-            <Text style={styles.closeTotal}>{formatMoney(sentTotal)}</Text>
+            <Text style={styles.closeTotal}>{formatMoney(closeGrandTotal)}</Text>
+            <Text style={styles.closeBreakdown}>
+              Subtotal {formatMoney(sentTotal)} · Propina {formatMoney(selectedTipAmount)}
+            </Text>
 
             <TouchableOpacity style={styles.ticketPreviewButton} onPress={() => openAccountTicket('prebill')} disabled={closing}>
               <Ionicons name="receipt-outline" size={18} color="#2563EB" />
               <Text style={styles.ticketPreviewText}>Ver precuenta para imprimir</Text>
             </TouchableOpacity>
+
+            <View style={styles.tipSection}>
+              <Text style={styles.tipLabel}>Propina</Text>
+              <View style={styles.tipOptions}>
+                {([
+                  ['none', 'Sin'],
+                  ['10', '10%'],
+                  ['15', '15%'],
+                  ['20', '20%'],
+                  ['custom', 'Otro'],
+                ] as Array<[TipMode, string]>).map(([value, label]) => {
+                  const selected = tipMode === value;
+                  return (
+                    <TouchableOpacity
+                      key={value}
+                      style={[styles.tipChip, selected && styles.tipChipActive]}
+                      onPress={() => setTipMode(value)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.tipChipText, selected && styles.tipChipTextActive]}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {tipMode === 'custom' ? (
+                <TextInput
+                  value={customTip}
+                  onChangeText={setCustomTip}
+                  keyboardType="decimal-pad"
+                  placeholder="$0.00"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.tipInput}
+                />
+              ) : null}
+            </View>
 
             {([
               ['efectivo', 'Efectivo'],
@@ -2379,10 +2433,16 @@ const styles = StyleSheet.create({
   },
   closeTotal: {
     marginTop: 14,
-    marginBottom: 14,
+    marginBottom: 4,
     fontSize: 34,
     fontWeight: '900',
     color: '#111827',
+  },
+  closeBreakdown: {
+    marginBottom: 12,
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '800',
   },
   ticketPreviewButton: {
     minHeight: 50,
@@ -2399,6 +2459,53 @@ const styles = StyleSheet.create({
   ticketPreviewText: {
     color: '#1D4ED8',
     fontSize: 14,
+    fontWeight: '900',
+  },
+  tipSection: {
+    marginBottom: 12,
+  },
+  tipLabel: {
+    marginBottom: 8,
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  tipOptions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  tipChip: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  tipChipActive: {
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+  },
+  tipChipText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  tipChipTextActive: {
+    color: '#1D4ED8',
+  },
+  tipInput: {
+    minHeight: 44,
+    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 12,
+    color: '#111827',
+    fontSize: 16,
     fontWeight: '900',
   },
   paymentOption: {

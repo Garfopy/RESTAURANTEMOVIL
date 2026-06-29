@@ -676,6 +676,8 @@ class WaiterController
             static fn(float $sum, array $order): float => $sum + (float)($order['total'] ?? 0),
             0.0
         );
+        $tip = max(0.0, (float)($input['propina'] ?? $input['tip'] ?? 0));
+        $grandTotal = round($total + $tip, 2);
         $columns = $this->getTableColumns('rest_pedidos');
         $set = ["estado = 'entregado'"];
         $params = [
@@ -689,6 +691,18 @@ class WaiterController
         if (in_array('metodo_pago', $columns, true)) {
             $set[] = 'metodo_pago = :payment_method';
             $params[':payment_method'] = $paymentMethod;
+        }
+        if (in_array('propina', $columns, true)) {
+            $set[] = 'propina = :tip';
+            $params[':tip'] = $tip;
+        }
+        if (in_array('total_pagado', $columns, true)) {
+            $set[] = 'total_pagado = :total_pagado';
+            $params[':total_pagado'] = $grandTotal;
+        }
+        if (in_array('total_con_propina', $columns, true)) {
+            $set[] = 'total_con_propina = :total_con_propina';
+            $params[':total_con_propina'] = $grandTotal;
         }
         if (in_array('pagado_at', $columns, true)) {
             $set[] = 'pagado_at = NOW()';
@@ -733,7 +747,9 @@ class WaiterController
             'table_id' => $tableId,
             'restaurant_id' => $restaurantId,
             'metodo_pago' => $paymentMethod,
-            'total' => $total,
+            'subtotal' => $total,
+            'propina' => $tip,
+            'total' => $grandTotal,
             'orders_count' => count($orders),
             'closed' => true,
         ], 'Cuenta cerrada');

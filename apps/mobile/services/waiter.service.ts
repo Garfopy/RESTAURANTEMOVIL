@@ -183,6 +183,8 @@ export type WaiterCloseAccountResponse = {
   table_id: number;
   restaurant_id: number;
   metodo_pago: WaiterPaymentMethod;
+  subtotal?: number;
+  propina?: number;
   total: number;
   orders_count: number;
   closed: boolean;
@@ -286,12 +288,14 @@ export async function closeWaiterAccount(params: {
   tableId: number;
   restaurantId: number;
   metodoPago: WaiterPaymentMethod;
+  propina?: number;
 }): Promise<WaiterCloseAccountResponse> {
   const { data } = await apiClient.post<Envelope<WaiterCloseAccountResponse>>(
     `/waiter/tables/${params.tableId}/close`,
     {
       restaurant_id: params.restaurantId,
       metodo_pago: params.metodoPago,
+      propina: Math.max(0, Number(params.propina || 0)),
     }
   );
   return unwrap(data);

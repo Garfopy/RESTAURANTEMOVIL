@@ -32,6 +32,7 @@ type Props = {
   waiterName?: string | null;
   accountName?: string | null;
   paymentMethod?: string | null;
+  tipAmount?: number;
   lines: WaiterTicketLine[];
   onClose: () => void;
 };
@@ -57,11 +58,14 @@ export function WaiterTicketPreviewModal({
   waiterName,
   accountName,
   paymentMethod,
+  tipAmount = 0,
   lines,
   onClose,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+  const subtotal = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+  const tip = Math.max(0, Number(tipAmount || 0));
+  const total = subtotal + tip;
   const itemCount = lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const isPaid = status === 'paid';
 
@@ -149,6 +153,16 @@ export function WaiterTicketPreviewModal({
                   <Text style={styles.totalLabel}>Productos</Text>
                   <Text style={styles.totalValue}>{itemCount}</Text>
                 </View>
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Subtotal</Text>
+                  <Text style={styles.totalValue}>{money(subtotal)}</Text>
+                </View>
+                {tip > 0 ? (
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Propina</Text>
+                    <Text style={styles.totalValue}>{money(tip)}</Text>
+                  </View>
+                ) : null}
                 <View style={styles.grandTotalRow}>
                   <Text style={styles.grandTotalLabel}>TOTAL</Text>
                   <Text style={styles.grandTotalValue}>{money(total)}</Text>
