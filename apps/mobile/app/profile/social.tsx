@@ -47,6 +47,8 @@ import {
   coverSocialDinerAccount,
   getSocialAccountNotifications,
   getSocialDinerAccount,
+  prepareSocialAccountCoverPayment,
+  respondSocialAccountCoverRequest,
   type SocialAccountNotification,
   type SocialDinerAccountResult,
 } from '../../services/social-account.service';
@@ -637,8 +639,11 @@ export default function SocialProfileScreen() {
   const [coverAccountLoading, setCoverAccountLoading] = useState(false);
   const [coverAccountSending, setCoverAccountSending] = useState(false);
   const [coverAccountMode, setCoverAccountMode] = useState<'account' | 'stripe'>('account');
-  const [coverAccountCardComplete, setCoverAccountCardComplete] = useState(false);
   const [accountNotifications, setAccountNotifications] = useState<SocialAccountNotification[]>([]);
+  const [accountNotificationBusyId, setAccountNotificationBusyId] = useState<number | null>(null);
+  const [approvedCoverPayment, setApprovedCoverPayment] = useState<SocialAccountNotification | null>(null);
+  const [approvedCoverCardComplete, setApprovedCoverCardComplete] = useState(false);
+  const [approvedCoverPaying, setApprovedCoverPaying] = useState(false);
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
@@ -715,6 +720,15 @@ export default function SocialProfileScreen() {
   const isCompactDiscovery = height < 760 || width < 380;
   const topReceivedLike = receivedLikes[0] ?? null;
   const latestAccountNotification = accountNotifications[0] ?? null;
+  const latestAccountExitPass = getNotificationExitPass(latestAccountNotification);
+  const latestAccountCoverId = getNotificationNumberPayload(latestAccountNotification, 'cover_id');
+  const latestAccountPaymentMode = getNotificationStringPayload(latestAccountNotification, 'payment_mode');
+  const latestAccountIsRequest = latestAccountNotification?.type === 'social_account_cover_request' && latestAccountCoverId !== null;
+  const latestAccountIsApprovedStripe =
+    latestAccountNotification?.type === 'social_account_cover_approved' &&
+    latestAccountPaymentMode === 'stripe' &&
+    latestAccountCoverId !== null;
+  const latestAccountIsActionable = latestAccountIsRequest || latestAccountIsApprovedStripe || Boolean(latestAccountExitPass);
   const topReceivedLikeKey = getIncomingLikeKey(topReceivedLike);
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
@@ -1327,7 +1341,109 @@ export default function SocialProfileScreen() {
     setCoverAccountLoading(false);
     setCoverAccountSending(false);
     setCoverAccountMode('account');
-    setCoverAccountCardComplete(false);
+  }
+
+  function getNotificationExitPass(notification?: SocialAccountNotification | null): any | null {
+    const exitPass = notification?.payload?.exit_pass;
+    if (!exitPass || typeof exitPass !== 'object') return null;
+    if (!('payload' in exitPass) || !('pedido_id' in exitPass)) return null;
+    return exitPass;
+  }
+
+  function getNotificationNumberPayload(notification: SocialAccountNotification | null | undefined, key: string): number | null {
+    const value = notification?.payload?.[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  function getNotificationStringPayload(notification: SocialAccountNotification | null | undefined, key: string): string | null {
+    const value = notification?.payload?.[key];
+    return typeof value === 'string' ? value : null;
+  }
+
+  function handleAccountNotificationPress() {
+    if (latestAccountIsApprovedStripe) {
+      setApprovedCoverPayment(latestAccountNotification);
+      setApprovedCoverCardComplete(false);
+      return;
+    }
+    if (!latestAccountExitPass) return;
+
+    router.push({
+      pathname: '/checkout/exit-pass',
+      params: {
+        orderId: String(latestAccountExitPass.pedido_id),
+        payload: String(latestAccountExitPass.payload ?? ''),
+        folio: String(latestAccountExitPass.folio ?? ''),
+        mesaLabel: String(latestAccountNotification?.payload?.covered_mesa ?? latestAccountExitPass.mesa_id ?? ''),
+      },
+    } as never);
+  }
+
+  async function handleRespondAccountCoverRequest(action: 'accept' | 'reject') {
+    if (!latestAccountCoverId || accountNotificationBusyId !== null) return;
+
+    setAccountNotificationBusyId(latestAccountCoverId);
+    try {
+      const result = await respondSocialAccountCoverRequest(latestAccountCoverId, action);
+      if (action === 'accept') {
+        Alert.alert(
+          'Solicitud aceptada',
+          result.cover?.payment_mode === 'stripe'
+            ? 'Le avisamos para que termine el pago con tarjeta.'
+            : 'Tu cuenta fue cubierta. Ya puedes mostrar tu QR de salida cuando corresponda.'
+        );
+      } else {
+        Alert.alert('Solicitud rechazada', 'Le avisamos que preferiste conservar tu cuenta.');
+      }
+      await refreshAccountNotifications();
+    } catch (error) {
+      Alert.alert('No se pudo responder', getApiError(error));
+    } finally {
+      setAccountNotificationBusyId(null);
+    }
+  }
+
+  async function handleApprovedCoverStripePayment() {
+    const notification = approvedCoverPayment;
+    const coverId = getNotificationNumberPayload(notification, 'cover_id');
+    if (!notification || !coverId || approvedCoverPaying) return;
+    if (!stripeAvailable) {
+      Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para pagar ahora.');
+      return;
+    }
+    if (!approvedCoverCardComplete) {
+      Alert.alert('Tarjeta incompleta', 'Captura una tarjeta valida para pagar la cuenta.');
+      return;
+    }
+
+    setApprovedCoverPaying(true);
+    try {
+      const prepared = await prepareSocialAccountCoverPayment(coverId);
+      if (!prepared.client_secret || !prepared.cover?.id) {
+        throw new Error('No se recibio el cliente de pago de Stripe.');
+      }
+      const { error } = await stripeConfirm(prepared.client_secret, {
+        paymentMethodType: 'Card',
+      });
+      if (error) {
+        Alert.alert('Pago rechazado', error.message);
+        return;
+      }
+      const confirmation = await confirmSocialAccountCoverPayment(prepared.cover.id);
+      Alert.alert('Cuenta pagada', confirmation.cover?.message || 'Pagaste la cuenta. Le avisamos al comensal.');
+      setApprovedCoverPayment(null);
+      setApprovedCoverCardComplete(false);
+      await refreshAccountNotifications();
+    } catch (error) {
+      Alert.alert('No se pudo pagar', getApiError(error));
+    } finally {
+      setApprovedCoverPaying(false);
+    }
   }
 
   async function openCoverAccountModal(diner?: SocialDiner | null) {
@@ -1343,7 +1459,6 @@ export default function SocialProfileScreen() {
     setCoverAccountLoading(true);
     setCoverAccountResult(null);
     setCoverAccountMode('account');
-    setCoverAccountCardComplete(false);
 
     try {
       const result = await getSocialDinerAccount(target.user_id, selectedBranch.id);
@@ -1364,49 +1479,27 @@ export default function SocialProfileScreen() {
     const target = coverAccountDiner;
     if (!target || !selectedBranch?.id || !coverAccountResult?.account) return;
 
-    if (mode === 'stripe') {
-      if (!stripeAvailable) {
-        Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para pagar ahora.');
-        return;
-      }
-      if (!coverAccountCardComplete) {
-        Alert.alert('Tarjeta incompleta', 'Captura una tarjeta valida para pagar la cuenta.');
-        return;
-      }
+    if (mode === 'stripe' && !stripeAvailable) {
+      Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para pagar ahora.');
+      return;
     }
 
     setCoverAccountSending(true);
     try {
-      const prepared = await coverSocialDinerAccount({
+      await coverSocialDinerAccount({
         dinerUserId: target.user_id,
         restaurantId: selectedBranch.id,
         paymentMode: mode,
         requestKey: buildCoverRequestKey(target.user_id, mode),
       });
 
-      if (mode === 'stripe') {
-        if (!prepared.client_secret || !prepared.cover?.id) {
-          throw new Error('No se recibio el cliente de pago de Stripe.');
-        }
-        const { error } = await stripeConfirm(prepared.client_secret, {
-          paymentMethodType: 'Card',
-        });
-        if (error) {
-          Alert.alert('Pago rechazado', error.message);
-          return;
-        }
-        const confirmation = await confirmSocialAccountCoverPayment(prepared.cover.id);
-        Alert.alert(
-          'Cuenta pagada',
-          confirmation.cover?.message || `Pagaste la cuenta de ${target.nombre}. Le avisamos que su consumo fue cubierto.`
-        );
-      } else {
-        Alert.alert(
-          'Agregado a tu cuenta',
-          prepared.cover?.message || `El consumo de ${target.nombre} se agrego a tu cuenta. Le avisamos que su consumo fue cubierto.`
-        );
-      }
-
+      Alert.alert(
+        'Solicitud enviada',
+        mode === 'stripe'
+          ? `${target.nombre} debe aceptar antes de que puedas pagar con tarjeta.`
+          : `${target.nombre} debe aceptar antes de que su consumo se agregue a tu cuenta.`
+      );
+      await refreshAccountNotifications();
       closeCoverAccountModal();
     } catch (error) {
       Alert.alert('No se pudo cubrir la cuenta', getApiError(error));
@@ -2804,17 +2897,44 @@ export default function SocialProfileScreen() {
         ) : null}
 
         {latestAccountNotification ? (
-          <View style={styles.accountCoverNoticeCard}>
+          <TouchableOpacity
+            style={[
+              styles.accountCoverNoticeCard,
+              latestAccountIsRequest && styles.accountCoverNoticeCardRequest,
+              latestAccountIsApprovedStripe && styles.accountCoverNoticeCardPayment,
+            ]}
+            activeOpacity={latestAccountIsActionable ? 0.86 : 1}
+            onPress={latestAccountIsApprovedStripe || latestAccountExitPass ? handleAccountNotificationPress : undefined}
+            disabled={!latestAccountIsActionable}
+          >
             <View
               style={[
                 styles.accountCoverNoticeIcon,
                 latestAccountNotification.type === 'social_gift_received' && { backgroundColor: '#FCE7F3' },
+                latestAccountIsRequest && { backgroundColor: '#DBEAFE' },
+                latestAccountIsApprovedStripe && { backgroundColor: '#FEF3C7' },
               ]}
             >
               <Ionicons
-                name={latestAccountNotification.type === 'social_gift_received' ? 'gift-outline' : 'receipt-outline'}
+                name={
+                  latestAccountNotification.type === 'social_gift_received'
+                    ? 'gift-outline'
+                    : latestAccountIsRequest
+                      ? 'help-circle-outline'
+                      : latestAccountIsApprovedStripe
+                        ? 'card-outline'
+                        : 'receipt-outline'
+                }
                 size={20}
-                color={latestAccountNotification.type === 'social_gift_received' ? '#BE185D' : '#047857'}
+                color={
+                  latestAccountNotification.type === 'social_gift_received'
+                    ? '#BE185D'
+                    : latestAccountIsRequest
+                      ? '#1D4ED8'
+                      : latestAccountIsApprovedStripe
+                        ? '#B45309'
+                        : '#047857'
+                }
               />
             </View>
             <View style={styles.accountCoverNoticeText}>
@@ -2824,8 +2944,37 @@ export default function SocialProfileScreen() {
               <Text style={styles.accountCoverNoticeBody} numberOfLines={2}>
                 {latestAccountNotification.body || 'Tu consumo fue cubierto por otro comensal.'}
               </Text>
+              {latestAccountIsRequest ? (
+                <View style={styles.accountCoverActions}>
+                  <TouchableOpacity
+                    style={[styles.accountCoverActionButton, styles.accountCoverRejectButton]}
+                    activeOpacity={0.82}
+                    disabled={accountNotificationBusyId === latestAccountCoverId}
+                    onPress={() => handleRespondAccountCoverRequest('reject')}
+                  >
+                    <Text style={styles.accountCoverRejectText}>Rechazar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.accountCoverActionButton, styles.accountCoverAcceptButton]}
+                    activeOpacity={0.82}
+                    disabled={accountNotificationBusyId === latestAccountCoverId}
+                    onPress={() => handleRespondAccountCoverRequest('accept')}
+                  >
+                    {accountNotificationBusyId === latestAccountCoverId ? (
+                      <ActivityIndicator size="small" color={Colors.white} />
+                    ) : (
+                      <Text style={styles.accountCoverAcceptText}>Aceptar</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </View>
-          </View>
+            {latestAccountExitPass ? (
+              <Ionicons name="qr-code-outline" size={20} color="#047857" />
+            ) : latestAccountIsApprovedStripe ? (
+              <Ionicons name="chevron-forward" size={20} color="#B45309" />
+            ) : null}
+          </TouchableOpacity>
         ) : null}
 
         {profileLoading ? (
@@ -3432,7 +3581,7 @@ export default function SocialProfileScreen() {
                       <Text style={[styles.giftPaymentModeTitle, coverAccountMode === 'account' && styles.giftPaymentModeTitleActive]}>
                         A mi cuenta
                       </Text>
-                      <Text style={styles.giftPaymentModeText}>Lo pagas al cerrar tu consumo.</Text>
+                      <Text style={styles.giftPaymentModeText}>Primero debe aceptar.</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -3449,31 +3598,13 @@ export default function SocialProfileScreen() {
                       <Text style={[styles.giftPaymentModeTitle, coverAccountMode === 'stripe' && styles.giftPaymentModeTitleActive]}>
                         Pagar ahora
                       </Text>
-                      <Text style={styles.giftPaymentModeText}>Cubre su consumo con tarjeta.</Text>
+                      <Text style={styles.giftPaymentModeText}>Se habilita si acepta.</Text>
                     </TouchableOpacity>
                   </View>
 
-                  {coverAccountMode === 'stripe' ? (
-                    stripeAvailable ? (
-                      <View style={styles.giftStripeBox}>
-                        <CardField
-                          postalCodeEnabled={false}
-                          placeholders={{ number: '4242 4242 4242 4242' }}
-                          cardStyle={{
-                            backgroundColor: '#FFFFFF',
-                            textColor: '#111827',
-                            borderColor: '#D8DDE8',
-                            borderWidth: 1,
-                            borderRadius: 12,
-                          }}
-                          style={styles.giftStripeCardField}
-                          onCardChange={(details) => setCoverAccountCardComplete(Boolean(details.complete))}
-                        />
-                      </View>
-                    ) : (
-                      <Text style={styles.giftUnavailableText}>Configura EXPO_PUBLIC_STRIPE_KEY para pagar ahora.</Text>
-                    )
-                  ) : null}
+                  <Text style={styles.coverAccountApprovalNote}>
+                    Enviaremos una solicitud al comensal. El pago solo se procesa si acepta.
+                  </Text>
 
                   <TouchableOpacity
                     style={[styles.giftSendButton, coverAccountSending && styles.saveButtonDisabled]}
@@ -3488,8 +3619,8 @@ export default function SocialProfileScreen() {
                     )}
                     <Text style={styles.giftSendButtonText}>
                       {coverAccountMode === 'stripe'
-                        ? `Pagar $${coverAccountResult.account.total_mxn.toFixed(2)}`
-                        : `Agregar $${coverAccountResult.account.total_mxn.toFixed(2)} a mi cuenta`}
+                        ? `Solicitar permiso para pagar $${coverAccountResult.account.total_mxn.toFixed(2)}`
+                        : `Solicitar agregar $${coverAccountResult.account.total_mxn.toFixed(2)} a mi cuenta`}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -3503,6 +3634,103 @@ export default function SocialProfileScreen() {
                 </View>
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(approvedCoverPayment)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!approvedCoverPaying) {
+            setApprovedCoverPayment(null);
+            setApprovedCoverCardComplete(false);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={
+              approvedCoverPaying
+                ? undefined
+                : () => {
+                    setApprovedCoverPayment(null);
+                    setApprovedCoverCardComplete(false);
+                  }
+            }
+          />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pagar cuenta aceptada</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setApprovedCoverPayment(null);
+                  setApprovedCoverCardComplete(false);
+                }}
+                style={styles.closeButton}
+                activeOpacity={0.8}
+                disabled={approvedCoverPaying}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.approvedCoverContent}>
+              <View style={styles.coverAccountHero}>
+                <View style={styles.coverAccountIcon}>
+                  <Ionicons name="card-outline" size={24} color={Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.coverAccountTitle}>
+                    {approvedCoverPayment?.payload?.covered_name
+                      ? `Cuenta de ${String(approvedCoverPayment.payload.covered_name)}`
+                      : 'Cuenta autorizada'}
+                  </Text>
+                  <Text style={styles.coverAccountSubtitle}>El comensal acepto que pagues su cuenta.</Text>
+                </View>
+                <Text style={styles.coverAccountTotal}>
+                  ${Number(approvedCoverPayment?.payload?.amount_mxn ?? 0).toFixed(2)}
+                </Text>
+              </View>
+
+              {stripeAvailable ? (
+                <View style={styles.giftStripeBox}>
+                  <CardField
+                    postalCodeEnabled={false}
+                    placeholders={{ number: '4242 4242 4242 4242' }}
+                    cardStyle={{
+                      backgroundColor: '#FFFFFF',
+                      textColor: '#111827',
+                      borderColor: '#D8DDE8',
+                      borderWidth: 1,
+                      borderRadius: 12,
+                    }}
+                    style={styles.giftStripeCardField}
+                    onCardChange={(details) => setApprovedCoverCardComplete(Boolean(details.complete))}
+                  />
+                </View>
+              ) : (
+                <Text style={styles.giftUnavailableText}>Configura EXPO_PUBLIC_STRIPE_KEY para pagar ahora.</Text>
+              )}
+
+              <TouchableOpacity
+                style={[styles.giftSendButton, approvedCoverPaying && styles.saveButtonDisabled]}
+                activeOpacity={0.86}
+                disabled={approvedCoverPaying || !stripeAvailable}
+                onPress={handleApprovedCoverStripePayment}
+              >
+                {approvedCoverPaying ? (
+                  <ActivityIndicator size="small" color={Colors.white} />
+                ) : (
+                  <Ionicons name="card-outline" size={18} color={Colors.white} />
+                )}
+                <Text style={styles.giftSendButtonText}>Confirmar pago</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -4116,6 +4344,14 @@ const styles = StyleSheet.create({
     gap: 10,
     ...Shadows.card,
   },
+  accountCoverNoticeCardRequest: {
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+  },
+  accountCoverNoticeCardPayment: {
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+  },
   accountCoverNoticeIcon: {
     width: 40,
     height: 40,
@@ -4139,6 +4375,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+  },
+  accountCoverActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  accountCoverActionButton: {
+    minHeight: 34,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountCoverRejectButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  accountCoverAcceptButton: {
+    backgroundColor: '#2563EB',
+  },
+  accountCoverRejectText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  accountCoverAcceptText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '900',
   },
   centerStateCard: {
     flex: 1,
@@ -4815,6 +5082,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: Colors.textSecondary,
+  },
+  coverAccountApprovalNote: {
+    marginTop: 2,
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  approvedCoverContent: {
+    paddingBottom: 24,
+    gap: 14,
   },
   giftPaymentModeCard: {
     borderRadius: 16,

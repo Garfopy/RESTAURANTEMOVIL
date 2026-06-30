@@ -58,6 +58,8 @@ export type CoverSocialAccountResult = {
   cover: SocialAccountCover;
   account?: SocialDinerAccount;
   charged_to_account?: boolean;
+  approval_required?: boolean;
+  covered_exit_pass?: unknown;
   client_secret?: string;
   payment_intent_id?: string;
 };
@@ -118,6 +120,26 @@ export async function coverSocialDinerAccount(params: {
       payment_mode: params.paymentMode,
       request_key: params.requestKey,
     }
+  );
+
+  return unwrapEnvelope(response.data);
+}
+
+export async function respondSocialAccountCoverRequest(
+  coverId: number,
+  action: 'accept' | 'reject'
+): Promise<CoverSocialAccountResult> {
+  const response = await apiClient.post<ApiEnvelope<CoverSocialAccountResult> | CoverSocialAccountResult>(
+    `/social/account-covers/${coverId}/respond`,
+    { action }
+  );
+
+  return unwrapEnvelope(response.data);
+}
+
+export async function prepareSocialAccountCoverPayment(coverId: number): Promise<CoverSocialAccountResult> {
+  const response = await apiClient.post<ApiEnvelope<CoverSocialAccountResult> | CoverSocialAccountResult>(
+    `/social/account-covers/${coverId}/prepare-payment`
   );
 
   return unwrapEnvelope(response.data);

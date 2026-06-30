@@ -110,6 +110,8 @@ $routes = [
     ['GET', '/social/account-notifications', ['Amare\Api\Controllers\SocialController', 'accountNotifications']],
     ['GET', '/social/diners/:id/account', ['Amare\Api\Controllers\SocialController', 'dinerAccount']],
     ['POST', '/social/diners/:id/cover-account', ['Amare\Api\Controllers\SocialController', 'coverDinerAccount']],
+    ['POST', '/social/account-covers/:id/respond', ['Amare\Api\Controllers\SocialController', 'respondAccountCoverRequest']],
+    ['POST', '/social/account-covers/:id/prepare-payment', ['Amare\Api\Controllers\SocialController', 'prepareAccountCoverPayment']],
     ['POST', '/social/account-covers/:id/confirm-payment', ['Amare\Api\Controllers\SocialController', 'confirmAccountCoverPayment']],
     ['GET', '/gift-products', ['Amare\Api\Controllers\SocialController', 'giftProducts']],
     ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'createGiftPayment']],
