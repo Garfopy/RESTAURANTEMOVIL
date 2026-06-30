@@ -3518,28 +3518,207 @@ class SocialController
         ], 'Mesa escaneada correctamente');
     }
 
+    public function tableSessionDiagnostic(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $restaurantId = isset($_GET['restaurant_id']) && $_GET['restaurant_id'] !== ''
+            ? (int)$_GET['restaurant_id']
+            : null;
+        $tableId = isset($_GET['table_id']) && $_GET['table_id'] !== ''
+            ? (int)$_GET['table_id']
+            : null;
+        $tableLabel = $this->sanitizeNullableString($_GET['mesa'] ?? $_GET['table_label'] ?? null) ?? '';
+
+        Response::success($this->buildTableSessionDiagnostic(
+            (int)$user->id,
+            $restaurantId,
+            $tableId,
+            $tableLabel
+        ));
+    }
+
     private function assertCanUseTableSession(int $userId, int $restaurantId, int $tableId, string $tableLabel = ''): void
     {
-        $activeVisit = $this->findActiveTableVisitForUser($userId);
-        if ($activeVisit === null) {
+        $diagnostic = $this->buildTableSessionDiagnostic($userId, $restaurantId, $tableId, $tableLabel);
+        if (empty($diagnostic['blocked'])) {
             return;
         }
 
-        $activeRestaurantId = isset($activeVisit['restaurante_id']) ? (int)$activeVisit['restaurante_id'] : 0;
-        $activeTableId = isset($activeVisit['mesa_id']) && $activeVisit['mesa_id'] !== null ? (int)$activeVisit['mesa_id'] : 0;
-
-        if ($activeRestaurantId === $restaurantId && $activeTableId === $tableId) {
-            return;
+        $encodedDiagnostic = json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (is_string($encodedDiagnostic)) {
+            error_log('SocialController::TABLE_SESSION_ACTIVE ' . $encodedDiagnostic);
         }
-
-        $activeLabel = $activeTableId > 0 ? $this->formatMesaLabel((string)$activeTableId) : 'tu mesa actual';
-        $nextLabel = trim($tableLabel) !== '' ? $this->formatMesaLabel($tableLabel) : $this->formatMesaLabel((string)$tableId);
 
         Response::error(
-            'Primero cierra y paga tu cuenta de ' . $activeLabel . ', valida tu QR de salida con hostess y después escanea ' . $nextLabel . '.',
+            (string)$diagnostic['message'],
             409,
             'TABLE_SESSION_ACTIVE'
         );
+    }
+
+    private function buildTableSessionDiagnostic(
+        int $userId,
+        ?int $nextRestaurantId = null,
+        ?int $nextTableId = null,
+        string $nextTableLabel = ''
+    ): array {
+        $activeVisit = $this->findActiveTableVisitForUser($userId);
+        $nextTable = [
+            'restaurante_id' => $nextRestaurantId,
+            'mesa_id' => $nextTableId,
+            'mesa_label' => $nextTableId !== null && $nextTableId > 0
+                ? $this->formatMesaLabel(trim($nextTableLabel) !== '' ? $nextTableLabel : (string)$nextTableId)
+                : (trim($nextTableLabel) !== '' ? $this->formatMesaLabel($nextTableLabel) : null),
+        ];
+
+        if ($activeVisit === null) {
+            return [
+                'blocked' => false,
+                'reason_code' => null,
+                'message' => 'No tienes una cuenta activa bloqueando el cambio de mesa.',
+                'active_visit' => null,
+                'next_table' => $nextTable,
+            ];
+        }
+
+        $activeVisitDetails = $this->describeActiveTableVisit($activeVisit, $userId);
+        $activeRestaurantId = (int)($activeVisitDetails['restaurante_id'] ?? $activeVisit['restaurante_id'] ?? 0);
+        $activeTableId = isset($activeVisitDetails['mesa_id']) && $activeVisitDetails['mesa_id'] !== null
+            ? (int)$activeVisitDetails['mesa_id']
+            : (int)($activeVisit['mesa_id'] ?? 0);
+        $sameTable = $nextRestaurantId !== null
+            && $nextTableId !== null
+            && $activeRestaurantId === $nextRestaurantId
+            && $activeTableId === $nextTableId;
+
+        if ($sameTable) {
+            return [
+                'blocked' => false,
+                'reason_code' => null,
+                'message' => 'Ya estás asociado a esta mesa.',
+                'active_visit' => $activeVisitDetails,
+                'next_table' => $nextTable,
+            ];
+        }
+
+        $activeLabel = (string)($activeVisitDetails['mesa_label'] ?? 'tu mesa actual');
+        $nextLabel = (string)($nextTable['mesa_label'] ?? 'la nueva mesa');
+
+        return [
+            'blocked' => true,
+            'reason_code' => 'TABLE_SESSION_ACTIVE',
+            'message' => 'Primero cierra y paga tu cuenta de ' . $activeLabel . ', valida tu QR de salida con hostess y después escanea ' . $nextLabel . '.',
+            'active_visit' => $activeVisitDetails,
+            'next_table' => $nextTable,
+        ];
+    }
+
+    private function describeActiveTableVisit(array $activeVisit, int $userId): array
+    {
+        $order = $activeVisit;
+        if ($this->tableExists('rest_pedidos') && isset($activeVisit['id'])) {
+            $found = Database::queryOne(
+                'SELECT * FROM rest_pedidos WHERE id = :id AND mobile_usuario_id = :user_id LIMIT 1',
+                [':id' => (int)$activeVisit['id'], ':user_id' => $userId]
+            );
+            if ($found) {
+                $order = $found;
+            }
+        }
+
+        $mesaId = isset($order['mesa_id']) && $order['mesa_id'] !== null ? (int)$order['mesa_id'] : null;
+        $reasons = [];
+        if (isset($order['cuenta_abierta']) && (int)$order['cuenta_abierta'] === 1) {
+            $reasons[] = 'cuenta_abierta';
+        }
+        if (!empty($order['salida_qr_generado_at']) && empty($order['salida_validado_at'])) {
+            $reasons[] = 'salida_qr_pendiente_validacion';
+        }
+        if (empty($reasons) && isset($order['estado']) && !in_array((string)$order['estado'], ['entregado', 'cancelado'], true)) {
+            $reasons[] = 'pedido_activo';
+        }
+
+        $mesaLabel = $mesaId !== null
+            ? ($this->tableLabelForDiagnostic($mesaId) ?? $this->formatMesaLabel((string)$mesaId))
+            : 'tu mesa actual';
+
+        return [
+            'pedido_id' => isset($order['id']) ? (int)$order['id'] : null,
+            'folio' => $order['folio'] ?? null,
+            'restaurante_id' => isset($order['restaurante_id']) ? (int)$order['restaurante_id'] : null,
+            'mesa_id' => $mesaId,
+            'mesa_label' => $mesaLabel,
+            'consumo_id' => $order['consumo_id'] ?? null,
+            'estado' => $order['estado'] ?? null,
+            'tipo_pedido' => $order['tipo_pedido'] ?? null,
+            'cuenta_abierta' => isset($order['cuenta_abierta']) ? (bool)$order['cuenta_abierta'] : null,
+            'salida_qr_generado_at' => $order['salida_qr_generado_at'] ?? null,
+            'salida_validado_at' => $order['salida_validado_at'] ?? null,
+            'pagado_at' => $order['pagado_at'] ?? null,
+            'cerrado_at' => $order['cerrado_at'] ?? null,
+            'metodo_pago' => $order['metodo_pago'] ?? $order['payment_method'] ?? null,
+            'subtotal' => isset($order['subtotal']) ? (float)$order['subtotal'] : null,
+            'total' => isset($order['total']) ? (float)$order['total'] : null,
+            'notas' => $order['notas'] ?? null,
+            'created_at' => $order['created_at'] ?? null,
+            'block_reasons' => $reasons,
+            'social_gifts' => $this->socialGiftOrdersForDiagnostic((int)($order['id'] ?? 0)),
+        ];
+    }
+
+    private function tableLabelForDiagnostic(int $tableId): ?string
+    {
+        if ($tableId <= 0 || !$this->tableExists('rest_mesas')) {
+            return null;
+        }
+
+        $columns = $this->getTableColumns('rest_mesas');
+        $idColumn = $this->firstExistingColumn($columns, ['id']);
+        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo', 'qr_codigo']);
+
+        if ($idColumn === null || $labelColumn === null) {
+            return null;
+        }
+
+        $row = Database::queryOne(
+            "SELECT `{$labelColumn}` AS mesa_label FROM `rest_mesas` WHERE `{$idColumn}` = :id LIMIT 1",
+            [':id' => $tableId]
+        );
+        $label = trim((string)($row['mesa_label'] ?? ''));
+
+        return $label !== '' ? $this->formatMesaLabel($label) : null;
+    }
+
+    private function socialGiftOrdersForDiagnostic(int $orderId): array
+    {
+        if ($orderId <= 0 || !$this->tableExists('social_gift_orders')) {
+            return [];
+        }
+
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        if (!in_array('pedido_id', $giftColumns, true)) {
+            return [];
+        }
+
+        $rows = Database::query(
+            'SELECT * FROM social_gift_orders WHERE pedido_id = :order_id ORDER BY id DESC LIMIT 5',
+            [':order_id' => $orderId]
+        );
+
+        return array_map(static function (array $gift): array {
+            return [
+                'id' => isset($gift['id']) ? (int)$gift['id'] : null,
+                'folio' => $gift['folio'] ?? null,
+                'status' => $gift['status'] ?? null,
+                'gift_nombre' => $gift['gift_nombre'] ?? null,
+                'gift_precio' => isset($gift['gift_precio']) ? (float)$gift['gift_precio'] : null,
+                'recipient_nombre' => $gift['recipient_nombre'] ?? null,
+                'cargado_cuenta_at' => $gift['cargado_cuenta_at'] ?? null,
+                'pagado_at' => $gift['pagado_at'] ?? null,
+                'pedido_item_id' => isset($gift['pedido_item_id']) ? (int)$gift['pedido_item_id'] : null,
+                'amare_wallet_used_mxn' => isset($gift['amare_wallet_used_mxn']) ? (float)$gift['amare_wallet_used_mxn'] : null,
+            ];
+        }, $rows);
     }
 
     private function findActiveTableVisitForUser(int $userId): ?array

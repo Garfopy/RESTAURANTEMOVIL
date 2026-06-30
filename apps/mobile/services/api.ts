@@ -129,6 +129,14 @@ export function getApiError(error: unknown): string {
   return String(error);
 }
 
+export function getApiErrorCode(error: unknown): string | null {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { code?: string | null } | undefined;
+    return data?.code ?? null;
+  }
+  return null;
+}
+
 /**
  * Convierte rutas relativas del backend en URLs absolutas para la app.
  * Mantiene compatibilidad con la API anterior y con el backend PHP actual.

@@ -14,8 +14,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { TableScanResult } from '@amare/types';
 import { getBranchById } from '../services/branches.service';
-import { scanTableQr } from '../services/table-session.service';
-import { getApiError } from '../services/api';
+import { getTableSessionDiagnostic, scanTableQr } from '../services/table-session.service';
+import { getApiError, getApiErrorCode } from '../services/api';
 import { useBranchStore } from '../store/branch.store';
 import { useCartStore } from '../store/cart.store';
 import { useTableSessionStore } from '../store/table-session.store';
@@ -92,6 +92,60 @@ export default function TableScannerScreen() {
     navigateToDestination();
   }
 
+  function resetScanLock() {
+    scanLockedRef.current = false;
+    setScanLocked(false);
+  }
+
+  function humanizeBlockReason(reason: string): string {
+    switch (reason) {
+      case 'cuenta_abierta':
+        return 'Cuenta abierta';
+      case 'salida_qr_pendiente_validacion':
+        return 'QR de salida pendiente';
+      case 'pedido_activo':
+        return 'Pedido activo';
+      default:
+        return reason.replace(/_/g, ' ');
+    }
+  }
+
+  async function showTableSessionActiveAlert(error: unknown) {
+    const fallbackMessage = getApiError(error) || 'Primero cierra tu cuenta actual antes de cambiar de mesa.';
+    const diagnostic = await getTableSessionDiagnostic().catch(() => null);
+    const activeVisit = diagnostic?.active_visit ?? null;
+    const orderId = activeVisit?.pedido_id ?? null;
+    const detailLines = activeVisit
+      ? [
+          activeVisit.mesa_label ? `Mesa actual: ${activeVisit.mesa_label}` : null,
+          activeVisit.folio ? `Cuenta: ${activeVisit.folio}` : null,
+          typeof activeVisit.total === 'number' ? `Total: $${activeVisit.total.toFixed(2)} MXN` : null,
+          activeVisit.block_reasons?.length
+            ? `Pendiente: ${activeVisit.block_reasons.map(humanizeBlockReason).join(', ')}`
+            : null,
+        ].filter(Boolean)
+      : [];
+    const message = [diagnostic?.message || fallbackMessage, ...detailLines].join('\n\n');
+    const buttons = [
+      {
+        text: 'Intentar de nuevo',
+        onPress: resetScanLock,
+      },
+    ];
+
+    if (orderId) {
+      buttons.unshift({
+        text: 'Ver cuenta',
+        onPress: () => {
+          hasNavigatedRef.current = true;
+          router.push({ pathname: '/order/[id]', params: { id: String(orderId) } } as never);
+        },
+      });
+    }
+
+    Alert.alert('Cuenta activa', message, buttons);
+  }
+
   async function handleScanLater() {
     if (hasNavigatedRef.current) return;
     hasNavigatedRef.current = true;
@@ -145,13 +199,15 @@ export default function TableScannerScreen() {
       const table = await scanTableQr(payload, null);
       handleResolvedTable(table);
     } catch (error) {
+      if (getApiErrorCode(error) === 'TABLE_SESSION_ACTIVE') {
+        await showTableSessionActiveAlert(error);
+        return;
+      }
+
       Alert.alert('QR inválido', getApiError(error) || 'No pudimos reconocer esta mesa. Intenta con otro QR.', [
         {
           text: 'Intentar de nuevo',
-          onPress: () => {
-            scanLockedRef.current = false;
-            setScanLocked(false);
-          },
+          onPress: resetScanLock,
         },
       ]);
     } finally {
@@ -184,10 +240,7 @@ export default function TableScannerScreen() {
           {
             text: 'Cancelar',
             style: 'cancel',
-            onPress: () => {
-              scanLockedRef.current = false;
-              setScanLocked(false);
-            },
+            onPress: resetScanLock,
           },
           {
             text: 'Vaciar y continuar',
