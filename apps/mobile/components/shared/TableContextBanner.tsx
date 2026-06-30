@@ -17,7 +17,7 @@ export function TableContextBanner({
   session,
   branchName,
   variant = 'banner',
-  title = 'Comer aqui',
+  title = 'Comer aquí',
   onPress,
   style,
 }: TableContextBannerProps) {

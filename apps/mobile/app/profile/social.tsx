@@ -39,6 +39,7 @@ import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import {
   confirmSocialGiftPayment,
   createSocialGiftPayment,
+  respondSocialGiftRequest,
   type GiftCheckoutMode,
   type SocialGiftOrder,
 } from '../../services/social-gifts.service';
@@ -47,6 +48,7 @@ import {
   coverSocialDinerAccount,
   getSocialAccountNotifications,
   getSocialDinerAccount,
+  markSocialAccountNotificationRead,
   prepareSocialAccountCoverPayment,
   respondSocialAccountCoverRequest,
   type SocialAccountNotification,
@@ -59,7 +61,7 @@ import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
 
 const GIFT_TERMS_MESSAGE =
-  'La persona no esta obligada a recibirlo. El restaurante no se hace responsable de rechazos. El reembolso del 50% aplica solo en productos u objetos; no aplica en comida ni bebidas.';
+  'La persona no está obligada a recibirlo. El restaurante no se hace responsable de rechazos. El reembolso del 50% aplica solo en productos u objetos; no aplica en comida ni bebidas.';
 
 type SelectOption = {
   label: string;
@@ -260,9 +262,19 @@ const SEXUALITY_OPTIONS: SelectOption[] = [
   },
 ];
 
+const FILTER_GENDER_OPTIONS: SelectOption[] = [
+  { label: 'Todos', value: '' },
+  ...GENDER_OPTIONS,
+];
+
+const FILTER_SEXUALITY_OPTIONS: SelectOption[] = [
+  { label: 'Todas', value: '' },
+  ...SEXUALITY_OPTIONS,
+];
+
 const LOOKING_FOR_OPTIONS: SelectOption[] = [
   { label: 'Amigos', value: 'Amigos' },
-  { label: 'Relacion seria', value: 'Relacion seria' },
+  { label: 'Relación seria', value: 'Relación seria' },
   { label: 'Nada serio', value: 'Nada serio' },
   { label: 'Conocer gente', value: 'Conocer gente' },
   { label: 'Salir y platicar', value: 'Salir y platicar' },
@@ -278,13 +290,13 @@ const DEFAULT_INTEREST_OPTIONS = [
   'Teatro',
   'Cerveza artesanal',
   'Videojuegos',
-  'Musica',
+  'Música',
   'Arte',
   'Cine',
-  'Cafe',
-  'Comida asiatica',
+  'Café',
+  'Comida asiática',
   'Fitness',
-  'Tecnologia',
+  'Tecnología',
 ];
 
 const EMPTY_FORM: SocialFormState = {
@@ -555,7 +567,7 @@ function ChoiceField({
       <TouchableOpacity
         activeOpacity={0.75}
         onPress={() => setOpen((current) => !current)}
-        style={styles.choiceButton}
+        style={[styles.choiceButton, open && styles.choiceButtonOpen]}
       >
         <Text style={[styles.choiceValue, !selected && styles.choicePlaceholder]}>
           {selected?.label ?? placeholder}
@@ -565,26 +577,39 @@ function ChoiceField({
 
       {open ? (
         <View style={styles.choiceList}>
-          {options.map((option, index) => (
-            <TouchableOpacity
-              key={option.value}
-              activeOpacity={0.75}
-              onPress={() => {
-                onSelect(option.value);
-                setOpen(false);
-              }}
-              style={[
-                styles.choiceItem,
-                value === option.value && styles.choiceItemActive,
-                index === options.length - 1 && styles.choiceItemLast,
-              ]}
-            >
-              <Text style={[styles.choiceItemText, value === option.value && styles.choiceItemTextActive]}>
-                {option.label}
-              </Text>
-              {value === option.value ? <Ionicons name="checkmark" size={18} color={Colors.primary} /> : null}
-            </TouchableOpacity>
-          ))}
+          {options.map((option, index) => {
+            const isSelected = value === option.value;
+
+            return (
+              <TouchableOpacity
+                key={`${label}-${option.label}-${option.value}`}
+                activeOpacity={0.75}
+                onPress={() => {
+                  onSelect(option.value);
+                  setOpen(false);
+                }}
+                style={[
+                  styles.choiceItem,
+                  isSelected && styles.choiceItemActive,
+                  index === options.length - 1 && styles.choiceItemLast,
+                ]}
+              >
+                <View style={styles.choiceItemCopy}>
+                  <Text style={[styles.choiceItemText, isSelected && styles.choiceItemTextActive]}>
+                    {option.label}
+                  </Text>
+                  {option.description ? (
+                    <Text style={styles.choiceItemDescription} numberOfLines={2}>
+                      {option.description}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={[styles.choiceCheckCircle, isSelected && styles.choiceCheckCircleActive]}>
+                  {isSelected ? <Ionicons name="checkmark" size={14} color={Colors.white} /> : null}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       ) : null}
       {selected?.description ? <Text style={styles.choiceDescription}>{selected.description}</Text> : null}
@@ -611,6 +636,7 @@ export default function SocialProfileScreen() {
   const [form, setForm] = useState<SocialFormState>(EMPTY_FORM);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [mesaModalVisible, setMesaModalVisible] = useState(false);
   const [consentModalVisible, setConsentModalVisible] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -641,6 +667,7 @@ export default function SocialProfileScreen() {
   const [coverAccountMode, setCoverAccountMode] = useState<'account' | 'stripe'>('account');
   const [accountNotifications, setAccountNotifications] = useState<SocialAccountNotification[]>([]);
   const [accountNotificationBusyId, setAccountNotificationBusyId] = useState<number | null>(null);
+  const [giftNotificationBusyId, setGiftNotificationBusyId] = useState<number | null>(null);
   const [approvedCoverPayment, setApprovedCoverPayment] = useState<SocialAccountNotification | null>(null);
   const [approvedCoverCardComplete, setApprovedCoverCardComplete] = useState(false);
   const [approvedCoverPaying, setApprovedCoverPaying] = useState(false);
@@ -720,15 +747,6 @@ export default function SocialProfileScreen() {
   const isCompactDiscovery = height < 760 || width < 380;
   const topReceivedLike = receivedLikes[0] ?? null;
   const latestAccountNotification = accountNotifications[0] ?? null;
-  const latestAccountExitPass = getNotificationExitPass(latestAccountNotification);
-  const latestAccountCoverId = getNotificationNumberPayload(latestAccountNotification, 'cover_id');
-  const latestAccountPaymentMode = getNotificationStringPayload(latestAccountNotification, 'payment_mode');
-  const latestAccountIsRequest = latestAccountNotification?.type === 'social_account_cover_request' && latestAccountCoverId !== null;
-  const latestAccountIsApprovedStripe =
-    latestAccountNotification?.type === 'social_account_cover_approved' &&
-    latestAccountPaymentMode === 'stripe' &&
-    latestAccountCoverId !== null;
-  const latestAccountIsActionable = latestAccountIsRequest || latestAccountIsApprovedStripe || Boolean(latestAccountExitPass);
   const topReceivedLikeKey = getIncomingLikeKey(topReceivedLike);
   const receivedLikeTitle = topReceivedLike
     ? receivedLikes.length > 1
@@ -1219,7 +1237,7 @@ export default function SocialProfileScreen() {
   async function refreshAccountNotifications() {
     try {
       const notifications = await getSocialAccountNotifications();
-      setAccountNotifications(notifications);
+      setAccountNotifications(notifications.filter(isActionableAccountNotification));
     } catch {
       setAccountNotifications([]);
     }
@@ -1365,46 +1383,131 @@ export default function SocialProfileScreen() {
     return typeof value === 'string' ? value : null;
   }
 
-  function handleAccountNotificationPress() {
-    if (latestAccountIsApprovedStripe) {
-      setApprovedCoverPayment(latestAccountNotification);
+  function isActionableAccountNotification(notification: SocialAccountNotification): boolean {
+    if (notification.type === 'social_gift_received') {
+      return getNotificationNumberPayload(notification, 'gift_id') !== null;
+    }
+    if (notification.type === 'social_account_cover_request') {
+      return getNotificationNumberPayload(notification, 'cover_id') !== null;
+    }
+    if (notification.type === 'social_account_cover_approved') {
+      return getNotificationStringPayload(notification, 'payment_mode') === 'stripe' &&
+        getNotificationNumberPayload(notification, 'cover_id') !== null;
+    }
+    return getNotificationExitPass(notification) !== null;
+  }
+
+  async function markNotificationRead(notification?: SocialAccountNotification | null) {
+    if (!notification?.id) return;
+    setAccountNotifications((current) => current.filter((item) => item.id !== notification.id));
+    try {
+      await markSocialAccountNotificationRead(notification.id);
+    } catch {
+      // Best effort; the card is already dismissed locally.
+    }
+  }
+
+  async function openNotificationActorProfile(notification?: SocialAccountNotification | null) {
+    const actorId = notification?.actor_user_id ?? null;
+    if (!actorId) return;
+
+    await markNotificationRead(notification);
+    try {
+      const response = await apiClient.get<{ success?: boolean; data?: DinerApiItem } | DinerApiItem>(
+        `/users/${actorId}/public-profile`
+      );
+      const rawProfile =
+        response.data && typeof response.data === 'object' && 'data' in response.data
+          ? response.data.data
+          : response.data;
+      if (!isDinerApiItem(rawProfile)) {
+        return;
+      }
+      const diner = buildDiner(rawProfile);
+      setDinerDetails((current) => ({ ...current, [diner.user_id]: diner }));
+      setNotificationsVisible(false);
+      handleDinerCardPress(diner);
+    } catch (error) {
+      Alert.alert('Perfil no disponible', getApiError(error));
+    }
+  }
+
+  async function handleAccountNotificationPress(notification = latestAccountNotification) {
+    const exitPass = getNotificationExitPass(notification);
+    const isApprovedStripe =
+      notification?.type === 'social_account_cover_approved' &&
+      getNotificationStringPayload(notification, 'payment_mode') === 'stripe' &&
+      getNotificationNumberPayload(notification, 'cover_id') !== null;
+
+    if (isApprovedStripe) {
+      await markNotificationRead(notification);
+      setNotificationsVisible(false);
+      setApprovedCoverPayment(notification);
       setApprovedCoverCardComplete(false);
       return;
     }
-    if (!latestAccountExitPass) return;
+    if (!exitPass) return;
 
+    await markNotificationRead(notification);
+    setNotificationsVisible(false);
     router.push({
       pathname: '/checkout/exit-pass',
       params: {
-        orderId: String(latestAccountExitPass.pedido_id),
-        payload: String(latestAccountExitPass.payload ?? ''),
-        folio: String(latestAccountExitPass.folio ?? ''),
-        mesaLabel: String(latestAccountNotification?.payload?.covered_mesa ?? latestAccountExitPass.mesa_id ?? ''),
+        orderId: String(exitPass.pedido_id),
+        payload: String(exitPass.payload ?? ''),
+        folio: String(exitPass.folio ?? ''),
+        mesaLabel: String(notification?.payload?.covered_mesa ?? exitPass.mesa_id ?? ''),
       },
     } as never);
   }
 
-  async function handleRespondAccountCoverRequest(action: 'accept' | 'reject') {
-    if (!latestAccountCoverId || accountNotificationBusyId !== null) return;
+  async function handleRespondAccountCoverRequest(action: 'accept' | 'reject', notification = latestAccountNotification) {
+    const coverId = getNotificationNumberPayload(notification, 'cover_id');
+    if (!coverId || accountNotificationBusyId !== null) return;
 
-    setAccountNotificationBusyId(latestAccountCoverId);
+    setAccountNotificationBusyId(coverId);
     try {
-      const result = await respondSocialAccountCoverRequest(latestAccountCoverId, action);
+      const result = await respondSocialAccountCoverRequest(coverId, action);
+      await markNotificationRead(notification);
       if (action === 'accept') {
         Alert.alert(
           'Solicitud aceptada',
           result.cover?.payment_mode === 'stripe'
             ? 'Le avisamos para que termine el pago con tarjeta.'
-            : 'Tu cuenta fue cubierta. Ya puedes mostrar tu QR de salida cuando corresponda.'
+          : 'Tu cuenta fue cubierta. Ya puedes mostrar tu QR de salida cuando corresponda.'
         );
       } else {
         Alert.alert('Solicitud rechazada', 'Le avisamos que preferiste conservar tu cuenta.');
       }
+      setNotificationsVisible(false);
       await refreshAccountNotifications();
     } catch (error) {
       Alert.alert('No se pudo responder', getApiError(error));
     } finally {
       setAccountNotificationBusyId(null);
+    }
+  }
+
+  async function handleRespondGiftRequest(action: 'accept' | 'reject', notification = latestAccountNotification) {
+    const giftId = getNotificationNumberPayload(notification, 'gift_id');
+    if (!giftId || giftNotificationBusyId !== null) return;
+
+    setGiftNotificationBusyId(giftId);
+    try {
+      await respondSocialGiftRequest(giftId, action);
+      await markNotificationRead(notification);
+      Alert.alert(
+        action === 'accept' ? 'Regalo aceptado' : 'Regalo rechazado',
+        action === 'accept'
+          ? 'Le avisamos al comensal que aceptaste el regalo.'
+          : 'Le avisamos al comensal que preferiste no recibirlo.'
+      );
+      setNotificationsVisible(false);
+      await refreshAccountNotifications();
+    } catch (error) {
+      Alert.alert('No se pudo responder', getApiError(error));
+    } finally {
+      setGiftNotificationBusyId(null);
     }
   }
 
@@ -1417,7 +1520,7 @@ export default function SocialProfileScreen() {
       return;
     }
     if (!approvedCoverCardComplete) {
-      Alert.alert('Tarjeta incompleta', 'Captura una tarjeta valida para pagar la cuenta.');
+      Alert.alert('Tarjeta incompleta', 'Captura una tarjeta válida para pagar la cuenta.');
       return;
     }
 
@@ -1425,7 +1528,7 @@ export default function SocialProfileScreen() {
     try {
       const prepared = await prepareSocialAccountCoverPayment(coverId);
       if (!prepared.client_secret || !prepared.cover?.id) {
-        throw new Error('No se recibio el cliente de pago de Stripe.');
+        throw new Error('No se recibió el cliente de pago de Stripe.');
       }
       const { error } = await stripeConfirm(prepared.client_secret, {
         paymentMethodType: 'Card',
@@ -1446,11 +1549,120 @@ export default function SocialProfileScreen() {
     }
   }
 
-  async function openCoverAccountModal(diner?: SocialDiner | null) {
+  function renderAccountNotificationItem(notification: SocialAccountNotification) {
+    const giftId = getNotificationNumberPayload(notification, 'gift_id');
+    const coverId = getNotificationNumberPayload(notification, 'cover_id');
+    const exitPass = getNotificationExitPass(notification);
+    const paymentMode = getNotificationStringPayload(notification, 'payment_mode');
+    const isGift = notification.type === 'social_gift_received' && giftId !== null;
+    const isCoverRequest = notification.type === 'social_account_cover_request' && coverId !== null;
+    const isApprovedStripe = notification.type === 'social_account_cover_approved' && paymentMode === 'stripe' && coverId !== null;
+    const busy = (isGift && giftNotificationBusyId === giftId) || (isCoverRequest && accountNotificationBusyId === coverId);
+    const iconName = isGift ? 'gift-outline' : isCoverRequest ? 'help-circle-outline' : isApprovedStripe ? 'card-outline' : 'receipt-outline';
+    const iconColor = isGift ? '#BE185D' : isCoverRequest ? '#1D4ED8' : isApprovedStripe ? '#B45309' : '#047857';
+
+    return (
+      <View
+        key={notification.id}
+        style={[
+          styles.notificationItem,
+          isGift && styles.notificationItemGift,
+          isCoverRequest && styles.notificationItemRequest,
+          isApprovedStripe && styles.notificationItemPayment,
+        ]}
+      >
+        <View style={styles.notificationIcon}>
+          <Ionicons name={iconName as never} size={20} color={iconColor} />
+        </View>
+        <View style={styles.notificationText}>
+          <Text style={styles.notificationTitle} numberOfLines={1}>
+            {notification.title || (isGift ? 'Regalo recibido' : 'Solicitud pendiente')}
+          </Text>
+          <Text style={styles.notificationBody} numberOfLines={3}>
+            {notification.body || 'Tienes una solicitud pendiente.'}
+          </Text>
+
+          {isGift ? (
+            <View style={styles.accountCoverActions}>
+              <TouchableOpacity
+                style={[styles.accountCoverActionButton, styles.accountCoverProfileButton]}
+                activeOpacity={0.82}
+                disabled={busy}
+                onPress={() => openNotificationActorProfile(notification)}
+              >
+                <Text style={styles.accountCoverProfileText}>Perfil</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.accountCoverActionButton, styles.accountCoverRejectButton]}
+                activeOpacity={0.82}
+                disabled={busy}
+                onPress={() => handleRespondGiftRequest('reject', notification)}
+              >
+                <Text style={styles.accountCoverRejectText}>Rechazar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.accountCoverActionButton, styles.accountCoverAcceptButton]}
+                activeOpacity={0.82}
+                disabled={busy}
+                onPress={() => handleRespondGiftRequest('accept', notification)}
+              >
+                {busy ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={styles.accountCoverAcceptText}>Aceptar</Text>}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {isCoverRequest ? (
+            <View style={styles.accountCoverActions}>
+              <TouchableOpacity
+                style={[styles.accountCoverActionButton, styles.accountCoverRejectButton]}
+                activeOpacity={0.82}
+                disabled={busy}
+                onPress={() => handleRespondAccountCoverRequest('reject', notification)}
+              >
+                <Text style={styles.accountCoverRejectText}>Rechazar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.accountCoverActionButton, styles.accountCoverAcceptButton]}
+                activeOpacity={0.82}
+                disabled={busy}
+                onPress={() => handleRespondAccountCoverRequest('accept', notification)}
+              >
+                {busy ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={styles.accountCoverAcceptText}>Aceptar</Text>}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {isApprovedStripe || exitPass ? (
+            <TouchableOpacity
+              style={[styles.notificationPrimaryButton, isApprovedStripe && styles.notificationPaymentButton]}
+              activeOpacity={0.84}
+              onPress={() => handleAccountNotificationPress(notification)}
+            >
+              <Ionicons name={isApprovedStripe ? 'card-outline' : 'qr-code-outline'} size={16} color={Colors.white} />
+              <Text style={styles.notificationPrimaryButtonText}>
+                {isApprovedStripe ? 'Terminar pago' : 'Ver QR'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  async function openCoverAccountModal(diner?: SocialDiner | null, skipDetailsClose = false) {
     const target = diner ?? detailDiner;
     if (!target) return;
     if (!selectedBranch?.id) {
       Alert.alert('Sucursal requerida', 'Activa el modo social en una sucursal para cubrir la cuenta de otro comensal.');
+      return;
+    }
+
+    if (detailsVisible && !skipDetailsClose) {
+      setDetailsVisible(false);
+      setFocusedDiner(null);
+      setTimeout(() => {
+        void openCoverAccountModal(target, true);
+      }, Platform.OS === 'ios' ? 320 : 160);
       return;
     }
 
@@ -1812,7 +2024,7 @@ export default function SocialProfileScreen() {
     if (nextValue && !hasCompleteProfile) {
       Alert.alert(
         'Completa tu perfil',
-        'Necesitas foto, edad, genero, sexualidad y descripcion para aparecer a otros comensales.',
+        'Necesitas foto, edad, género, sexualidad y descripción para aparecer a otros comensales.',
         [{ text: 'Editar perfil', onPress: () => setModalVisible(true) }, { text: 'Cerrar', style: 'cancel' }]
       );
       return;
@@ -1986,6 +2198,74 @@ export default function SocialProfileScreen() {
     }
   }
 
+  function handleDeleteSocialProfile() {
+    Alert.alert(
+      'Eliminar perfil social',
+      'Se borrarán tus fotos y datos sociales, se apagará el modo social y tendrás que crear el perfil de nuevo para volver a aparecer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: deleteSocialProfile,
+        },
+      ]
+    );
+  }
+
+  async function deleteSocialProfile() {
+    try {
+      setSaving(true);
+      const response = await apiClient.delete<ApiEnvelope<SocialProfileResponse> | SocialProfileResponse>(
+        '/users/social-profile'
+      );
+      const data = unwrapApiData(response.data);
+
+      setForm(EMPTY_FORM);
+      setSelectedInterests([]);
+      setSocialPhotos([]);
+      setHasCompleteProfile(Boolean(data.has_social_profile));
+      setModoSocial(false);
+      setMesaInput('');
+      setRequiresSocialConsent(Boolean(data.requires_social_consent ?? true));
+      setDiners([]);
+      setCurrentIndex(0);
+      setDinerDetails({});
+      setReceivedLikes([]);
+      setSentLikes([]);
+      setMatches([]);
+      setAccountNotifications([]);
+      setModalVisible(false);
+
+      updateProfile({
+        foto_url: null,
+        social_photos: [],
+        edad: null,
+        genero: null,
+        sexualidad: null,
+        gustos: null,
+        biografia: null,
+        que_busca: null,
+        redes_sociales: null,
+        instagram: null,
+        tiktok: null,
+        is_social_active: false,
+        modo_social: false,
+        current_restaurante_id: null,
+        mesa: null,
+        social_consent_accepted_at: null,
+        social_consent_version: null,
+        requires_social_consent: true,
+      });
+
+      Alert.alert('Perfil eliminado', 'Tu perfil social fue eliminado. Puedes crear uno nuevo cuando quieras.');
+    } catch (error) {
+      Alert.alert('No se pudo eliminar', getApiError(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function closeLikeGiftPrompt() {
     setLikeGiftPromptVisible(false);
     setLikeGiftPromptDiner(null);
@@ -2126,7 +2406,7 @@ export default function SocialProfileScreen() {
       throw new Error('Faltan datos para enviar el regalo.');
     }
     if (!stripeAvailable) {
-      throw new Error('Stripe no esta configurado en esta app. Agrega EXPO_PUBLIC_STRIPE_KEY para usar pago inmediato.');
+      throw new Error('Stripe no está configurado en esta app. Agrega EXPO_PUBLIC_STRIPE_KEY para usar pago inmediato.');
     }
     if (!giftCardComplete) {
       throw new Error('Completa los datos de tu tarjeta antes de pagar el regalo.');
@@ -2774,15 +3054,28 @@ export default function SocialProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.headerTextWrap}>
-            <Text style={styles.headerTitle}>Comensales</Text>
-            <Text style={styles.headerSubtitle}>
+            <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.86}>
+              Comensales
+            </Text>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
               {selectedBranch?.nombre ? `En ${selectedBranch.nombre}` : 'Activa tu modo social para descubrir gente'}
             </Text>
           </View>
 
-          <TouchableOpacity style={styles.iconButton} onPress={() => setModalVisible(true)} activeOpacity={0.8}>
-            <Ionicons name="settings-outline" size={22} color={Colors.text} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.iconButton} onPress={() => setNotificationsVisible(true)} activeOpacity={0.8}>
+              <Ionicons name="notifications-outline" size={22} color={Colors.text} />
+              {accountNotifications.length > 0 ? (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{Math.min(accountNotifications.length, 9)}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconButton} onPress={() => setModalVisible(true)} activeOpacity={0.8}>
+              <Ionicons name="settings-outline" size={22} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.statusCard}>
@@ -2893,87 +3186,6 @@ export default function SocialProfileScreen() {
               </Text>
             </View>
             <Ionicons name="heart" size={18} color="#E11D48" />
-          </TouchableOpacity>
-        ) : null}
-
-        {latestAccountNotification ? (
-          <TouchableOpacity
-            style={[
-              styles.accountCoverNoticeCard,
-              latestAccountIsRequest && styles.accountCoverNoticeCardRequest,
-              latestAccountIsApprovedStripe && styles.accountCoverNoticeCardPayment,
-            ]}
-            activeOpacity={latestAccountIsActionable ? 0.86 : 1}
-            onPress={latestAccountIsApprovedStripe || latestAccountExitPass ? handleAccountNotificationPress : undefined}
-            disabled={!latestAccountIsActionable}
-          >
-            <View
-              style={[
-                styles.accountCoverNoticeIcon,
-                latestAccountNotification.type === 'social_gift_received' && { backgroundColor: '#FCE7F3' },
-                latestAccountIsRequest && { backgroundColor: '#DBEAFE' },
-                latestAccountIsApprovedStripe && { backgroundColor: '#FEF3C7' },
-              ]}
-            >
-              <Ionicons
-                name={
-                  latestAccountNotification.type === 'social_gift_received'
-                    ? 'gift-outline'
-                    : latestAccountIsRequest
-                      ? 'help-circle-outline'
-                      : latestAccountIsApprovedStripe
-                        ? 'card-outline'
-                        : 'receipt-outline'
-                }
-                size={20}
-                color={
-                  latestAccountNotification.type === 'social_gift_received'
-                    ? '#BE185D'
-                    : latestAccountIsRequest
-                      ? '#1D4ED8'
-                      : latestAccountIsApprovedStripe
-                        ? '#B45309'
-                        : '#047857'
-                }
-              />
-            </View>
-            <View style={styles.accountCoverNoticeText}>
-              <Text style={styles.accountCoverNoticeTitle} numberOfLines={1}>
-                {latestAccountNotification.title || 'Cuenta cubierta'}
-              </Text>
-              <Text style={styles.accountCoverNoticeBody} numberOfLines={2}>
-                {latestAccountNotification.body || 'Tu consumo fue cubierto por otro comensal.'}
-              </Text>
-              {latestAccountIsRequest ? (
-                <View style={styles.accountCoverActions}>
-                  <TouchableOpacity
-                    style={[styles.accountCoverActionButton, styles.accountCoverRejectButton]}
-                    activeOpacity={0.82}
-                    disabled={accountNotificationBusyId === latestAccountCoverId}
-                    onPress={() => handleRespondAccountCoverRequest('reject')}
-                  >
-                    <Text style={styles.accountCoverRejectText}>Rechazar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.accountCoverActionButton, styles.accountCoverAcceptButton]}
-                    activeOpacity={0.82}
-                    disabled={accountNotificationBusyId === latestAccountCoverId}
-                    onPress={() => handleRespondAccountCoverRequest('accept')}
-                  >
-                    {accountNotificationBusyId === latestAccountCoverId ? (
-                      <ActivityIndicator size="small" color={Colors.white} />
-                    ) : (
-                      <Text style={styles.accountCoverAcceptText}>Aceptar</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-            </View>
-            {latestAccountExitPass ? (
-              <Ionicons name="qr-code-outline" size={20} color="#047857" />
-            ) : latestAccountIsApprovedStripe ? (
-              <Ionicons name="chevron-forward" size={20} color="#B45309" />
-            ) : null}
           </TouchableOpacity>
         ) : null}
 
@@ -3198,6 +3410,42 @@ export default function SocialProfileScreen() {
                 placeholder="@usuario"
                 autoCapitalize="none"
               />
+
+              <View style={styles.socialPrivacyPanel}>
+                <View style={styles.socialPrivacyHeader}>
+                  <View style={styles.socialPrivacyIcon}>
+                    <Ionicons name="shield-checkmark-outline" size={19} color={Colors.primary} />
+                  </View>
+                  <View style={styles.socialPrivacyCopy}>
+                    <Text style={styles.socialPrivacyTitle}>Privacidad social</Text>
+                    <Text style={styles.socialPrivacyText}>
+                      Puedes desactivar tu perfil para ocultarte temporalmente o eliminarlo para borrar tus datos sociales.
+                    </Text>
+                  </View>
+                </View>
+
+                {modoSocial ? (
+                  <TouchableOpacity
+                    style={styles.socialPrivacyButton}
+                    activeOpacity={0.84}
+                    disabled={statusUpdating || saving}
+                    onPress={() => updateSocialStatus(false)}
+                  >
+                    <Ionicons name="eye-off-outline" size={18} color={Colors.primary} />
+                    <Text style={styles.socialPrivacyButtonText}>Desactivar modo social</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[styles.socialPrivacyButton, styles.socialDeleteButton]}
+                  activeOpacity={0.84}
+                  disabled={saving}
+                  onPress={handleDeleteSocialProfile}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#B91C1C" />
+                  <Text style={styles.socialDeleteButtonText}>Eliminar perfil social</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
 
             <TouchableOpacity
@@ -3240,12 +3488,12 @@ export default function SocialProfileScreen() {
 
               <Text style={styles.consentText}>
                 Al activar el modo social, otros comensales activos de esta sucursal podrán ver la información que
-                compartas en tu perfil: nombre, fotos, edad, genero, sexualidad, descripcion, intereses, que buscas y
+                compartas en tu perfil: nombre, fotos, edad, género, sexualidad, descripción, intereses, qué buscas y
                 tu mesa o sucursal actual.
               </Text>
 
               <Text style={styles.consentText}>
-                Estos datos se usaran solo para las funciones sociales de la app, como descubrir comensales y enviar
+                Estos datos se usarán solo para las funciones sociales de la app, como descubrir comensales y enviar
                 regalos. Puedes apagar el modo social cuando quieras.
               </Text>
 
@@ -3563,7 +3811,7 @@ export default function SocialProfileScreen() {
                     ))}
                     {coverAccountResult.account.items.length > 4 ? (
                       <Text style={styles.coverAccountMoreText}>
-                        +{coverAccountResult.account.items.length - 4} productos mas
+                        +{coverAccountResult.account.items.length - 4} productos más
                       </Text>
                     ) : null}
                   </View>
@@ -3638,6 +3886,38 @@ export default function SocialProfileScreen() {
         </View>
       </Modal>
 
+      <Modal visible={notificationsVisible} transparent animationType="slide" onRequestClose={() => setNotificationsVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setNotificationsVisible(false)} />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Notificaciones</Text>
+              <TouchableOpacity
+                onPress={() => setNotificationsVisible(false)}
+                style={styles.closeButton}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {accountNotifications.length > 0 ? (
+              <ScrollView contentContainerStyle={styles.notificationList} showsVerticalScrollIndicator={false}>
+                {accountNotifications.map(renderAccountNotificationItem)}
+              </ScrollView>
+            ) : (
+              <View style={styles.notificationEmpty}>
+                <Ionicons name="notifications-outline" size={44} color={Colors.textMuted} />
+                <Text style={styles.centerStateTitle}>Sin solicitudes</Text>
+                <Text style={styles.centerStateText}>Aquí aparecerán regalos y solicitudes para cubrir cuentas.</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={Boolean(approvedCoverPayment)}
         transparent
@@ -3690,7 +3970,7 @@ export default function SocialProfileScreen() {
                       ? `Cuenta de ${String(approvedCoverPayment.payload.covered_name)}`
                       : 'Cuenta autorizada'}
                   </Text>
-                  <Text style={styles.coverAccountSubtitle}>El comensal acepto que pagues su cuenta.</Text>
+                  <Text style={styles.coverAccountSubtitle}>El comensal aceptó que pagues su cuenta.</Text>
                 </View>
                 <Text style={styles.coverAccountTotal}>
                   ${Number(approvedCoverPayment?.payload?.amount_mxn ?? 0).toFixed(2)}
@@ -3780,7 +4060,7 @@ export default function SocialProfileScreen() {
                 label="Género"
                 value={filters.genero}
                 placeholder="Todos"
-                options={GENDER_OPTIONS}
+                options={FILTER_GENDER_OPTIONS}
                 onSelect={(value) => updateFilter('genero', value)}
               />
 
@@ -3788,7 +4068,7 @@ export default function SocialProfileScreen() {
                 label="Sexualidad"
                 value={filters.sexualidad}
                 placeholder="Todas"
-                options={SEXUALITY_OPTIONS}
+                options={FILTER_SEXUALITY_OPTIONS}
                 onSelect={(value) => updateFilter('sexualidad', value)}
               />
             </ScrollView>
@@ -3803,7 +4083,7 @@ export default function SocialProfileScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[styles.saveButton, styles.filterApplyButton]}
                 activeOpacity={0.85}
                 onPress={() => {
                   setCurrentIndex(0);
@@ -4047,7 +4327,7 @@ export default function SocialProfileScreen() {
                       </View>
                     ) : (
                       <Text style={styles.giftStripeWarning}>
-                        Configura EXPO_PUBLIC_STRIPE_KEY en la app y STRIPE_SECRET_KEY en el backend para habilitar esta opcion.
+                        Configura EXPO_PUBLIC_STRIPE_KEY en la app y STRIPE_SECRET_KEY en el backend para habilitar esta opción.
                       </Text>
                     )
                   ) : null}
@@ -4090,47 +4370,70 @@ const styles = StyleSheet.create({
   },
   heroBackground: {
     backgroundColor: Colors.background,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 20,
+    paddingBottom: 18,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 18,
+    marginBottom: 16,
+    gap: 10,
   },
   iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.86)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E7EAF0',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: '#E11D48',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  notificationBadgeText: {
+    color: Colors.white,
+    fontSize: 10,
+    fontWeight: '900',
+  },
   headerTextWrap: {
     flex: 1,
-    paddingHorizontal: 14,
+    minWidth: 0,
   },
   headerTitle: {
-    fontSize: 34,
+    fontSize: 31,
     fontWeight: '800',
     color: Colors.text,
-    letterSpacing: -0.9,
+    letterSpacing: 0,
   },
   headerSubtitle: {
-    marginTop: 2,
+    marginTop: 1,
     fontSize: 14,
     color: Colors.textSecondary,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   statusCard: {
     backgroundColor: Colors.white,
-    borderRadius: 24,
+    borderRadius: 22,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderWidth: 1,
     borderColor: '#E7EAF0',
     flexDirection: 'row',
@@ -4158,7 +4461,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: Colors.text,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
   statusSubtitle: {
     marginTop: 4,
@@ -4183,15 +4486,15 @@ const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
-    gap: 10,
+    gap: 8,
     marginTop: 10,
   },
   summaryPill: {
     flex: 1,
     minWidth: 0,
-    minHeight: 38,
+    minHeight: 40,
     borderRadius: 999,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: '#FFFFFFCC',
     borderWidth: 1,
@@ -4207,8 +4510,8 @@ const styles = StyleSheet.create({
   },
   summaryPillText: {
     flex: 1,
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
     color: Colors.primary,
     textAlign: 'center',
   },
@@ -4216,8 +4519,8 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   socialViewSwitch: {
-    marginTop: 8,
-    borderRadius: 14,
+    marginTop: 9,
+    borderRadius: 16,
     backgroundColor: '#FFFFFFB8',
     borderWidth: 1,
     borderColor: '#E7EAF0',
@@ -4227,8 +4530,8 @@ const styles = StyleSheet.create({
   },
   socialViewButton: {
     flex: 1,
-    minHeight: 34,
-    borderRadius: 11,
+    minHeight: 36,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -4240,7 +4543,7 @@ const styles = StyleSheet.create({
   },
   socialViewText: {
     flexShrink: 1,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     color: Colors.primary,
     textAlign: 'center',
@@ -4331,6 +4634,80 @@ const styles = StyleSheet.create({
     gap: 10,
     ...Shadows.card,
   },
+  notificationList: {
+    paddingBottom: 24,
+    gap: 12,
+  },
+  notificationItem: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
+    padding: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  notificationItemGift: {
+    borderColor: '#99F6E4',
+    backgroundColor: '#ECFDF5',
+  },
+  notificationItemRequest: {
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+  },
+  notificationItemPayment: {
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+  },
+  notificationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  notificationText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  notificationTitle: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  notificationBody: {
+    marginTop: 3,
+    color: '#334155',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  notificationPrimaryButton: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    minHeight: 34,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#047857',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  notificationPaymentButton: {
+    backgroundColor: '#B45309',
+  },
+  notificationPrimaryButtonText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  notificationEmpty: {
+    paddingVertical: 34,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+  },
   accountCoverNoticeCard: {
     marginTop: 10,
     marginBottom: 10,
@@ -4351,6 +4728,10 @@ const styles = StyleSheet.create({
   accountCoverNoticeCardPayment: {
     borderColor: '#FDE68A',
     backgroundColor: '#FFFBEB',
+  },
+  accountCoverNoticeCardGift: {
+    borderColor: '#99F6E4',
+    backgroundColor: '#ECFDF5',
   },
   accountCoverNoticeIcon: {
     width: 40,
@@ -4397,6 +4778,11 @@ const styles = StyleSheet.create({
   accountCoverAcceptButton: {
     backgroundColor: '#2563EB',
   },
+  accountCoverProfileButton: {
+    backgroundColor: '#F0FDFA',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+  },
   accountCoverRejectText: {
     color: '#1D4ED8',
     fontSize: 12,
@@ -4404,6 +4790,11 @@ const styles = StyleSheet.create({
   },
   accountCoverAcceptText: {
     color: Colors.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  accountCoverProfileText: {
+    color: '#0F766E',
     fontSize: 12,
     fontWeight: '900',
   },
@@ -5616,6 +6007,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: Colors.white,
   },
+  choiceButtonOpen: {
+    borderColor: Colors.primary,
+    backgroundColor: '#FBFCFE',
+  },
   choiceValue: {
     flex: 1,
     marginRight: 12,
@@ -5636,22 +6031,25 @@ const styles = StyleSheet.create({
   choiceList: {
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D8DDE8',
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: Colors.white,
+    ...Shadows.sm,
   },
   choiceItem: {
-    minHeight: 52,
+    minHeight: 58,
     paddingHorizontal: 16,
+    paddingVertical: 11,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#F2F4F7',
   },
   choiceItemActive: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F6F0F3',
   },
   choiceItemLast: {
     borderBottomWidth: 0,
@@ -5662,8 +6060,31 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   choiceItemTextActive: {
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.primary,
+  },
+  choiceItemCopy: {
+    flex: 1,
+  },
+  choiceItemDescription: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 16,
+    color: Colors.textSecondary,
+  },
+  choiceCheckCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.white,
+  },
+  choiceCheckCircleActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
   },
   filterRow: {
     flexDirection: 'row',
@@ -5677,6 +6098,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     marginTop: 10,
+  },
+  filterApplyButton: {
+    flex: 1,
+    marginTop: 0,
   },
   modalActionButton: {
     flex: 1,
@@ -5704,6 +6129,7 @@ const styles = StyleSheet.create({
   },
   filterGhostButton: {
     minHeight: 56,
+    flexShrink: 0,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: '#D8DDE8',
@@ -5743,6 +6169,71 @@ const styles = StyleSheet.create({
   },
   editorInterestTextActive: {
     color: Colors.white,
+  },
+  socialPrivacyPanel: {
+    marginTop: 4,
+    marginBottom: 18,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E1E5ED',
+    backgroundColor: '#FBFCFE',
+    padding: 14,
+    gap: 10,
+  },
+  socialPrivacyHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  socialPrivacyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F6F0F3',
+  },
+  socialPrivacyCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  socialPrivacyTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: Colors.text,
+  },
+  socialPrivacyText: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  socialPrivacyButton: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: Colors.white,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  socialPrivacyButtonText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: Colors.primary,
+  },
+  socialDeleteButton: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  socialDeleteButtonText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#B91C1C',
   },
   saveButton: {
     minHeight: 56,

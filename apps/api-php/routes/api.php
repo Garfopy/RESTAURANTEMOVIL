@@ -93,6 +93,7 @@ $routes = [
     ['PATCH', '/users/social-status', ['Amare\Api\Controllers\SocialController', 'updateStatus']],
     ['GET', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'getProfile']],
     ['PUT', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'updateProfile']],
+    ['DELETE', '/users/social-profile', ['Amare\Api\Controllers\SocialController', 'deleteProfile']],
     ['POST', '/users/social-profile/photo', ['Amare\Api\Controllers\SocialController', 'uploadPhoto']],
     ['DELETE', '/users/social-profile/photo', ['Amare\Api\Controllers\SocialController', 'deletePhoto']],
     ['POST', '/users/social-profile/photo/primary', ['Amare\Api\Controllers\SocialController', 'setPrimaryPhoto']],
@@ -108,6 +109,7 @@ $routes = [
     ['GET', '/social/likes/sent', ['Amare\Api\Controllers\SocialController', 'sentLikes']],
     ['GET', '/social/matches', ['Amare\Api\Controllers\SocialController', 'matches']],
     ['GET', '/social/account-notifications', ['Amare\Api\Controllers\SocialController', 'accountNotifications']],
+    ['POST', '/social/account-notifications/:id/read', ['Amare\Api\Controllers\SocialController', 'markAccountNotificationRead']],
     ['GET', '/social/diners/:id/account', ['Amare\Api\Controllers\SocialController', 'dinerAccount']],
     ['POST', '/social/diners/:id/cover-account', ['Amare\Api\Controllers\SocialController', 'coverDinerAccount']],
     ['POST', '/social/account-covers/:id/respond', ['Amare\Api\Controllers\SocialController', 'respondAccountCoverRequest']],
@@ -115,6 +117,7 @@ $routes = [
     ['POST', '/social/account-covers/:id/confirm-payment', ['Amare\Api\Controllers\SocialController', 'confirmAccountCoverPayment']],
     ['GET', '/gift-products', ['Amare\Api\Controllers\SocialController', 'giftProducts']],
     ['POST', '/social-gifts', ['Amare\Api\Controllers\SocialController', 'createGiftPayment']],
+    ['POST', '/social-gifts/:id/respond', ['Amare\Api\Controllers\SocialController', 'respondGiftRequest']],
     ['POST', '/social-gifts/:id/confirm-payment', ['Amare\Api\Controllers\SocialController', 'confirmGiftPayment']],
     
     // Promotions routes (app movil - SOLO LECTURA)

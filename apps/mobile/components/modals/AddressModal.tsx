@@ -36,12 +36,12 @@ const ALIAS_PRESETS = [
 ];
 
 const STREET_HINTS = [
-  { calle: 'Avenida Universidad', colonia: '', ciudad: 'Queretaro', cp: '76000' },
-  { calle: 'Avenida Constituyentes', colonia: '', ciudad: 'Queretaro', cp: '76000' },
-  { calle: 'Boulevard Bernardo Quintana', colonia: '', ciudad: 'Queretaro', cp: '76010' },
-  { calle: 'Avenida 5 de Febrero', colonia: '', ciudad: 'Queretaro', cp: '76120' },
-  { calle: 'Prolongacion Corregidora Norte', colonia: '', ciudad: 'Queretaro', cp: '76140' },
-  { calle: 'Avenida Tecnologico', colonia: '', ciudad: 'Queretaro', cp: '76030' },
+  { calle: 'Avenida Universidad', colonia: '', ciudad: 'Querétaro', cp: '76000' },
+  { calle: 'Avenida Constituyentes', colonia: '', ciudad: 'Querétaro', cp: '76000' },
+  { calle: 'Boulevard Bernardo Quintana', colonia: '', ciudad: 'Querétaro', cp: '76010' },
+  { calle: 'Avenida 5 de Febrero', colonia: '', ciudad: 'Querétaro', cp: '76120' },
+  { calle: 'Prolongación Corregidora Norte', colonia: '', ciudad: 'Querétaro', cp: '76140' },
+  { calle: 'Avenida Tecnológico', colonia: '', ciudad: 'Querétaro', cp: '76030' },
 ];
 
 type AddressSuggestion = {
@@ -156,7 +156,7 @@ export function AddressModal({
     const timer = setTimeout(async () => {
       try {
         setSuggestionsLoading(true);
-        const search = [query, colonia, ciudad || 'Queretaro', 'Mexico']
+        const search = [query, colonia, ciudad || 'Querétaro', 'México']
           .filter((part) => String(part ?? '').trim())
           .join(', ');
         const locations = await Location.geocodeAsync(search);
@@ -190,7 +190,7 @@ export function AddressModal({
               return {
                 id: `geo-${index}-${location.latitude}-${location.longitude}`,
                 label: query,
-                detail: 'Ubicacion encontrada',
+                detail: 'Ubicación encontrada',
                 icon: 'location-outline',
                 calle: query,
                 colonia,
@@ -277,7 +277,7 @@ export function AddressModal({
     },
     onSuccess: (savedAddress) => {
       qc.invalidateQueries({ queryKey: ['addresses'] });
-      toast.success(address ? 'Direccion actualizada' : 'Direccion guardada');
+      toast.success(address ? 'Dirección actualizada' : 'Dirección guardada');
       onSuccess?.(savedAddress);
       resetForm();
       onDismiss();
@@ -408,7 +408,7 @@ export function AddressModal({
             >
               <Ionicons name="close-outline" size={26} color={Colors.text} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>{address ? 'Editar direccion' : 'Nueva direccion'}</Text>
+            <Text style={styles.headerTitle}>{address ? 'Editar dirección' : 'Nueva dirección'}</Text>
             <View style={styles.closeButton} />
           </View>
 
@@ -423,12 +423,12 @@ export function AddressModal({
               </View>
               <View style={styles.heroCopy}>
                 <Text style={styles.heroTitle}>Datos de entrega</Text>
-                <Text style={styles.heroText}>Guarda una direccion clara para entregar sin llamadas extra.</Text>
+                <Text style={styles.heroText}>Guarda una dirección clara para entregar sin llamadas extra.</Text>
               </View>
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Tipo de direccion</Text>
+              <Text style={styles.sectionLabel}>Tipo de dirección</Text>
               <View style={styles.presetsContainer}>
                 {ALIAS_PRESETS.map((preset) => {
                   const isSelected = isCustomAlias ? preset.id === 'Otro' : alias === preset.id;
@@ -471,7 +471,7 @@ export function AddressModal({
             <View style={styles.divider} />
 
             <FormField
-              label="Calle o Avenida"
+              label="Calle o avenida"
               value={calle}
               onChangeText={(text) => {
                 setCalle(text);
@@ -522,7 +522,7 @@ export function AddressModal({
             <View style={styles.formRow}>
               <View style={styles.formColumn}>
                 <FormField
-                  label="Numero"
+                  label="Número"
                   value={numero}
                   onChangeText={setNumero}
                   placeholder="Ej: 405-B"
@@ -532,7 +532,7 @@ export function AddressModal({
               </View>
               <View style={styles.formColumn}>
                 <FormField
-                  label="Codigo Postal"
+                  label="Código postal"
                   value={cp}
                   onChangeText={setCp}
                   placeholder="Ej: 76000"
@@ -543,10 +543,10 @@ export function AddressModal({
             </View>
 
             <FormField
-              label="Colonia o Asentamiento"
+              label="Colonia o asentamiento"
               value={colonia}
               onChangeText={setColonia}
-              placeholder="Ej: Alamos 3ra Seccion"
+              placeholder="Ej: Álamos 3ra Sección"
               icon="navigate-outline"
               autoCapitalize="words"
             />
@@ -558,7 +558,7 @@ export function AddressModal({
                 setCiudad(text);
                 if (text.trim()) setCiudadError(null);
               }}
-              placeholder="Ej: Queretaro"
+              placeholder="Ej: Querétaro"
               error={ciudadError}
               icon="location-outline"
               autoCapitalize="words"
@@ -568,7 +568,7 @@ export function AddressModal({
               label="Referencias de entrega"
               value={instrucciones}
               onChangeText={setInstrucciones}
-              placeholder="Ej: Porton de madera, entre Hidalgo y Juarez"
+              placeholder="Ej: Portón de madera, entre Hidalgo y Juárez"
               icon="chatbubble-ellipses-outline"
               autoCapitalize="sentences"
               inputStyle={styles.referenceInput}
@@ -578,7 +578,7 @@ export function AddressModal({
 
           <View style={[styles.footer, { paddingBottom: Spacing.base + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0) }]}>
             <Button
-              label={address ? 'Guardar cambios' : 'Guardar direccion'}
+              label={address ? 'Guardar cambios' : 'Guardar dirección'}
               onPress={handleSave}
               loading={saveMutation.isPending}
               fullWidth

@@ -496,7 +496,7 @@ export default function PaymentScreen() {
           </View>
 
           {availablePoints <= 0 ? (
-            <Text style={styles.pointsHint}>Aun no tienes puntos disponibles para usar en este pedido.</Text>
+            <Text style={styles.pointsHint}>Aún no tienes puntos disponibles para usar en este pedido.</Text>
           ) : selectedMethod === 'amare' ? (
             <Text style={styles.pointsHint}>Con Saldo Amare obtienes 10% de descuento directo.</Text>
           ) : (

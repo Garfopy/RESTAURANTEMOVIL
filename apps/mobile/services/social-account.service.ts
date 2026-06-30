@@ -107,6 +107,10 @@ export async function getSocialAccountNotifications(): Promise<SocialAccountNoti
   return unwrapEnvelope(response.data).notifications ?? [];
 }
 
+export async function markSocialAccountNotificationRead(notificationId: number): Promise<void> {
+  await apiClient.post(`/social/account-notifications/${notificationId}/read`);
+}
+
 export async function coverSocialDinerAccount(params: {
   dinerUserId: number;
   restaurantId: number;

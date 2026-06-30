@@ -90,7 +90,7 @@ apiClient.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && useUserStore.getState().token) {
       await useUserStore.getState().logout();
     }
 

@@ -129,7 +129,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
 
       if (permission.status !== 'granted') {
         Alert.alert(
-          'Ubicacion',
+          'Ubicación',
           'No pudimos usar tu GPS. Puedes mover el mapa manualmente y completar la dirección.'
         );
         await updateAddressFromCoords(DEFAULT_REGION.latitude, DEFAULT_REGION.longitude);
@@ -222,11 +222,11 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
     const finalAlias = alias === 'Otro' ? customAlias.trim() || 'Otro' : alias;
 
     if (!draft.calle.trim()) {
-      Alert.alert('Direccion incompleta', 'Agrega la calle o avenida de entrega.');
+      Alert.alert('Dirección incompleta', 'Agrega la calle o avenida de entrega.');
       return;
     }
     if (!draft.ciudad.trim()) {
-      Alert.alert('Direccion incompleta', 'Agrega la ciudad o municipio.');
+      Alert.alert('Dirección incompleta', 'Agrega la ciudad o municipio.');
       return;
     }
 
@@ -271,7 +271,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
             <TouchableOpacity onPress={onDismiss} style={styles.closeButton} activeOpacity={0.8}>
               <Ionicons name="close" size={24} color={Colors.textSecondary} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Direccion de entrega</Text>
+            <Text style={styles.headerTitle}>Dirección de entrega</Text>
             <View style={styles.closeButton} />
           </View>
 
@@ -322,7 +322,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                             <Ionicons name="home-outline" size={20} color={active ? '#FFF' : Colors.primary} />
                           </View>
                           <View style={styles.addressCopy}>
-                            <Text style={styles.addressAlias}>{address.alias || 'Direccion'}</Text>
+                            <Text style={styles.addressAlias}>{address.alias || 'Dirección'}</Text>
                             <Text style={styles.addressText} numberOfLines={2}>{formatSavedAddress(address)}</Text>
                             {address.instrucciones ? (
                               <Text style={styles.addressHint} numberOfLines={1}>{address.instrucciones}</Text>
@@ -402,7 +402,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                     <View style={styles.formRow}>
                       <View style={styles.formColumn}>
                         <FormField
-                          label="Numero"
+                          label="Número"
                           value={numero}
                           onChangeText={setNumero}
                           placeholder="Ej: 405-B"
@@ -433,7 +433,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                       label="Ciudad"
                       value={draft?.ciudad ?? ''}
                       onChangeText={(text) => setDraft((current) => ({ ...(current ?? defaultDraft()), ciudad: text }))}
-                      placeholder="Ej: Queretaro"
+                      placeholder="Ej: Querétaro"
                       icon="location-outline"
                     />
 

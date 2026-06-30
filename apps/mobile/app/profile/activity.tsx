@@ -264,13 +264,13 @@ export default function ProfileActivityScreen() {
               {wallet?.transactions?.length ? (
                 <>
                   <Text style={styles.emptyTitle}>No hay movimientos en este filtro</Text>
-                  <Text style={styles.emptyText}>Prueba con otra categoria para ver mas actividad.</Text>
+                  <Text style={styles.emptyText}>Prueba con otra categoría para ver más actividad.</Text>
                 </>
               ) : (
                 <>
-                  <Text style={styles.emptyTitle}>Aun no hay movimientos</Text>
+                  <Text style={styles.emptyTitle}>Aún no hay movimientos</Text>
                   <Text style={styles.emptyText}>
-                    Aqui veras tus recargas, compras con saldo y cambios de puntos.
+                    Aquí verás tus recargas, compras con saldo y cambios de puntos.
                   </Text>
                 </>
               )}

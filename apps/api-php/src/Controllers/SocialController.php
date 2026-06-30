@@ -370,6 +370,7 @@ class SocialController
             "SELECT id, actor_user_id, type, title, body, payload_json, read_at, created_at
                FROM social_account_notifications
               WHERE user_id = :user_id
+                AND read_at IS NULL
               ORDER BY created_at DESC
               LIMIT 10",
             [':user_id' => (int)$user->id]
@@ -397,6 +398,26 @@ class SocialController
         }, $rows);
 
         Response::success(['notifications' => $notifications]);
+    }
+
+    public function markAccountNotificationRead(int $notificationId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        if (!$this->tableExists('social_account_notifications')) {
+            Response::success(['ok' => true]);
+        }
+
+        Database::rowCount(
+            'UPDATE social_account_notifications
+                SET read_at = COALESCE(read_at, NOW())
+              WHERE id = :id AND user_id = :user_id',
+            [
+                ':id' => $notificationId,
+                ':user_id' => (int)$user->id,
+            ]
+        );
+
+        Response::success(['ok' => true]);
     }
 
     public function receivedLikes(): void
@@ -541,6 +562,60 @@ class SocialController
         }
 
         Response::success($this->normalizeProfileRow($profile), 'Perfil social actualizado');
+    }
+
+    public function deleteProfile(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $profile = $this->fetchSocialProfile($user->id);
+
+        if (!$profile) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        $photos = $this->normalizeSocialPhotos($profile['social_photos_json'] ?? null, $profile['foto_url'] ?? null);
+        $updateData = [
+            'foto_url' => null,
+            'edad' => null,
+            'sexualidad' => null,
+            'genero' => null,
+            'descripcion' => null,
+            'intereses' => null,
+            'que_busca' => null,
+            'redes_sociales' => null,
+            'is_social_active' => 0,
+            'current_restaurante_id' => null,
+        ];
+
+        if ($this->hasSocialPhotosColumn()) {
+            $updateData['social_photos_json'] = null;
+        }
+        if ($this->hasMesaColumn()) {
+            $updateData['mesa'] = null;
+        }
+        if ($this->hasSocialConsentColumns()) {
+            $updateData['social_consent_accepted_at'] = null;
+            $updateData['social_consent_version'] = null;
+        }
+
+        if (!$this->updateUserAllowingNulls($user->id, $updateData)) {
+            Response::serverError('No se pudo eliminar el perfil social');
+        }
+
+        foreach ($photos as $photoUrl) {
+            ImageUploadHelper::deleteLocalUploadFromUrl(
+                $photoUrl,
+                __DIR__ . '/../../uploads/',
+                'social-' . $user->id . '-'
+            );
+        }
+
+        $deletedProfile = $this->fetchSocialProfile($user->id);
+        if (!$deletedProfile) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        Response::success($this->normalizeProfileRow($deletedProfile), 'Perfil social eliminado');
     }
 
     public function uploadPhoto(): void
@@ -1826,6 +1901,9 @@ class SocialController
             $read = $pdo->prepare('SELECT * FROM social_gift_orders WHERE id = :id');
             $read->execute([':id' => $giftId]);
             $gift = $read->fetch();
+            if ($gift) {
+                $this->markPaidGiftChargeOrder($pdo, $gift, 'amare_wallet');
+            }
             $pdo->commit();
 
             Response::success([
@@ -2117,6 +2195,9 @@ class SocialController
                 [':id' => $giftId, ':intent_id' => $intentId]
             );
             $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+            if ($paidGift) {
+                $this->markPaidGiftChargeOrder(Database::getInstance(), $paidGift, 'tarjeta', $intentId);
+            }
             if ($paidGift && $shouldNotifyRecipient) {
                 $this->recordSocialAccountNotification(
                     Database::getInstance(),
@@ -2152,6 +2233,91 @@ class SocialController
         } catch (\Stripe\Exception\ApiErrorException $exception) {
             error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo verificar el pago con Stripe.');
+        }
+    }
+
+    public function respondGiftRequest(int $giftId): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $action = strtolower(trim((string)($input['action'] ?? '')));
+        if (!in_array($action, ['accept', 'approve', 'reject', 'decline'], true)) {
+            Response::validationError(['action' => ['Elige aceptar o rechazar el regalo']]);
+        }
+        if (!$this->tableExists('social_gift_orders')) {
+            Response::serverError('La tabla de regalos sociales no existe.');
+        }
+
+        $pdo = Database::getInstance();
+        try {
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare(
+                'SELECT *
+                   FROM social_gift_orders
+                  WHERE id = :id AND recipient_user_id = :user_id
+                  LIMIT 1 FOR UPDATE'
+            );
+            $stmt->execute([':id' => $giftId, ':user_id' => (int)$user->id]);
+            $gift = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$gift) {
+                throw new \DomainException('Regalo no encontrado.');
+            }
+            if (in_array((string)$gift['status'], ['entregado', 'cancelado'], true)) {
+                throw new \DomainException('Este regalo ya fue respondido.');
+            }
+
+            $accept = in_array($action, ['accept', 'approve'], true);
+            if ($accept) {
+                $this->markGiftNotificationsRead($pdo, $giftId, (int)$user->id);
+                $this->recordSocialAccountNotification(
+                    $pdo,
+                    (int)$gift['sender_user_id'],
+                    (int)$user->id,
+                    'social_gift_accepted',
+                    'Regalo aceptado',
+                    (string)($gift['recipient_nombre'] ?? 'El comensal') . ' acepto tu regalo.',
+                    [
+                        'gift_id' => $giftId,
+                        'gift_nombre' => $gift['gift_nombre'] ?? 'Regalo',
+                        'recipient_user_id' => (int)$user->id,
+                    ]
+                );
+                $pdo->commit();
+                Response::success(['gift' => $this->giftPaymentResponse($gift)], 'Regalo aceptado.');
+            }
+
+            $this->cancelGiftCharge($pdo, $gift);
+            $update = $pdo->prepare(
+                "UPDATE social_gift_orders
+                    SET status = 'cancelado', updated_at = NOW()
+                  WHERE id = :id"
+            );
+            $update->execute([':id' => $giftId]);
+            $this->markGiftNotificationsRead($pdo, $giftId, (int)$user->id);
+            $this->recordSocialAccountNotification(
+                $pdo,
+                (int)$gift['sender_user_id'],
+                (int)$user->id,
+                'social_gift_rejected',
+                'Regalo rechazado',
+                (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo.',
+                [
+                    'gift_id' => $giftId,
+                    'gift_nombre' => $gift['gift_nombre'] ?? 'Regalo',
+                    'recipient_user_id' => (int)$user->id,
+                ]
+            );
+            $pdo->commit();
+
+            $gift['status'] = 'cancelado';
+            Response::success(['gift' => $this->giftPaymentResponse($gift)], 'Regalo rechazado.');
+        } catch (\DomainException $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            Response::error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('SocialController::respondGiftRequest ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo responder el regalo.');
         }
     }
 
@@ -2610,6 +2776,67 @@ class SocialController
         ]);
     }
 
+    private function markGiftNotificationsRead(\PDO $pdo, int $giftId, int $userId): void
+    {
+        if (!$this->tableExists('social_account_notifications')) {
+            return;
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE social_account_notifications
+                SET read_at = COALESCE(read_at, NOW())
+              WHERE user_id = :user_id
+                AND type = 'social_gift_received'
+                AND payload_json LIKE :gift_match"
+        );
+        $stmt->execute([
+            ':user_id' => $userId,
+            ':gift_match' => '%"gift_id":' . $giftId . '%',
+        ]);
+    }
+
+    private function cancelGiftCharge(\PDO $pdo, array $gift): void
+    {
+        $orderId = (int)($gift['pedido_id'] ?? 0);
+        $itemId = (int)($gift['pedido_item_id'] ?? 0);
+        if ($orderId <= 0 && $itemId <= 0) {
+            return;
+        }
+
+        if ($itemId > 0 && $this->tableExists('rest_pedido_items')) {
+            $itemColumns = $this->getTableColumns('rest_pedido_items');
+            if (in_array('estado', $itemColumns, true)) {
+                $stmt = $pdo->prepare("UPDATE rest_pedido_items SET estado = 'cancelado' WHERE id = :id");
+                $stmt->execute([':id' => $itemId]);
+            }
+        }
+
+        if ($orderId > 0 && $this->tableExists('rest_pedidos')) {
+            $orderColumns = $this->getTableColumns('rest_pedidos');
+            $set = [];
+            $params = [':id' => $orderId];
+            if (in_array('estado', $orderColumns, true)) {
+                $set[] = "estado = 'cancelado'";
+            }
+            if (in_array('cuenta_abierta', $orderColumns, true)) {
+                $set[] = 'cuenta_abierta = 0';
+            }
+            if (in_array('subtotal', $orderColumns, true)) {
+                $set[] = 'subtotal = 0';
+            }
+            if (in_array('total', $orderColumns, true)) {
+                $set[] = 'total = 0';
+            }
+            if (in_array('updated_at', $orderColumns, true)) {
+                $set[] = 'updated_at = NOW()';
+            }
+            if ($set) {
+                $stmt = $pdo->prepare('UPDATE rest_pedidos SET ' . implode(', ', $set) . ' WHERE id = :id');
+                $stmt->execute($params);
+            }
+        }
+    }
+
     private function buildCoverRequestMessage(string $payerName, float $amount, string $mode): string
     {
         $method = $mode === 'stripe' ? 'con tarjeta' : 'agregandola a su cuenta';
@@ -2854,6 +3081,69 @@ class SocialController
         ];
     }
 
+    private function markPaidGiftChargeOrder(\PDO $pdo, array $gift, string $paymentMethod, ?string $paymentIntentId = null): void
+    {
+        $orderId = (int)($gift['pedido_id'] ?? 0);
+        if ($orderId <= 0 || !$this->tableExists('rest_pedidos')) {
+            return;
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        $set = [];
+        $params = [
+            ':id' => $orderId,
+            ':total' => round((float)($gift['gift_precio'] ?? 0), 2),
+        ];
+
+        if (in_array('cuenta_abierta', $columns, true)) {
+            $set[] = 'cuenta_abierta = 0';
+        }
+        if (in_array('metodo_pago', $columns, true)) {
+            $set[] = 'metodo_pago = COALESCE(metodo_pago, :payment_method)';
+            $params[':payment_method'] = $paymentMethod;
+        } elseif (in_array('payment_method', $columns, true)) {
+            $set[] = 'payment_method = COALESCE(payment_method, :payment_method)';
+            $params[':payment_method'] = $paymentMethod;
+        }
+        if ($paymentIntentId !== null) {
+            if (in_array('stripe_payment_intent_id', $columns, true)) {
+                $set[] = 'stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, :payment_intent_id)';
+                $params[':payment_intent_id'] = $paymentIntentId;
+            } elseif (in_array('payment_intent_id', $columns, true)) {
+                $set[] = 'payment_intent_id = COALESCE(payment_intent_id, :payment_intent_id)';
+                $params[':payment_intent_id'] = $paymentIntentId;
+            }
+        }
+        if (in_array('pagado_at', $columns, true)) {
+            $set[] = 'pagado_at = COALESCE(pagado_at, NOW())';
+        }
+        if (in_array('cerrado_at', $columns, true)) {
+            $set[] = 'cerrado_at = COALESCE(cerrado_at, NOW())';
+        }
+        if (in_array('salida_qr_generado_at', $columns, true)) {
+            $set[] = 'salida_qr_generado_at = NULL';
+        }
+        if (in_array('salida_token', $columns, true)) {
+            $set[] = 'salida_token = NULL';
+        }
+        if (in_array('total_pagado', $columns, true)) {
+            $set[] = 'total_pagado = COALESCE(total_pagado, :total)';
+        }
+        if (in_array('total_con_propina', $columns, true)) {
+            $set[] = 'total_con_propina = COALESCE(total_con_propina, :total)';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+
+        if (!$set) {
+            return;
+        }
+
+        $statement = $pdo->prepare('UPDATE rest_pedidos SET ' . implode(', ', $set) . ' WHERE id = :id');
+        $statement->execute($params);
+    }
+
     /**
      * @return array{pedido_id:int,consumo_id:?string}
      */
@@ -2909,6 +3199,20 @@ class SocialController
                 $orderData['metodo_pago'] = $paymentMethod;
             } elseif (in_array('payment_method', $orderColumns, true)) {
                 $orderData['payment_method'] = $paymentMethod;
+            }
+        }
+        if (!$openAccount) {
+            if (in_array('pagado_at', $orderColumns, true)) {
+                $orderData['pagado_at'] = date('Y-m-d H:i:s');
+            }
+            if (in_array('cerrado_at', $orderColumns, true)) {
+                $orderData['cerrado_at'] = date('Y-m-d H:i:s');
+            }
+            if (in_array('total_pagado', $orderColumns, true)) {
+                $orderData['total_pagado'] = $price;
+            }
+            if (in_array('total_con_propina', $orderColumns, true)) {
+                $orderData['total_con_propina'] = $price;
             }
         }
 
@@ -3232,7 +3536,7 @@ class SocialController
         $nextLabel = trim($tableLabel) !== '' ? $this->formatMesaLabel($tableLabel) : $this->formatMesaLabel((string)$tableId);
 
         Response::error(
-            'Primero cierra y paga tu cuenta de ' . $activeLabel . ', valida tu QR de salida con hostess y despues escanea ' . $nextLabel . '.',
+            'Primero cierra y paga tu cuenta de ' . $activeLabel . ', valida tu QR de salida con hostess y después escanea ' . $nextLabel . '.',
             409,
             'TABLE_SESSION_ACTIVE'
         );
@@ -3248,6 +3552,8 @@ class SocialController
         if (!in_array('mobile_usuario_id', $columns, true) || !in_array('mesa_id', $columns, true)) {
             return null;
         }
+
+        $this->repairCompletedSocialGiftOrdersForUser($userId, $columns);
 
         $where = [
             'mobile_usuario_id = :user_id',
@@ -3267,15 +3573,133 @@ class SocialController
         } elseif (in_array('estado', $columns, true)) {
             $where[] = "estado NOT IN ('entregado','cancelado')";
         }
+        if ($this->tableExists('social_gift_orders')) {
+            $giftColumns = $this->getTableColumns('social_gift_orders');
+            if (in_array('pedido_id', $giftColumns, true)) {
+                $completedGiftCondition = $this->completedSocialGiftOrderCondition('sg', $giftColumns);
+                $where[] = "NOT EXISTS (
+                    SELECT 1
+                      FROM social_gift_orders sg
+                     WHERE sg.pedido_id = rp.id
+                       AND {$completedGiftCondition}
+                     LIMIT 1
+                )";
+            }
+        }
+        $giftOnlyMarkers = [];
+        if ($this->tableExists('social_gift_orders') && in_array('pedido_id', $this->getTableColumns('social_gift_orders'), true)) {
+            $giftOnlyMarkers[] = "EXISTS (
+                SELECT 1
+                  FROM social_gift_orders sg2
+                 WHERE sg2.pedido_id = rp.id
+                 LIMIT 1
+            )";
+        }
+        if (in_array('notas', $columns, true)) {
+            $giftOnlyMarkers[] = "COALESCE(rp.notas, '') LIKE 'Regalo social para %'";
+        }
+        if (!empty($giftOnlyMarkers) && in_array('cuenta_abierta', $columns, true)) {
+            $where[] = "NOT (
+                COALESCE(rp.cuenta_abierta, 0) = 0
+                AND (" . implode(' OR ', $giftOnlyMarkers) . ")
+            )";
+        }
 
         return Database::queryOne(
             'SELECT id, restaurante_id, mesa_id, consumo_id, salida_qr_generado_at, salida_validado_at
-               FROM rest_pedidos
+               FROM rest_pedidos rp
               WHERE ' . implode(' AND ', $where) . '
            ORDER BY created_at DESC, id DESC
               LIMIT 1',
             [':user_id' => $userId]
         );
+    }
+
+    private function repairCompletedSocialGiftOrdersForUser(int $userId, array $orderColumns): void
+    {
+        if (!$this->tableExists('social_gift_orders')) {
+            return;
+        }
+
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        if (!in_array('pedido_id', $giftColumns, true) || !in_array('mobile_usuario_id', $orderColumns, true)) {
+            return;
+        }
+
+        $set = [];
+        $params = [':user_id' => $userId];
+
+        if (in_array('cuenta_abierta', $orderColumns, true)) {
+            $set[] = 'rp.cuenta_abierta = 0';
+        }
+        if (in_array('metodo_pago', $orderColumns, true)) {
+            $set[] = 'rp.metodo_pago = COALESCE(rp.metodo_pago, :payment_method)';
+            $params[':payment_method'] = 'social_gift';
+        } elseif (in_array('payment_method', $orderColumns, true)) {
+            $set[] = 'rp.payment_method = COALESCE(rp.payment_method, :payment_method)';
+            $params[':payment_method'] = 'social_gift';
+        }
+        if (in_array('pagado_at', $orderColumns, true)) {
+            $set[] = in_array('pagado_at', $giftColumns, true)
+                ? 'rp.pagado_at = COALESCE(rp.pagado_at, sg.pagado_at, NOW())'
+                : 'rp.pagado_at = COALESCE(rp.pagado_at, NOW())';
+        }
+        if (in_array('cerrado_at', $orderColumns, true)) {
+            $set[] = 'rp.cerrado_at = COALESCE(rp.cerrado_at, NOW())';
+        }
+        if (in_array('salida_qr_generado_at', $orderColumns, true)) {
+            $set[] = 'rp.salida_qr_generado_at = NULL';
+        }
+        if (in_array('salida_token', $orderColumns, true)) {
+            $set[] = 'rp.salida_token = NULL';
+        }
+        if (in_array('total_pagado', $orderColumns, true)) {
+            $set[] = 'rp.total_pagado = COALESCE(rp.total_pagado, rp.total)';
+        }
+        if (in_array('total_con_propina', $orderColumns, true)) {
+            $set[] = 'rp.total_con_propina = COALESCE(rp.total_con_propina, rp.total)';
+        }
+        if (in_array('updated_at', $orderColumns, true)) {
+            $set[] = 'rp.updated_at = NOW()';
+        }
+
+        if (!$set) {
+            return;
+        }
+
+        try {
+            Database::rowCount(
+                'UPDATE rest_pedidos rp
+                  JOIN social_gift_orders sg ON sg.pedido_id = rp.id
+                   SET ' . implode(', ', $set) . '
+                 WHERE rp.mobile_usuario_id = :user_id
+                   AND ' . $this->completedSocialGiftOrderCondition('sg', $giftColumns),
+                $params
+            );
+        } catch (\Throwable $exception) {
+            error_log('SocialController::repairCompletedSocialGiftOrdersForUser ERROR: ' . $exception->getMessage());
+        }
+    }
+
+    private function completedSocialGiftOrderCondition(string $alias, array $giftColumns): string
+    {
+        $conditions = [];
+
+        if (in_array('pagado_at', $giftColumns, true)) {
+            $conditions[] = "{$alias}.pagado_at IS NOT NULL";
+        }
+        if (in_array('amare_wallet_used_mxn', $giftColumns, true)) {
+            $conditions[] = "COALESCE({$alias}.amare_wallet_used_mxn, 0) > 0";
+        }
+        if (in_array('status', $giftColumns, true)) {
+            $completedStatus = "{$alias}.status IN ('listo','reclamado','entregado')";
+            if (in_array('cargado_cuenta_at', $giftColumns, true)) {
+                $completedStatus = "({$completedStatus} AND {$alias}.cargado_cuenta_at IS NULL)";
+            }
+            $conditions[] = $completedStatus;
+        }
+
+        return empty($conditions) ? '1 = 0' : '(' . implode(' OR ', $conditions) . ')';
     }
 
     private function fetchSocialProfile(int $userId): ?array
@@ -3368,6 +3792,8 @@ class SocialController
             'is_social_active',
             'current_restaurante_id',
             'mesa',
+            'social_consent_accepted_at',
+            'social_consent_version',
         ];
 
         $setClauses = [];

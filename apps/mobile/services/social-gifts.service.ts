@@ -89,3 +89,15 @@ export async function confirmSocialGiftPayment(giftId: number): Promise<SocialGi
 
   return unwrapEnvelope(response.data);
 }
+
+export async function respondSocialGiftRequest(
+  giftId: number,
+  action: 'accept' | 'reject'
+): Promise<SocialGiftOrder> {
+  const response = await apiClient.post<ApiEnvelope<{ gift: SocialGiftOrder }> | { gift: SocialGiftOrder }>(
+    `/social-gifts/${giftId}/respond`,
+    { action }
+  );
+
+  return unwrapEnvelope(response.data).gift;
+}

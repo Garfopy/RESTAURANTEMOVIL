@@ -43,7 +43,7 @@ export default function HostessDashboardScreen() {
     if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
-        Alert.alert('Permiso requerido', 'Necesitamos la camara para validar QRs de salida.');
+        Alert.alert('Permiso requerido', 'Necesitamos la cámara para validar QRs de salida.');
         return;
       }
     }
@@ -70,7 +70,7 @@ export default function HostessDashboardScreen() {
         [{ text: 'Escanear otro', onPress: handleStartScanner }, { text: 'Listo' }]
       );
     } catch (error) {
-      Alert.alert('QR invalido', getApiError(error) || 'No pudimos validar este pase de salida.', [
+      Alert.alert('QR inválido', getApiError(error) || 'No pudimos validar este pase de salida.', [
         { text: 'Intentar de nuevo', onPress: unlockScanner },
       ]);
     } finally {
@@ -120,7 +120,7 @@ export default function HostessDashboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>Hostess</Text>
-          <Text style={styles.title}>Recepcion</Text>
+          <Text style={styles.title}>Recepción</Text>
         </View>
         <TouchableOpacity onPress={() => void logout()} style={styles.iconButton}>
           <Ionicons name="log-out-outline" size={22} color="#111827" />
@@ -147,7 +147,7 @@ export default function HostessDashboardScreen() {
               <Ionicons name="checkmark-circle-outline" size={22} color="#047857" />
             </View>
             <View style={styles.statusCopy}>
-              <Text style={styles.statusTitle}>Ultima salida validada</Text>
+              <Text style={styles.statusTitle}>Última salida validada</Text>
               <Text style={styles.statusText}>
                 {lastPass.folio ?? `Pedido ${lastPass.pedido_id}`} {lastPass.mesa_id ? `- Mesa ${lastPass.mesa_id}` : ''}
               </Text>

@@ -364,7 +364,7 @@ export function SplitAccountModal({
   function splitByGuests() {
     const groups = guestGroups.filter((group) => group.units.length > 0);
     if (groups.length <= 1) {
-      Alert.alert('Separar por comensal', 'Necesitas pedidos de al menos dos comensales para usar esta opcion.');
+      Alert.alert('Separar por comensal', 'Necesitas pedidos de al menos dos comensales para usar esta opción.');
       return;
     }
 

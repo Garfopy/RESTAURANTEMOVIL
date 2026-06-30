@@ -111,7 +111,7 @@ export default function OrderTypeScreen() {
 
     const storedAddress: SavedAddress = {
       id: deliveryAddress.id ?? 'delivery-selected',
-      alias: deliveryAddress.alias ?? 'Direccion',
+      alias: deliveryAddress.alias ?? 'Dirección',
       calle: deliveryAddress.text,
       ciudad: '',
       lat: deliveryAddress.lat ?? null,
@@ -620,7 +620,7 @@ export default function OrderTypeScreen() {
                     >
                       <Ionicons name="home-outline" size={14} color={direccionSeleccionada?.id === dir.id ? '#FFF' : '#6B7280'} />
                       <Text style={[styles.addressChipText, direccionSeleccionada?.id === dir.id && { color: '#FFF' }]}>
-                        {dir.alias || 'Direccion'}
+                        {dir.alias || 'Dirección'}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -645,7 +645,7 @@ export default function OrderTypeScreen() {
 
             <View style={styles.locationHeader}>
               <Ionicons name="location" size={20} color={Colors.primary || '#111827'} />
-              <Text style={styles.locationTitle}>Direccion de entrega</Text>
+              <Text style={styles.locationTitle}>Dirección de entrega</Text>
             </View>
 
             <View style={styles.locationBox}>
