@@ -2397,7 +2397,16 @@ class SocialController
             return $this->findConsumptionById($restaurantId, $userId, (string)$anchor['consumo_id']);
         }
 
-        return $this->buildSocialConsumption([$anchor]);
+        $orders = Database::query(
+            'SELECT * FROM rest_pedidos WHERE ' . implode(' AND ', $where) . ' ORDER BY id ASC',
+            [
+                ':restaurant_id' => $restaurantId,
+                ':user_id' => $userId,
+                ':mesa_id' => $mesaId,
+            ]
+        );
+
+        return $orders ? $this->buildSocialConsumption($orders) : null;
     }
 
     private function findConsumptionById(int $restaurantId, int $userId, string $consumoId): ?array
@@ -2441,29 +2450,100 @@ class SocialController
         return $orders ? $this->buildSocialConsumption($orders) : null;
     }
 
-    private function buildSocialConsumption(array $orders): array
+    private function buildSocialConsumption(array $orders): ?array
     {
-        $orderIds = array_values(array_map(static fn(array $order): int => (int)$order['id'], $orders));
+        $allOrderIds = array_values(array_map(static fn(array $order): int => (int)$order['id'], $orders));
+        $giftOrderIds = $this->socialGiftChargeOrderIds($allOrderIds);
+        $billableOrders = array_values(array_filter(
+            $orders,
+            fn(array $order): bool => !$this->isSocialGiftChargeOrder($order, $giftOrderIds)
+        ));
+        $orderIds = array_values(array_map(static fn(array $order): int => (int)$order['id'], $billableOrders));
+        if (!$orderIds) {
+            return null;
+        }
+
         $items = $this->fetchOrderItemsForCopy($orderIds);
+        if (!$items) {
+            return null;
+        }
+
         $total = 0.0;
         $subtotal = 0.0;
-        foreach ($orders as $order) {
-            $total += (float)($order['total'] ?? 0);
-            $subtotal += (float)($order['subtotal'] ?? 0);
+        foreach ($items as $item) {
+            $subtotal += (float)($item['subtotal'] ?? 0);
+            $total += (float)($item['subtotal'] ?? 0);
         }
-        $consumoId = (string)($orders[0]['consumo_id'] ?? '');
+        $consumoId = (string)($billableOrders[0]['consumo_id'] ?? '');
         if ($consumoId === '') {
             $consumoId = 'ORD-' . implode('-', $orderIds);
         }
 
         return [
             'consumo_id' => $consumoId,
-            'orders' => $orders,
+            'orders' => $billableOrders,
             'order_ids' => $orderIds,
             'items' => $items,
             'subtotal' => round($subtotal, 2),
             'total' => round($total, 2),
+            'excluded_social_gift_order_ids' => array_values(array_intersect($allOrderIds, array_keys($giftOrderIds))),
         ];
+    }
+
+    /**
+     * @param array<int> $orderIds
+     * @return array<int, bool>
+     */
+    private function socialGiftChargeOrderIds(array $orderIds): array
+    {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if (!$orderIds || !$this->tableExists('social_gift_orders')) {
+            return [];
+        }
+
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        if (!in_array('pedido_id', $giftColumns, true)) {
+            return [];
+        }
+
+        $params = [];
+        $placeholders = [];
+        foreach ($orderIds as $index => $orderId) {
+            $key = ':gift_order_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+
+        $rows = Database::query(
+            'SELECT DISTINCT pedido_id
+               FROM social_gift_orders
+              WHERE pedido_id IN (' . implode(',', $placeholders) . ')' .
+                (in_array('pedido_item_id', $giftColumns, true) ? '
+                AND (pedido_item_id IS NULL OR pedido_item_id = 0)' : ''),
+            $params
+        );
+        $result = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['pedido_id'] ?? 0);
+            if ($id > 0) {
+                $result[$id] = true;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<int, bool> $giftOrderIds
+     */
+    private function isSocialGiftChargeOrder(array $order, array $giftOrderIds): bool
+    {
+        $orderId = (int)($order['id'] ?? 0);
+        if ($orderId > 0 && isset($giftOrderIds[$orderId])) {
+            return true;
+        }
+
+        return isset($order['notas']) && stripos((string)$order['notas'], 'Regalo social para ') === 0;
     }
 
     private function fetchOrderItemsForCopy(array $orderIds): array
@@ -2477,11 +2557,41 @@ class SocialController
             $params[$key] = $orderId;
         }
 
+        $giftItemFilter = '';
+        if ($this->tableExists('social_gift_orders')) {
+            $giftColumns = $this->getTableColumns('social_gift_orders');
+            $giftConditions = [];
+            if (in_array('pedido_item_id', $giftColumns, true)) {
+                $giftConditions[] = 'sg.pedido_item_id = pi.id';
+            }
+            if (in_array('pedido_id', $giftColumns, true)) {
+                $giftConditions[] = 'sg.pedido_id = pi.pedido_id';
+            }
+            if ($giftConditions) {
+                $giftItemFilter = ' AND NOT EXISTS (
+                    SELECT 1
+                      FROM social_gift_orders sg
+                     WHERE (' . implode(' OR ', $giftConditions) . ')
+                     LIMIT 1
+                )';
+            }
+        }
+        $legacyGiftFilters = [
+            "COALESCE(pi.notas, '') NOT LIKE '%Regalo para %'",
+            "COALESCE(pi.notas, '') NOT LIKE '%Regalo social%'",
+            "COALESCE(p.nombre, '') NOT LIKE 'Regalo:%'",
+        ];
+        if ($this->tableExists('rest_platillos') && in_array('codigo', $this->getTableColumns('rest_platillos'), true)) {
+            $legacyGiftFilters[] = "COALESCE(p.codigo, '') NOT LIKE 'SG-%'";
+        }
+
         return Database::query(
             'SELECT pi.*, p.nombre AS platillo_nombre
                FROM rest_pedido_items pi
           LEFT JOIN rest_platillos p ON p.id = pi.platillo_id
               WHERE pi.pedido_id IN (' . implode(',', $placeholders) . ')
+                ' . $giftItemFilter . '
+                AND ' . implode("\n                AND ", $legacyGiftFilters) . '
            ORDER BY pi.id ASC',
             $params
         );

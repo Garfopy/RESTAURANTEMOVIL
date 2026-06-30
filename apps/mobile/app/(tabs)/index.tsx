@@ -28,7 +28,7 @@ import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useCartStore } from '../../store/cart.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranches } from '../../hooks/useBranches';
-import { useFeaturedDishes, useCategories } from '../../hooks/useMenu';
+import { useFeaturedDishes, useCategories, useDishes } from '../../hooks/useMenu';
 import { getNearestBranches } from '../../services/branches.service';
 import { Colors } from '../../theme';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
@@ -87,6 +87,7 @@ export default function HomeScreen() {
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
   const { tipoPedido, setTipoPedido, setDeliveryAddress, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
   const tableSession = useTableSessionStore((s) => s.session);
+  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
   const deferScan = useTableSessionStore((s) => s.deferScan);
   const clearTableSession = useTableSessionStore((s) => s.clearSession);
   
@@ -135,13 +136,37 @@ export default function HomeScreen() {
   const restauranteId = menuBranch?.id ?? user?.current_restaurante_id ?? undefined;
   const { data: categories, isLoading: loadingCats, refetch: refetchCategories } = useCategories(restauranteId);
   const { data: featured, isLoading: loadingFeatured, refetch: refetchFeatured } = useFeaturedDishes(restauranteId);
+  const { data: allDishes, isLoading: loadingAllDishes, refetch: refetchAllDishes } = useDishes(restauranteId);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+  const visibleCategories =
+    categories && categories.length > 0
+      ? categories
+      : Array.from(
+          new Map(
+            (allDishes ?? [])
+              .filter((item) => item.categoria_id && item.categoria_nombre)
+              .map((item) => [
+                Number(item.categoria_id),
+                {
+                  id: Number(item.categoria_id),
+                  nombre: item.categoria_nombre ?? 'Menu',
+                  descripcion: null,
+                  imagen: item.imagen ?? null,
+                  orden: 0,
+                  activo: true,
+                  total_platillos: 0,
+                } as Categoria,
+              ])
+          ).values()
+        );
+  const visibleFeatured = featured && featured.length > 0 ? featured : (allDishes ?? []).slice(0, 8);
+  const loadingMenuItems = loadingFeatured || ((featured?.length ?? 0) === 0 && loadingAllDishes);
 
   useEffect(() => {
-    if (tipoPedido === 'eat_in' && !tableSession) {
+    if (tipoPedido === 'eat_in' && !tableSession && !deferredBranch) {
       setTipoPedido(null);
     }
-  }, [setTipoPedido, tableSession, tipoPedido]);
+  }, [deferredBranch, setTipoPedido, tableSession, tipoPedido]);
 
   async function refreshHome() {
     setRefreshingHome(true);
@@ -150,6 +175,7 @@ export default function HomeScreen() {
         restauranteId ? refreshBranchConfig(restauranteId, { force: true }) : Promise.resolve(),
         refetchCategories(),
         refetchFeatured(),
+        refetchAllDishes(),
       ]);
     } catch {
       toast.warning('No pudimos actualizar el menu. Conservamos la ultima version disponible.');
@@ -316,7 +342,7 @@ export default function HomeScreen() {
     setShowTypeModal(false);
     setSelectingPickupBranch(false);
     setDetectedBranchMessage(null);
-    setTipoPedido(null);
+    setTipoPedido('eat_in');
   }, [setTipoPedido, tableScanDeferred]);
 
   useEffect(() => {
@@ -803,14 +829,14 @@ export default function HomeScreen() {
           </View>
           <View style={styles.sectionIcon}><Ionicons name="grid-outline" size={17} color={Colors.primary} /></View>
         </View>
-        {loadingCats ? (
+        {loadingCats && visibleCategories.length === 0 ? (
           <View style={[styles.horizontalList, { paddingHorizontal: featuredInset }]}>
             {[1, 2, 3].map((i) => <Skeleton key={i} width={140} height={100} borderRadius={20} style={{marginRight: 12}} />)}
           </View>
         ) : (
           <FlatList
             horizontal
-            data={categories}
+            data={visibleCategories}
             keyExtractor={(item) => item.id.toString()}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={[styles.horizontalList, { paddingHorizontal: featuredInset }]}
@@ -843,15 +869,15 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
         
-        {loadingFeatured ? (
+        {loadingMenuItems ? (
           <View style={[styles.horizontalList, { paddingHorizontal: featuredInset }]}>
             {[1, 2].map((i) => <Skeleton key={i} width={featuredCardWidth} height={260} borderRadius={25} style={{marginRight: featuredGap}} />)}
           </View>
-        ) : (
+        ) : visibleFeatured.length > 0 ? (
           <View>
             <Animated.FlatList
               horizontal
-              data={featured}
+              data={visibleFeatured}
               keyExtractor={(item) => item.id.toString()}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={[styles.horizontalList, { paddingHorizontal: featuredInset }]}
@@ -871,7 +897,7 @@ export default function HomeScreen() {
             
             {/* 🔘 INDICADORES (DOTS) */}
             <View style={styles.pagination}>
-              {featured?.map((_, i) => {
+              {visibleFeatured.map((_, i) => {
                 const inputRange = [(i - 1) * featuredSnapInterval, i * featuredSnapInterval, (i + 1) * featuredSnapInterval];
                 
                 const dotWidth = scrollX.interpolate({
@@ -889,6 +915,11 @@ export default function HomeScreen() {
                 return <Animated.View key={i} style={[styles.dot, { width: dotWidth, opacity }]} />;
               })}
             </View>
+          </View>
+        ) : (
+          <View style={[styles.emptyMenuBox, { marginHorizontal: featuredInset }]}>
+            <Ionicons name="restaurant-outline" size={22} color="#8A7A64" />
+            <Text style={styles.emptyMenuText}>No pudimos cargar platillos para esta sucursal. Desliza para actualizar.</Text>
           </View>
         )}
 
@@ -1162,6 +1193,21 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: Colors.primary,
+  },
+  emptyMenuBox: {
+    minHeight: 118,
+    borderRadius: 18,
+    backgroundColor: '#F1ECE4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  emptyMenuText: {
+    color: '#7C6748',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   bottomSpacer: {
     height: 24,

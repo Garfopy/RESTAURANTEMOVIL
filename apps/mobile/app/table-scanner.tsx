@@ -176,7 +176,7 @@ export default function TableScannerScreen() {
         deferScan(null);
       }
 
-      setTipoPedido(null);
+      setTipoPedido('eat_in');
     }
 
     navigateToDestination({ tableScanDeferred: mode === 'eat_in' });
