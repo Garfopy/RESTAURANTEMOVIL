@@ -1086,9 +1086,7 @@ class SocialController
                 (int)$cover['covered_user_id'],
                 (int)$cover['restaurante_id']
             );
-            $coveredExitPass = empty($pendingGiftCharges)
-                ? $this->ensureCoveredConsumptionExitPass($consumption, (int)$cover['covered_user_id'])
-                : null;
+            $coveredExitPass = null;
             $this->updateSocialAccountCover($pdo, $coverId, [
                 'payer_pedido_id' => $payerOrderId,
                 'status' => 'charged_to_account',
@@ -1294,9 +1292,7 @@ class SocialController
                 (int)$cover['covered_user_id'],
                 (int)$cover['restaurante_id']
             );
-            $coveredExitPass = empty($pendingGiftCharges)
-                ? $this->ensureCoveredConsumptionExitPass($consumption, (int)$cover['covered_user_id'])
-                : null;
+            $coveredExitPass = null;
             $this->updateSocialAccountCover($pdo, $coverId, [
                 'payer_pedido_id' => $payerOrderId,
                 'status' => 'paid',
@@ -1343,8 +1339,10 @@ class SocialController
 
         $result = [];
         if ($tableName !== null) {
+            $productColumns = $this->getTableColumns($tableName);
+            $categorySelect = in_array('categoria', $productColumns, true) ? ', categoria' : '';
             $products = Database::query(
-                "SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden
+                "SELECT id, nombre, descripcion, precio, icono, color, es_regalo, imagen, orden{$categorySelect}
                    FROM {$tableName}
                ORDER BY orden ASC, nombre ASC"
             );
@@ -1360,6 +1358,7 @@ class SocialController
                         'icono' => $item['icono'] ?? null,
                         'color' => $item['color'] ?? '#B71C1C',
                         'es_regalo' => (bool)($item['es_regalo'] ?? true),
+                        'categoria' => $item['categoria'] ?? null,
                         'imagen' => $item['imagen'] ?? null,
                         'orden' => (int)($item['orden'] ?? 0),
                     ];
@@ -2013,36 +2012,27 @@ class SocialController
             $pdo = Database::getInstance();
             try {
                 $pdo->beginTransaction();
-                $giftId = Database::execute(
-                    "INSERT INTO social_gift_orders (
-                        restaurante_id, mesa_id, sender_mesa_id, gift_product_id, sender_user_id, recipient_user_id,
-                        sender_nombre, recipient_nombre, sender_mesa, recipient_mesa,
-                        gift_nombre, gift_descripcion, gift_precio, gift_imagen,
-                        status, moneda, payment_request_key, created_at, updated_at
-                    ) VALUES (
-                        :restaurant_id, :table_id, :sender_table_id, :product_id, :sender_id, :recipient_id,
-                        :sender_name, :recipient_name, :sender_table, :recipient_table,
-                        :gift_name, :gift_description, :gift_price, :gift_image,
-                        'pendiente_pago', 'MXN', :request_key, NOW(), NOW()
-                    )",
-                    [
-                        ':restaurant_id' => $restaurantId,
-                        ':table_id' => (int)$mesa['id'],
-                        ':sender_table_id' => (int)$senderMesaRow['id'],
-                        ':product_id' => $giftProductId,
-                        ':sender_id' => (int)$user->id,
-                        ':recipient_id' => $recipientUserId,
-                        ':sender_name' => $sender['nombre'] ?? 'Comensal',
-                        ':recipient_name' => $recipient['nombre'] ?? 'Comensal',
-                        ':sender_table' => $senderMesa,
-                        ':recipient_table' => $recipientMesa,
-                        ':gift_name' => $giftProduct['nombre'] ?? 'Regalo',
-                        ':gift_description' => $giftProduct['descripcion'] ?? null,
-                        ':gift_price' => $amountCents / 100,
-                        ':gift_image' => $giftProduct['imagen'] ?? null,
-                        ':request_key' => $requestKey,
-                    ]
-                );
+                $giftId = $this->insertDynamicRow($pdo, 'social_gift_orders', [
+                    'restaurante_id' => $restaurantId,
+                    'mesa_id' => (int)$mesa['id'],
+                    'sender_mesa_id' => (int)$senderMesaRow['id'],
+                    'gift_product_id' => $giftProductId,
+                    'sender_user_id' => (int)$user->id,
+                    'recipient_user_id' => $recipientUserId,
+                    'sender_nombre' => $sender['nombre'] ?? 'Comensal',
+                    'recipient_nombre' => $recipient['nombre'] ?? 'Comensal',
+                    'sender_mesa' => $senderMesa,
+                    'recipient_mesa' => $recipientMesa,
+                    'gift_nombre' => $giftProduct['nombre'] ?? 'Regalo',
+                    'gift_descripcion' => $giftProduct['descripcion'] ?? null,
+                    'gift_precio' => $amountCents / 100,
+                    'gift_imagen' => $giftProduct['imagen'] ?? null,
+                    'status' => 'pendiente_pago',
+                    'moneda' => 'MXN',
+                    'payment_request_key' => $requestKey,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
                 if ($giftId <= 0) throw new \RuntimeException('No se pudo crear el regalo');
                 Database::rowCount(
                     'UPDATE social_gift_orders SET folio = :folio WHERE id = :id',
@@ -2304,14 +2294,22 @@ class SocialController
                 Response::success(['gift' => $this->giftPaymentResponse($gift)], 'Regalo aceptado.');
             }
 
-            $this->cancelGiftCharge($pdo, $gift);
-            $refund = $this->refundRejectedGiftToWallet($pdo, $gift);
             $update = $pdo->prepare(
                 "UPDATE social_gift_orders
                     SET status = 'cancelado', updated_at = NOW()
                   WHERE id = :id"
             );
             $update->execute([':id' => $giftId]);
+            $gift['status'] = 'cancelado';
+            $refundEligible = $this->isRefundableSocialGiftObject($gift);
+            $refund = !empty($gift['pagado_at']) && $refundEligible
+                ? $this->refundRejectedGiftToWallet($pdo, $gift)
+                : null;
+            $refundMessage = !$refundEligible
+                ? (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo. Este tipo de regalo no genera reembolso.'
+                : ($refund !== null
+                    ? (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo. Reembolsamos el 50% a tu Saldo Amare.'
+                    : (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo. Cuando pagues el cargo, reembolsaremos el 50% a tu Saldo Amare.');
             $this->markGiftNotificationsRead($pdo, $giftId, (int)$user->id);
             $this->recordSocialAccountNotification(
                 $pdo,
@@ -2319,20 +2317,25 @@ class SocialController
                 (int)$user->id,
                 'social_gift_rejected',
                 'Regalo rechazado',
-                (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo. Reembolsamos el 50% a tu Saldo Amare.',
+                $refundMessage,
                 [
                     'gift_id' => $giftId,
                     'gift_nombre' => $gift['gift_nombre'] ?? 'Regalo',
                     'recipient_user_id' => (int)$user->id,
-                    'refund_amount_mxn' => (float)($refund['refund_amount_mxn'] ?? 0),
-                    'wallet_balance_after_mxn' => (float)($refund['balance_after_mxn'] ?? 0),
+                    'refund_pending' => $refundEligible && $refund === null,
+                    'refund_eligible' => $refundEligible,
+                    'refund_amount_mxn' => $refund !== null
+                        ? (float)($refund['refund_amount_mxn'] ?? 0)
+                        : ($refundEligible ? round((float)($gift['gift_precio'] ?? 0) * 0.5, 2) : 0),
+                    'wallet_balance_after_mxn' => $refund['balance_after_mxn'] ?? null,
                 ]
             );
             $pdo->commit();
 
-            $gift['status'] = 'cancelado';
             Response::success([
                 'gift' => $this->giftPaymentResponse($gift),
+                'refund_pending' => $refundEligible && $refund === null,
+                'refund_eligible' => $refundEligible,
                 'refund' => $refund,
             ], 'Regalo rechazado.');
         } catch (\DomainException $exception) {
@@ -2481,6 +2484,8 @@ class SocialController
         $billableOrders = array_values(array_filter(
             $orders,
             fn(array $order): bool => !$this->isSocialGiftChargeOrder($order, $giftOrderIds)
+                && !$this->isSocialConsumptionOrderSettled($order)
+                && round((float)($order['total'] ?? 0), 2) > 0
         ));
         $orderIds = array_values(array_map(static fn(array $order): int => (int)$order['id'], $billableOrders));
         if (!$orderIds) {
@@ -2569,6 +2574,15 @@ class SocialController
         }
 
         return isset($order['notas']) && stripos((string)$order['notas'], 'Regalo social para ') === 0;
+    }
+
+    private function isSocialConsumptionOrderSettled(array $order): bool
+    {
+        if (!empty($order['pagado_at']) || !empty($order['cerrado_at']) || !empty($order['salida_validado_at'])) {
+            return true;
+        }
+
+        return isset($order['estado']) && in_array((string)$order['estado'], ['entregado', 'cancelado'], true);
     }
 
     private function fetchOrderItemsForCopy(array $orderIds): array
@@ -2689,7 +2703,7 @@ class SocialController
             $where[] = 'sg.pagado_at IS NULL';
         }
         if (in_array('status', $giftColumns, true)) {
-            $where[] = "COALESCE(sg.status, '') <> 'cancelado'";
+            $where[] = "COALESCE(sg.status, '') IN ('listo','reclamado','cancelado')";
         }
         if (in_array('tipo_pedido', $orderColumns, true)) {
             $where[] = "rp.tipo_pedido = 'eat_in'";
@@ -2976,7 +2990,7 @@ class SocialController
                  WHERE restaurante_id = :restaurant_id
                    AND covered_user_id = :covered_user_id
                    AND covered_consumo_id = :covered_consumo_id
-                   AND status IN ('pending','pending_approval','approved','pending_payment','charged_to_account','paid')
+                   AND status IN ('pending','pending_approval','approved','pending_payment')
               ORDER BY id DESC
                  LIMIT 1";
         if ($forUpdate) {
@@ -3116,7 +3130,13 @@ class SocialController
         $giftPrice = round((float)($gift['gift_precio'] ?? 0), 2);
         $refundAmount = round($giftPrice * 0.5, 2);
 
-        if ($giftId <= 0 || $senderUserId <= 0 || $refundAmount <= 0) {
+        if (
+            (string)($gift['status'] ?? '') !== 'cancelado' ||
+            !$this->isRefundableSocialGiftObject($gift) ||
+            $giftId <= 0 ||
+            $senderUserId <= 0 ||
+            $refundAmount <= 0
+        ) {
             return [
                 'already_applied' => false,
                 'refund_amount_mxn' => 0,
@@ -3140,6 +3160,50 @@ class SocialController
                 'recipient_user_id' => isset($gift['recipient_user_id']) ? (int)$gift['recipient_user_id'] : null,
             ]
         );
+    }
+
+    private function isRefundableSocialGiftObject(array $gift): bool
+    {
+        $category = $this->sanitizeNullableString($gift['categoria'] ?? $gift['gift_categoria'] ?? null);
+        if ($category !== null) {
+            return $this->socialGiftCategoryAllowsRefund($category);
+        }
+
+        $productId = (int)($gift['gift_product_id'] ?? 0);
+        if ($productId <= 0) {
+            return false;
+        }
+
+        $tableName = $this->detectGiftProductsTable();
+        if ($tableName === null) {
+            return false;
+        }
+
+        $columns = $this->getTableColumns($tableName);
+        if (!in_array('categoria', $columns, true)) {
+            return false;
+        }
+
+        $row = Database::queryOne(
+            "SELECT categoria FROM `{$tableName}` WHERE id = :id LIMIT 1",
+            [':id' => $productId]
+        );
+
+        return $this->socialGiftCategoryAllowsRefund($row['categoria'] ?? null);
+    }
+
+    private function socialGiftCategoryAllowsRefund(mixed $category): bool
+    {
+        $normalized = strtolower(trim(strtr((string)$category, [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+            'Á' => 'a', 'É' => 'e', 'Í' => 'i', 'Ó' => 'o', 'Ú' => 'u',
+        ])));
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        return !in_array($normalized, ['alimento', 'alimentos', 'bebida', 'bebidas', 'comida', 'menu', 'postre', 'postres'], true);
     }
 
     private function buildCoverRequestMessage(string $payerName, float $amount, string $mode): string
@@ -3401,7 +3465,7 @@ class SocialController
         ];
 
         if (in_array('cuenta_abierta', $columns, true)) {
-            $set[] = 'cuenta_abierta = 0';
+            $set[] = 'cuenta_abierta = 1';
         }
         if (in_array('metodo_pago', $columns, true)) {
             $set[] = 'metodo_pago = COALESCE(metodo_pago, :payment_method)';
@@ -3447,6 +3511,7 @@ class SocialController
 
         $statement = $pdo->prepare('UPDATE rest_pedidos SET ' . implode(', ', $set) . ' WHERE id = :id');
         $statement->execute($params);
+        $this->refundRejectedGiftToWallet($pdo, $gift);
     }
 
     /**
@@ -3681,6 +3746,7 @@ class SocialController
             'mesa_label' => $this->formatMesaLabel((string)($gift['recipient_mesa'] ?? $gift['mesa_id'])),
             'gift_nombre' => $gift['gift_nombre'],
             'gift_precio' => (float)$gift['gift_precio'],
+            'categoria' => $gift['categoria'] ?? $gift['gift_categoria'] ?? null,
             'recipient_nombre' => $gift['recipient_nombre'],
             'sender_nombre' => $gift['sender_nombre'],
             'recipient_mesa' => $gift['recipient_mesa'] ?? null,
@@ -4541,8 +4607,11 @@ class SocialController
             return $restaurantId > 0 ? $this->findGiftProduct($giftProductId, $restaurantId, 'menu') : null;
         }
 
+        $columns = $this->getTableColumns($tableName);
+        $categorySelect = in_array('categoria', $columns, true) ? ', categoria' : '';
+
         return Database::queryOne(
-            "SELECT id, nombre, descripcion, precio, imagen
+            "SELECT id, nombre, descripcion, precio, imagen{$categorySelect}
                FROM {$tableName}
               WHERE id = :id
               LIMIT 1",

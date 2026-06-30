@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Amare\Api\Models;
 
 use Amare\Api\Config\Database;
+use Amare\Api\Services\RewardsService;
 use PDO;
 
 class Order
@@ -296,6 +297,15 @@ class Order
         return ($order['tipo_pedido'] ?? null) === 'eat_in' && self::columnExists('rest_pedidos', 'consumo_id');
     }
 
+    private static function isOrderSettled(array $order): bool
+    {
+        if (!empty($order['pagado_at']) || !empty($order['cerrado_at']) || !empty($order['salida_validado_at'])) {
+            return true;
+        }
+
+        return isset($order['estado']) && in_array((string)$order['estado'], ['entregado', 'cancelado'], true);
+    }
+
     private static function resolveOpenConsumptionId(int $restaurantId, int $userId, ?int $mesaId, bool $byTableOnly = false): string
     {
         if ($mesaId !== null && self::columnExists('rest_pedidos', 'cuenta_abierta')) {
@@ -344,7 +354,11 @@ class Order
         $regular = [];
 
         foreach ($orders as $order) {
-            if (self::isConsumableEatInOrder($order) && !empty($order['consumo_id'])) {
+            if (
+                self::isConsumableEatInOrder($order) &&
+                !empty($order['consumo_id']) &&
+                !self::isSocialGiftChargeOrderId((int)($order['id'] ?? 0))
+            ) {
                 $grouped[(string)$order['consumo_id']][] = $order;
                 continue;
             }
@@ -357,11 +371,27 @@ class Order
             $regular[] = self::buildConsumptionOrder($consumptionOrders);
         }
 
+        $regular = array_values(array_filter($regular, [self::class, 'shouldShowUserOrderSummary']));
+
         usort($regular, static function (array $a, array $b): int {
             return strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? ''));
         });
 
         return $regular;
+    }
+
+    private static function shouldShowUserOrderSummary(array $order): bool
+    {
+        if (($order['tipo_pedido'] ?? null) !== 'eat_in') {
+            return true;
+        }
+
+        $total = round((float)($order['total'] ?? 0), 2);
+        $items = $order['items'] ?? [];
+
+        return $total > 0
+            || (is_array($items) && count($items) > 0)
+            || ((int)($order['cuenta_abierta'] ?? 0) === 1 && empty($order['salida_validado_at']));
     }
 
     /**
@@ -383,16 +413,26 @@ class Order
         $paidAt = null;
         $closedAt = null;
         $paymentMethod = null;
+        $allPaid = true;
+        $allClosed = true;
 
         foreach ($orders as $order) {
-            $subtotal += (float)($order['subtotal'] ?? 0);
-            $total += (float)($order['total'] ?? 0);
-            $isOpen = $isOpen || (int)($order['cuenta_abierta'] ?? 0) === 1;
+            $isSettled = self::isOrderSettled($order);
+            $isOpen = $isOpen || ((int)($order['cuenta_abierta'] ?? 0) === 1 && empty($order['salida_validado_at']));
             $generatedAt = $generatedAt ?? ($order['salida_qr_generado_at'] ?? null);
             $validatedAt = $validatedAt ?? ($order['salida_validado_at'] ?? null);
             $paidAt = $paidAt ?? ($order['pagado_at'] ?? null);
             $closedAt = $closedAt ?? ($order['cerrado_at'] ?? null);
             $paymentMethod = $paymentMethod ?? ($order['metodo_pago'] ?? null);
+            $allPaid = $allPaid && !empty($order['pagado_at']);
+            $allClosed = $allClosed && !empty($order['cerrado_at']);
+
+            if ($isSettled) {
+                continue;
+            }
+
+            $subtotal += (float)($order['subtotal'] ?? 0);
+            $total += (float)($order['total'] ?? 0);
 
             foreach (self::getOrderItems((int)$order['id']) as $item) {
                 $item['pedido_id'] = (int)$order['id'];
@@ -411,8 +451,8 @@ class Order
         $anchor['cuenta_abierta'] = $isOpen ? 1 : 0;
         $anchor['salida_qr_generado_at'] = $generatedAt;
         $anchor['salida_validado_at'] = $validatedAt;
-        $anchor['pagado_at'] = $paidAt;
-        $anchor['cerrado_at'] = $closedAt;
+        $anchor['pagado_at'] = (!$isOpen && $allPaid) ? $paidAt : null;
+        $anchor['cerrado_at'] = (!$isOpen && $allClosed) ? $closedAt : null;
         $anchor['metodo_pago'] = $paymentMethod;
         $anchor['pedidos_count'] = count($orders);
         $anchor['es_consumo'] = true;
@@ -458,18 +498,256 @@ class Order
             return [$orderId];
         }
 
-        $order = Database::queryOne('SELECT id, tipo_pedido, consumo_id FROM rest_pedidos WHERE id = :id', [':id' => $orderId]);
+        $order = Database::queryOne('SELECT * FROM rest_pedidos WHERE id = :id', [':id' => $orderId]);
         if (!$order || ($order['tipo_pedido'] ?? null) !== 'eat_in' || empty($order['consumo_id'])) {
             return [$orderId];
         }
 
+        $isSocialGiftOrder = self::isSocialGiftChargeOrderId($orderId);
         $rows = Database::query(
-            "SELECT id FROM rest_pedidos WHERE consumo_id = :consumo_id AND tipo_pedido = 'eat_in'",
+            "SELECT * FROM rest_pedidos WHERE consumo_id = :consumo_id AND tipo_pedido = 'eat_in'",
             [':consumo_id' => $order['consumo_id']]
         );
-        $ids = array_map(static fn(array $row): int => (int)$row['id'], $rows);
+        $ids = [];
+        foreach ($rows as $row) {
+            $candidateId = (int)$row['id'];
+            if ($candidateId <= 0) {
+                continue;
+            }
+            if (self::isSocialGiftChargeOrderId($candidateId) !== $isSocialGiftOrder) {
+                continue;
+            }
+            if (self::isOrderSettled($row) || round((float)($row['total'] ?? 0), 2) <= 0) {
+                continue;
+            }
+            $ids[] = $candidateId;
+        }
 
-        return empty($ids) ? [$orderId] : $ids;
+        if (!empty($ids)) {
+            return $ids;
+        }
+
+        return self::isOrderSettled($order) ? [] : [$orderId];
+    }
+
+    /**
+     * @return array<int>
+     */
+    private static function getVisitOrderIdsForExit(array $order): array
+    {
+        if (($order['tipo_pedido'] ?? null) !== 'eat_in' || empty($order['consumo_id'])) {
+            return [(int)$order['id']];
+        }
+
+        $params = [':consumo_id' => $order['consumo_id']];
+        $sql = "SELECT id FROM rest_pedidos WHERE consumo_id = :consumo_id AND tipo_pedido = 'eat_in'";
+
+        if (!empty($order['mobile_usuario_id'])) {
+            $sql .= ' AND mobile_usuario_id = :user_id';
+            $params[':user_id'] = (int)$order['mobile_usuario_id'];
+        }
+
+        $rows = Database::query($sql, $params);
+        $ids = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $rows)));
+
+        return $ids ?: [(int)$order['id']];
+    }
+
+    /**
+     * @param array<int> $orderIds
+     */
+    private static function visitHasOutstandingBalance(array $orderIds): bool
+    {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if (!$orderIds) {
+            return false;
+        }
+
+        $params = [];
+        $placeholders = [];
+        foreach ($orderIds as $index => $orderId) {
+            $key = ':order_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+
+        $orders = Database::query(
+            'SELECT * FROM rest_pedidos WHERE id IN (' . implode(',', $placeholders) . ')',
+            $params
+        );
+
+        foreach ($orders as $order) {
+            if (!self::isOrderSettled($order) && round((float)($order['total'] ?? 0), 2) > 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isSocialGiftChargeOrderId(int $orderId): bool
+    {
+        if ($orderId <= 0 || !self::tableExists('social_gift_orders')) {
+            return false;
+        }
+
+        $giftColumns = self::getTableColumns('social_gift_orders');
+        if (!in_array('pedido_id', $giftColumns, true)) {
+            return false;
+        }
+
+        $row = Database::queryOne(
+            'SELECT id FROM social_gift_orders WHERE pedido_id = :order_id LIMIT 1',
+            [':order_id' => $orderId]
+        );
+
+        return $row !== null;
+    }
+
+    /**
+     * @param array<int> $orderIds
+     */
+    public static function markSocialGiftOrdersPaidForOrders(array $orderIds): void
+    {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if (!$orderIds || !self::tableExists('social_gift_orders')) {
+            return;
+        }
+
+        $giftColumns = self::getTableColumns('social_gift_orders');
+        if (!in_array('pedido_id', $giftColumns, true) || !in_array('pagado_at', $giftColumns, true)) {
+            return;
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($orderIds as $index => $orderId) {
+            if ($orderId <= 0) {
+                continue;
+            }
+            $key = ':gift_order_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+        if (!$placeholders) {
+            return;
+        }
+
+        $paidGifts = Database::query(
+            'SELECT * FROM social_gift_orders WHERE pedido_id IN (' . implode(',', $placeholders) . ')',
+            $params
+        );
+
+        Database::rowCount(
+            'UPDATE social_gift_orders
+                SET pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
+              WHERE pedido_id IN (' . implode(',', $placeholders) . ')',
+            $params
+        );
+
+        foreach ($paidGifts as $gift) {
+            self::refundRejectedSocialGiftIfNeeded($gift);
+        }
+    }
+
+    private static function refundRejectedSocialGiftIfNeeded(array $gift): void
+    {
+        if ((string)($gift['status'] ?? '') !== 'cancelado') {
+            return;
+        }
+        if (!self::isRefundableSocialGiftObject($gift)) {
+            return;
+        }
+
+        $giftId = (int)($gift['id'] ?? 0);
+        $senderUserId = (int)($gift['sender_user_id'] ?? 0);
+        $giftPrice = round((float)($gift['gift_precio'] ?? 0), 2);
+        $refundAmount = round($giftPrice * 0.5, 2);
+        if ($giftId <= 0 || $senderUserId <= 0 || $refundAmount <= 0) {
+            return;
+        }
+
+        $pdo = Database::getInstance();
+        (new RewardsService())->refundToBalance(
+            $pdo,
+            $senderUserId,
+            $refundAmount,
+            'social_gift_rejected',
+            $giftId,
+            'Reembolso 50% por regalo social rechazado',
+            [
+                'gift_id' => $giftId,
+                'gift_price_mxn' => $giftPrice,
+                'refund_rate' => 0.5,
+                'gift_nombre' => $gift['gift_nombre'] ?? null,
+                'recipient_user_id' => isset($gift['recipient_user_id']) ? (int)$gift['recipient_user_id'] : null,
+            ]
+        );
+    }
+
+    private static function isRefundableSocialGiftObject(array $gift): bool
+    {
+        $category = self::nullableString($gift['categoria'] ?? $gift['gift_categoria'] ?? null);
+        if ($category !== null) {
+            return self::socialGiftCategoryAllowsRefund($category);
+        }
+
+        $productId = (int)($gift['gift_product_id'] ?? 0);
+        if ($productId <= 0) {
+            return false;
+        }
+
+        $tableName = self::detectSocialGiftProductsTable();
+        if ($tableName === null) {
+            return false;
+        }
+
+        $columns = self::getTableColumns($tableName);
+        if (!in_array('categoria', $columns, true)) {
+            return false;
+        }
+
+        $row = Database::queryOne(
+            "SELECT categoria FROM `{$tableName}` WHERE id = :id LIMIT 1",
+            [':id' => $productId]
+        );
+
+        return self::socialGiftCategoryAllowsRefund($row['categoria'] ?? null);
+    }
+
+    private static function nullableString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $trimmed = trim((string)$value);
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    private static function socialGiftCategoryAllowsRefund(mixed $category): bool
+    {
+        $normalized = strtolower(trim(strtr((string)$category, [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+            'Á' => 'a', 'É' => 'e', 'Í' => 'i', 'Ó' => 'o', 'Ú' => 'u',
+        ])));
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        return !in_array($normalized, ['alimento', 'alimentos', 'bebida', 'bebidas', 'comida', 'menu', 'postre', 'postres'], true);
+    }
+
+    private static function detectSocialGiftProductsTable(): ?string
+    {
+        foreach (['social_gift_products', 'social_gifts_products', 'gift_products'] as $tableName) {
+            if (self::tableExists($tableName)) {
+                return $tableName;
+            }
+        }
+
+        return null;
     }
 
     private static function rawOrderById(int $orderId, ?int $userId = null): ?array
@@ -589,7 +867,7 @@ class Order
             $order['items'] = self::getOrderItems((int)$order['id']);
         }
 
-        return $orders;
+        return array_values(array_filter($orders, [self::class, 'shouldShowUserOrderSummary']));
     }
 
     /**
@@ -599,6 +877,9 @@ class Order
     {
         $pdo = Database::getInstance();
         $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
+        if (empty($targetOrderIds)) {
+            return true;
+        }
 
         $fields = ["estado = :estado"];
         $params = [
@@ -632,13 +913,21 @@ class Order
 
         $sql = "UPDATE rest_pedidos SET " . implode(', ', $fields) . " WHERE id IN (" . implode(', ', $placeholders) . ")";
         $stmt = $pdo->prepare($sql);
-        return $stmt->execute($params);
+        $success = $stmt->execute($params);
+        if ($success && $metodo !== 'cash') {
+            self::markSocialGiftOrdersPaidForOrders($targetOrderIds);
+        }
+
+        return $success;
     }
 
     public static function applyRewardsPayment(int $orderId, array $reward): bool
     {
         $pdo = Database::getInstance();
         $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
+        if (empty($targetOrderIds)) {
+            return true;
+        }
 
         $fields = ['estado = :estado'];
         $params = [':estado' => 'en_preparacion'];
@@ -690,13 +979,21 @@ class Order
         }
 
         $sql = 'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')';
-        return $pdo->prepare($sql)->execute($params);
+        $success = $pdo->prepare($sql)->execute($params);
+        if ($success) {
+            self::markSocialGiftOrdersPaidForOrders($targetOrderIds);
+        }
+
+        return $success;
     }
 
     public static function applyExternalRewardsSummary(int $orderId, array $reward, bool $markPaid = true): bool
     {
         $pdo = Database::getInstance();
         $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
+        if (empty($targetOrderIds)) {
+            return true;
+        }
         $originalTotal = round((float)($reward['original_total'] ?? 0), 2);
         $pointsDiscount = round((float)($reward['points_discount'] ?? 0), 2);
         $externalTotal = round(max(0, $originalTotal - $pointsDiscount), 2);
@@ -750,7 +1047,12 @@ class Order
         }
 
         $sql = 'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')';
-        return $pdo->prepare($sql)->execute($params);
+        $success = $pdo->prepare($sql)->execute($params);
+        if ($success && $markPaid) {
+            self::markSocialGiftOrdersPaidForOrders($targetOrderIds);
+        }
+
+        return $success;
     }
 
     public static function findById(int $id, ?int $userId = null): ?array
@@ -1006,7 +1308,11 @@ class Order
             return null;
         }
 
-        $targetOrderIds = self::getPaymentTargetOrderIds((int)$order['id']);
+        $targetOrderIds = self::getVisitOrderIdsForExit($order);
+        if (self::visitHasOutstandingBalance($targetOrderIds)) {
+            return null;
+        }
+
         $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
         $token = $tokenOrder['salida_token'] ?? ($order['salida_token'] ?? null);
         $tokenOrderId = (int)($tokenOrder['id'] ?? $order['id']);
@@ -1048,10 +1354,12 @@ class Order
                 $placeholders[] = $key;
                 $closeParams[$key] = $targetId;
             }
-            Database::rowCount(
-                'UPDATE rest_pedidos SET ' . implode(', ', $closeFields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')',
-                $closeParams
-            );
+            if (!empty($placeholders)) {
+                Database::rowCount(
+                    'UPDATE rest_pedidos SET ' . implode(', ', $closeFields) . ' WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $closeParams
+                );
+            }
         }
 
         $updated = self::rawOrderById($tokenOrderId, $userId) ?? self::rawOrderById($tokenOrderId) ?? $order;
@@ -1066,7 +1374,7 @@ class Order
     {
         $order = self::resolveUserOrderForConsumption($orderId, $userId);
         if (!$order || empty($order['salida_token'])) {
-            $targetOrderIds = self::getPaymentTargetOrderIds((int)($order['id'] ?? $orderId));
+            $targetOrderIds = $order ? self::getVisitOrderIdsForExit($order) : [$orderId];
             $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
             $resolvedOrder = $order;
 
@@ -1117,7 +1425,7 @@ class Order
             return self::formatExitPass($order, (string)$order['salida_token']);
         }
 
-        $targetOrderIds = self::getPaymentTargetOrderIds((int)$order['id']);
+        $targetOrderIds = self::getVisitOrderIdsForExit($order);
         $fields = [];
         $updateParams = [':validator_id' => $validatorUserId];
 

@@ -1267,25 +1267,7 @@ class WaiterController
 
     private function markGiftOrdersPaid(array $orderIds): void
     {
-        if (!$orderIds || !$this->tableExists('social_gift_orders')) return;
-        $giftColumns = $this->getTableColumns('social_gift_orders');
-        if (!in_array('pedido_id', $giftColumns, true) || !in_array('pagado_at', $giftColumns, true)) return;
-
-        $placeholders = [];
-        $params = [];
-        foreach (array_values(array_unique(array_map('intval', $orderIds))) as $index => $orderId) {
-            if ($orderId <= 0) continue;
-            $placeholder = ':gift_order_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $orderId;
-        }
-        if (!$placeholders) return;
-        Database::rowCount(
-            'UPDATE social_gift_orders
-                SET pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
-              WHERE pedido_id IN (' . implode(',', $placeholders) . ')',
-            $params
-        );
+        Order::markSocialGiftOrdersPaidForOrders($orderIds);
     }
 
     /**

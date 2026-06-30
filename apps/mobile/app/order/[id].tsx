@@ -176,6 +176,9 @@ export default function OrderDetailScreen() {
     order?.tipo_pedido === 'eat_in' &&
     Number(order?.cuenta_abierta ?? 0) === 1 &&
     !order?.salida_qr_generado_at;
+  const openAccountTotal = Number(order?.total ?? 0);
+  const canPayOpenAccount = isOpenEatInAccount && openAccountTotal > 0;
+  const canGenerateExitQr = isOpenEatInAccount && openAccountTotal <= 0;
   const isEatInConsumption =
     order?.tipo_pedido === 'eat_in' &&
     (order?.es_consumo ||
@@ -217,6 +220,19 @@ export default function OrderDetailScreen() {
 
   function handleOrderMore() {
     router.replace('/(tabs)' as never);
+  }
+
+  function handleGenerateExitQr() {
+    if (!order) return;
+
+    router.push({
+      pathname: '/checkout/exit-pass',
+      params: {
+        orderId: String(order.id),
+        folio: order.folio ?? '',
+        mesaLabel: orderMesaLabel,
+      },
+    });
   }
 
   return (
@@ -471,7 +487,7 @@ export default function OrderDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {isOpenEatInAccount && (
+        {canPayOpenAccount && (
           <TouchableOpacity
             style={styles.payAccountButton}
             onPress={handlePayOpenAccount}
@@ -486,6 +502,17 @@ export default function OrderDetailScreen() {
                 <Text style={styles.payAccountText}>Pagar cuenta y generar QR de salida</Text>
               </>
             )}
+          </TouchableOpacity>
+        )}
+
+        {canGenerateExitQr && (
+          <TouchableOpacity
+            style={styles.payAccountButton}
+            onPress={handleGenerateExitQr}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.payAccountText}>Generar QR de salida</Text>
           </TouchableOpacity>
         )}
 

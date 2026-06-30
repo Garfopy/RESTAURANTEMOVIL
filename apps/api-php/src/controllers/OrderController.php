@@ -154,10 +154,10 @@ class OrderController
     public function exitPass(int $id): void
     {
         $user = AuthMiddleware::authenticate();
-        $exitPass = Order::getExitPass($id, $user->id);
+        $exitPass = Order::getExitPass($id, $user->id) ?? Order::ensureExitPass($id, $user->id);
 
         if (!$exitPass) {
-            Response::notFound('Pase de salida no encontrado');
+            Response::error('Aun tienes saldo pendiente antes de generar el QR de salida.', 409);
         }
 
         Response::success(['exit_pass' => $exitPass]);

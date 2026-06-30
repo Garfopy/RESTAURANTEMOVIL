@@ -15,6 +15,7 @@ export function useOrders() {
   return useQuery<Pedido[]>({
     queryKey: orderKeys.list,
     queryFn: () => getOrders(),
+    select: (orders) => orders.filter(shouldShowOrderInList),
     enabled: Boolean(token),
     staleTime: 30 * 1000,
     refetchInterval: (query) => {
@@ -61,4 +62,19 @@ export function useOrderTracking(id?: number) {
     enabled: Boolean(token) && id !== undefined,
     refetchInterval: 15000,
   });
+}
+
+function shouldShowOrderInList(order: Pedido) {
+  if (order.tipo_pedido !== 'eat_in') {
+    return true;
+  }
+
+  const total = Number(order.total ?? 0);
+  const hasItems = Array.isArray(order.items) && order.items.length > 0;
+  const isOpenVisit = Number(order.cuenta_abierta ?? 0) === 1 && !order.salida_validado_at;
+  if (total <= 0 && !hasItems && !isOpenVisit) {
+    return false;
+  }
+
+  return isOpenVisit || (!order.salida_validado_at && !order.pagado_at && !order.cerrado_at);
 }
