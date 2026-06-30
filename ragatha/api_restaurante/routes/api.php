@@ -41,6 +41,9 @@ $routes = [
     // Waiter routes
     ['GET', '/waiter/branches', ['Amare\Api\Controllers\WaiterController', 'branches']],
     ['GET', '/waiter/tables', ['Amare\Api\Controllers\WaiterController', 'tables']],
+    ['GET', '/waiter/orders', ['Amare\Api\Controllers\WaiterController', 'orders']],
+    ['POST', '/waiter/orders/:id/claim', ['Amare\Api\Controllers\WaiterController', 'claimOrder']],
+    ['POST', '/waiter/orders/:id/deliver', ['Amare\Api\Controllers\WaiterController', 'deliverOrder']],
     ['GET', '/waiter/gifts', ['Amare\Api\Controllers\WaiterController', 'gifts']],
     ['POST', '/waiter/gifts/:id/claim', ['Amare\Api\Controllers\WaiterController', 'claimGift']],
     ['POST', '/waiter/gifts/:id/release', ['Amare\Api\Controllers\WaiterController', 'releaseGift']],

@@ -14,6 +14,9 @@ use Amare\Api\Models\User;
 
 class WaiterController
 {
+    /** @var array<string, array<int>> */
+    private array $assignedZoneCache = [];
+
     public function branches(): void
     {
         $user = $this->requireWaiter();
@@ -112,6 +115,13 @@ class WaiterController
         if ($activeColumn !== null) {
             $sql .= " AND m.`{$activeColumn}` = 1";
         }
+        $this->appendAssignedZoneFilter(
+            $sql,
+            $params,
+            $zoneColumn !== null ? "m.`{$zoneColumn}`" : null,
+            (int)$user['id'],
+            $restaurantId
+        );
         if ($orderColumn !== null) {
             $sql .= " ORDER BY m.`{$orderColumn}` ASC";
         }
@@ -175,6 +185,7 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        $this->assertTableInAssignedZone((int)$user['id'], $restaurantId, $table);
         if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
             Response::error('Esta mesa ya tiene cuentas separadas en proceso de cobro.', 409);
         }
@@ -204,6 +215,7 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        $this->assertTableInAssignedZone((int)$user['id'], $restaurantId, $table);
         if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
             Response::error('No puedes soltar una mesa mientras se cobran cuentas separadas.', 409);
         }
@@ -236,6 +248,7 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        $this->assertTableInAssignedZone((int)$user['id'], $restaurantId, $table);
 
         Response::success(['account' => $this->buildAccount($restaurantId, $tableId, (int)$user['id'])]);
     }
@@ -268,6 +281,7 @@ class WaiterController
         if (!$order) {
             Response::notFound('Pedido no encontrado');
         }
+        $this->assertTableIdInAssignedZone((int)$user['id'], $restaurantId, (int)($order['mesa_id'] ?? 0));
 
         $assignedWaiter = isset($order['mesero_usuario_id']) && $order['mesero_usuario_id'] !== null
             ? (int)$order['mesero_usuario_id']
@@ -326,6 +340,7 @@ class WaiterController
         if (!$order) {
             Response::notFound('Pedido no encontrado');
         }
+        $this->assertTableIdInAssignedZone((int)$user['id'], $restaurantId, (int)($order['mesa_id'] ?? 0));
 
         $assignedWaiter = isset($order['mesero_usuario_id']) && $order['mesero_usuario_id'] !== null
             ? (int)$order['mesero_usuario_id']
@@ -384,8 +399,7 @@ class WaiterController
             Response::success(['active' => [], 'history' => [], 'pending_count' => 0]);
         }
 
-        $rows = Database::query(
-            "SELECT g.id, g.folio, g.restaurante_id, g.mesa_id, g.gift_nombre, g.gift_descripcion,
+        $sql = "SELECT g.id, g.folio, g.restaurante_id, g.mesa_id, g.gift_nombre, g.gift_descripcion,
                     g.gift_precio, g.gift_imagen, g.sender_nombre, g.recipient_nombre,
                     g.sender_mesa, g.recipient_mesa, g.status, g.reclamado_por, g.reclamado_at,
                     g.entregado_por, g.entregado_at, g.created_at, g.pagado_at,
@@ -395,11 +409,13 @@ class WaiterController
           LEFT JOIN mobile_usuarios deliverer ON deliverer.id = g.entregado_por
               WHERE g.restaurante_id = :restaurant_id
                 AND (g.status IN ('listo','reclamado')
-                     OR (g.status = 'entregado' AND DATE(g.entregado_at) = CURDATE()))
+                     OR (g.status = 'entregado' AND DATE(g.entregado_at) = CURDATE()))";
+        $params = [':restaurant_id' => $restaurantId];
+        $this->appendAssignedTableZoneExistsFilter($sql, $params, 'g.mesa_id', (int)$user['id'], $restaurantId);
+        $sql .= "
            ORDER BY CASE g.status WHEN 'listo' THEN 0 WHEN 'reclamado' THEN 1 ELSE 2 END,
-                    g.created_at ASC",
-            [':restaurant_id' => $restaurantId]
-        );
+                    g.created_at ASC";
+        $rows = Database::query($sql, $params);
         $active = [];
         $history = [];
         foreach ($rows as $row) {
@@ -455,6 +471,7 @@ class WaiterController
             $stmt->execute([':id' => $giftId, ':restaurant_id' => $restaurantId]);
             $gift = $stmt->fetch();
             if (!$gift) throw new \DomainException('Regalo no encontrado.');
+            $this->assertTableIdInAssignedZone((int)$user['id'], $restaurantId, (int)($gift['mesa_id'] ?? 0));
 
             $userId = (int)$user['id'];
             $status = (string)$gift['status'];
@@ -568,6 +585,7 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        $this->assertTableInAssignedZone((int)$user['id'], $restaurantId, $table);
         if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
             Response::error('No puedes agregar productos mientras se cobran cuentas separadas.', 409);
         }
@@ -662,6 +680,7 @@ class WaiterController
         if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        $this->assertTableInAssignedZone((int)$user['id'], $restaurantId, $table);
         if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
             Response::error('Esta mesa tiene cuentas separadas pendientes.', 409);
         }
@@ -773,9 +792,11 @@ class WaiterController
         }
 
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
-        if ($this->findTable($restaurantId, $tableId) === null) {
+        $table = $this->findTable($restaurantId, $tableId);
+        if ($table === null) {
             Response::notFound('Mesa no encontrada');
         }
+        $this->assertTableInAssignedZone((int)$user['id'], $restaurantId, $table);
 
         $pdo = Database::getInstance();
         try {
@@ -937,6 +958,7 @@ class WaiterController
             Response::validationError(['metodo_pago' => ['Selecciona efectivo, tarjeta o transferencia']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+        $this->assertTableIdInAssignedZone((int)$user['id'], $restaurantId, $tableId);
 
         $pdo = Database::getInstance();
         try {
@@ -1038,6 +1060,7 @@ class WaiterController
             Response::validationError(['restaurant_id' => ['Selecciona una sucursal válida']]);
         }
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
+        $this->assertTableIdInAssignedZone((int)$user['id'], $restaurantId, $tableId);
 
         $pdo = Database::getInstance();
         try {
@@ -1329,7 +1352,10 @@ class WaiterController
     private function requireWaiter(): array
     {
         $tokenUser = AuthMiddleware::authenticate();
-        $user = User::findById((int)$tokenUser->id);
+        $user = User::findAuthenticated(
+            (int)$tokenUser->id,
+            isset($tokenUser->auth_source) ? (string)$tokenUser->auth_source : null
+        );
 
         if (!$user) {
             Response::unauthorized('Usuario no encontrado');
@@ -1383,6 +1409,160 @@ class WaiterController
 
         if (!$assigned) {
             Response::error('No tienes asignada esta sucursal.', 403);
+        }
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function getAssignedZoneIds(int $userId, int $restaurantId): array
+    {
+        $cacheKey = $userId . ':' . $restaurantId;
+        if (array_key_exists($cacheKey, $this->assignedZoneCache)) {
+            return $this->assignedZoneCache[$cacheKey];
+        }
+
+        if (!$this->tableExists('rest_mesero_turno')) {
+            return $this->assignedZoneCache[$cacheKey] = [];
+        }
+
+        $columns = $this->getTableColumns('rest_mesero_turno');
+        foreach (['restaurante_id', 'usuario_id', 'zona_id', 'turno_fecha', 'activo'] as $requiredColumn) {
+            if (!in_array($requiredColumn, $columns, true)) {
+                return $this->assignedZoneCache[$cacheKey] = [];
+            }
+        }
+
+        $rows = Database::query(
+            "SELECT DISTINCT zona_id
+               FROM rest_mesero_turno
+              WHERE restaurante_id = :restaurant_id
+                AND usuario_id = :user_id
+                AND turno_fecha = CURDATE()
+                AND activo = 1",
+            [
+                ':restaurant_id' => $restaurantId,
+                ':user_id' => $userId,
+            ]
+        );
+
+        $zoneIds = [];
+        foreach ($rows as $row) {
+            $zoneId = (int)($row['zona_id'] ?? 0);
+            if ($zoneId > 0) {
+                $zoneIds[] = $zoneId;
+            }
+        }
+
+        return $this->assignedZoneCache[$cacheKey] = array_values(array_unique($zoneIds));
+    }
+
+    private function appendAssignedZoneFilter(
+        string &$sql,
+        array &$params,
+        ?string $zoneSqlExpression,
+        int $userId,
+        int $restaurantId
+    ): void {
+        $zoneIds = $this->getAssignedZoneIds($userId, $restaurantId);
+        if (empty($zoneIds)) {
+            return;
+        }
+
+        if ($zoneSqlExpression === null) {
+            $sql .= ' AND 1 = 0';
+            return;
+        }
+
+        $placeholders = $this->addZoneParams($params, $zoneIds);
+        $sql .= ' AND ' . $zoneSqlExpression . ' IN (' . implode(',', $placeholders) . ')';
+    }
+
+    private function appendAssignedTableZoneExistsFilter(
+        string &$sql,
+        array &$params,
+        string $tableIdExpression,
+        int $userId,
+        int $restaurantId
+    ): void {
+        $zoneIds = $this->getAssignedZoneIds($userId, $restaurantId);
+        if (empty($zoneIds)) {
+            return;
+        }
+
+        if (!$this->tableExists('rest_mesas')) {
+            $sql .= ' AND 1 = 0';
+            return;
+        }
+
+        $columns = $this->getTableColumns('rest_mesas');
+        $idColumn = $this->firstExistingColumn($columns, ['id']);
+        $restaurantColumn = $this->firstExistingColumn($columns, ['restaurante_id', 'sucursal_id', 'branch_id']);
+        $zoneColumn = $this->firstExistingColumn($columns, ['zona_id', 'zone_id']);
+        if ($idColumn === null || $zoneColumn === null) {
+            $sql .= ' AND 1 = 0';
+            return;
+        }
+
+        $placeholders = $this->addZoneParams($params, $zoneIds);
+        $sql .= " AND EXISTS (
+            SELECT 1
+              FROM rest_mesas zone_mesa
+             WHERE zone_mesa.`{$idColumn}` = {$tableIdExpression}";
+        if ($restaurantColumn !== null) {
+            $sql .= " AND zone_mesa.`{$restaurantColumn}` = :zone_filter_restaurant_id";
+            $params[':zone_filter_restaurant_id'] = $restaurantId;
+        }
+        $sql .= " AND zone_mesa.`{$zoneColumn}` IN (" . implode(',', $placeholders) . ')
+        )';
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @param array<int> $zoneIds
+     * @return array<string>
+     */
+    private function addZoneParams(array &$params, array $zoneIds): array
+    {
+        $placeholders = [];
+        $offset = count($params);
+        foreach (array_values($zoneIds) as $index => $zoneId) {
+            $key = ':assigned_zone_' . ($offset + $index);
+            $params[$key] = (int)$zoneId;
+            $placeholders[] = $key;
+        }
+
+        return $placeholders;
+    }
+
+    private function assertTableIdInAssignedZone(int $userId, int $restaurantId, int $tableId): void
+    {
+        if (empty($this->getAssignedZoneIds($userId, $restaurantId))) {
+            return;
+        }
+
+        if ($tableId <= 0) {
+            Response::error('Esta mesa no pertenece a tus zonas asignadas hoy.', 403);
+        }
+
+        $table = $this->findTable($restaurantId, $tableId);
+        if ($table === null) {
+            Response::notFound('Mesa no encontrada');
+        }
+
+        $this->assertTableInAssignedZone($userId, $restaurantId, $table);
+    }
+
+    private function assertTableInAssignedZone(int $userId, int $restaurantId, array $table): void
+    {
+        $zoneIds = $this->getAssignedZoneIds($userId, $restaurantId);
+        if (empty($zoneIds)) {
+            return;
+        }
+
+        $tableZoneId = isset($table['zona_id']) && $table['zona_id'] !== null ? (int)$table['zona_id'] : 0;
+        if ($tableZoneId <= 0 || !in_array($tableZoneId, $zoneIds, true)) {
+            Response::error('Esta mesa no pertenece a tus zonas asignadas hoy.', 403);
         }
     }
 
@@ -1603,6 +1783,7 @@ class WaiterController
                    AND mesa_id IS NOT NULL
                    AND mesa_id > 0';
         $params = [':restaurant_id' => $restaurantId];
+        $this->appendAssignedTableZoneExistsFilter($sql, $params, 'rest_pedidos.mesa_id', $waiterId, $restaurantId);
 
         if (in_array('cuenta_abierta', $columns, true)) {
             $sql .= ' AND cuenta_abierta = 1';

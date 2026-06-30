@@ -107,7 +107,8 @@ class AuthController
             'id' => $user['id'],
             'email' => $user['email'],
             'nombre' => $user['nombre'],
-            'rol' => $user['rol'] ?? 'user'
+            'rol' => $user['rol'] ?? 'user',
+            'auth_source' => 'mobile'
         ]);
 
         unset($user['password_hash']);
@@ -137,8 +138,33 @@ class AuthController
             Response::validationError(['identifier' => ['Correo o teléfono es requerido']]);
         }
 
-        $user = str_contains($identifier, '@')
-            ? User::findByEmail(strtolower($identifier))
+        $isEmail = str_contains($identifier, '@');
+        $normalizedEmail = $isEmail ? strtolower($identifier) : '';
+
+        if ($isEmail) {
+            $staff = User::findStaffByEmail($normalizedEmail);
+            if ($staff && isset($staff['password_hash']) && User::verifyPassword($input['password'], $staff['password_hash'])) {
+                $token = AuthMiddleware::generateToken([
+                    'id' => $staff['id'],
+                    'email' => $staff['email'],
+                    'nombre' => $staff['nombre'],
+                    'rol' => $staff['rol'] ?? 'staff',
+                    'auth_source' => 'staff',
+                    'staff_role_slug' => $staff['staff_role_slug'] ?? null,
+                    'current_restaurante_id' => $staff['current_restaurante_id'] ?? null,
+                ]);
+
+                unset($staff['password_hash']);
+
+                Response::success([
+                    'user' => $staff,
+                    'token' => $token
+                ], 'Inicio de sesion exitoso');
+            }
+        }
+
+        $user = $isEmail
+            ? User::findByEmail($normalizedEmail)
             : self::findUserByPhoneCandidates(self::normalizePhone($identifier));
 
         if (!$user || !isset($user['password_hash']) || !User::verifyPassword($input['password'], $user['password_hash'])) {
@@ -149,7 +175,8 @@ class AuthController
             'id' => $user['id'],
             'email' => $user['email'],
             'nombre' => $user['nombre'],
-            'rol' => $user['rol'] ?? 'user'
+            'rol' => $user['rol'] ?? 'user',
+            'auth_source' => 'mobile'
         ]);
 
         unset($user['password_hash']);
@@ -202,7 +229,8 @@ class AuthController
                 'id' => $user['id'],
                 'email' => $user['email'],
                 'nombre' => $user['nombre'],
-                'rol' => $user['rol'] ?? 'user'
+                'rol' => $user['rol'] ?? 'user',
+                'auth_source' => 'mobile'
             ]);
 
             unset($user['password_hash']);
@@ -219,7 +247,10 @@ class AuthController
     public function me(): void
     {
         $user = AuthMiddleware::authenticate();
-        $userData = User::findById($user->id);
+        $userData = User::findAuthenticated(
+            (int)$user->id,
+            isset($user->auth_source) ? (string)$user->auth_source : null
+        );
 
         if (!$userData) {
             Response::notFound('Usuario no encontrado');
@@ -232,6 +263,10 @@ class AuthController
     {
         $user = AuthMiddleware::authenticate();
         $input = ValidationMiddleware::getAllInput();
+
+        if (($user->auth_source ?? 'mobile') === 'staff') {
+            Response::error('Actualiza tu contrasena desde el panel web.', 400);
+        }
 
         $rules = [
             'current_password' => 'required',

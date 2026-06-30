@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Amare\Api\Controllers;
 
+use Amare\Api\Helpers\ImageUploadHelper;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
@@ -87,29 +88,39 @@ class ProfileController
     public function updateAvatar(): void
     {
         $user = AuthMiddleware::authenticate();
+        $currentUser = User::findById((int)$user->id);
 
         if (!isset($_FILES['foto']) || $_FILES['foto']['error'] !== UPLOAD_ERR_OK) {
             Response::error('No se recibió ninguna imagen o hubo un error al subirla', 400);
         }
 
         $file = $_FILES['foto'];
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-
-        if (!in_array($ext, $allowed)) {
-            Response::error('Formato de imagen no permitido. Use: jpg, jpeg, png, gif, webp', 400);
+        try {
+            ImageUploadHelper::inspectUploadedImage(
+                $file,
+                ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+                10 * 1024 * 1024,
+                120,
+                120
+            );
+        } catch (\InvalidArgumentException $exception) {
+            Response::error($exception->getMessage(), 400);
         }
 
         $uploadDir = __DIR__ . '/../../uploads/';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        $filename = 'avatar-' . $user->id . '-' . time() . '.' . $ext;
-        $destPath = $uploadDir . $filename;
-
-        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
-            Response::serverError('No se pudo guardar la imagen');
+        try {
+            $filename = ImageUploadHelper::saveCompressedUpload(
+                $file,
+                $uploadDir,
+                'avatar-' . $user->id . '-' . time(),
+                512,
+                512,
+                78
+            );
+        } catch (\InvalidArgumentException $exception) {
+            Response::error($exception->getMessage(), 400);
+        } catch (\RuntimeException $exception) {
+            Response::serverError($exception->getMessage());
         }
 
         // Construir URL pública — se usa APP_URL como base
@@ -117,7 +128,16 @@ class ProfileController
         $fotoUrl = $baseUrl . '/uploads/' . $filename;
 
         if (!User::update($user->id, ['foto_url' => $fotoUrl])) {
+            ImageUploadHelper::deleteLocalUploadFromUrl($fotoUrl, $uploadDir, 'avatar-' . $user->id . '-');
             Response::serverError('No se pudo actualizar la foto de perfil');
+        }
+
+        if (!$this->isPhotoReferencedInSocialGallery((int)$user->id, $currentUser['foto_url'] ?? null)) {
+            ImageUploadHelper::deleteLocalUploadFromUrl(
+                $currentUser['foto_url'] ?? null,
+                $uploadDir,
+                'avatar-' . $user->id . '-'
+            );
         }
 
         // 🔥 IMPORTANTE: El frontend espera response.data.foto_url directamente,
@@ -127,6 +147,47 @@ class ProfileController
             'success' => true,
             'foto_url' => $fotoUrl
         ]);
+    }
+
+    private function isPhotoReferencedInSocialGallery(int $userId, ?string $photoUrl): bool
+    {
+        if ($photoUrl === null || trim($photoUrl) === '') {
+            return false;
+        }
+
+        try {
+            $row = \Amare\Api\Config\Database::queryOne(
+                "SELECT social_photos_json FROM mobile_usuarios WHERE id = :id LIMIT 1",
+                [':id' => $userId]
+            );
+        } catch (\Throwable) {
+            return true;
+        }
+
+        $decoded = json_decode((string)($row['social_photos_json'] ?? ''), true);
+        if (!is_array($decoded)) {
+            return false;
+        }
+
+        $target = $this->normalizePhotoComparisonValue($photoUrl);
+        foreach ($decoded as $photo) {
+            if (is_string($photo) && $this->normalizePhotoComparisonValue($photo) === $target) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizePhotoComparisonValue(string $photo): string
+    {
+        $value = (string)(parse_url(trim($photo), PHP_URL_PATH) ?: $photo);
+        $uploadsPosition = strpos($value, '/uploads/');
+        if ($uploadsPosition !== false) {
+            $value = substr($value, $uploadsPosition);
+        }
+
+        return strtolower(trim($value));
     }
 
     private function getOrderItems(int $orderId): array

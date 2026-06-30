@@ -1538,14 +1538,14 @@ export default function SocialProfileScreen() {
     }
 
     const result = isCamera
-      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 })
+      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.55 })
       : await ImagePicker.launchImageLibraryAsync({
           allowsEditing: remainingSlots === 1,
           allowsMultipleSelection: remainingSlots > 1,
           selectionLimit: remainingSlots,
           orderedSelection: true,
           aspect: [1, 1],
-          quality: 0.7,
+          quality: 0.55,
         });
 
     if (result.canceled) {

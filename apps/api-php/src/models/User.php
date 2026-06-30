@@ -29,6 +29,41 @@ class User
         return Database::queryOne($sql, [':email' => $email]);
     }
 
+    public static function findStaffByEmail(string $email): ?array
+    {
+        if (!self::tableExists('usuarios') || !self::tableExists('rest_staff')) {
+            return null;
+        }
+
+        $hasRoles = self::tableExists('roles');
+        $roleJoin = $hasRoles ? 'LEFT JOIN roles r ON r.id = u.rol_id' : '';
+        $roleField = $hasRoles ? ", COALESCE(rs.rol_slug, r.slug) AS staff_role_slug" : ", rs.rol_slug AS staff_role_slug";
+
+        $sql = "SELECT u.id, u.nombre, u.email, u.telefono, u.avatar AS foto_url,
+                       u.password AS password_hash, u.activo, u.created_at,
+                       rs.restaurante_id AS current_restaurante_id,
+                       rs.codigo AS staff_codigo,
+                       rs.rol_slug AS rest_staff_role_slug
+                       {$roleField}
+                  FROM usuarios u
+                 JOIN rest_staff rs ON rs.usuario_id = u.id
+                  {$roleJoin}
+                 WHERE LOWER(u.email) = LOWER(:email)
+                   AND u.activo = 1
+                   AND rs.activo = 1
+                   AND rs.rol_slug IN ('mesero','hostess','hostes','host','anfitrion','anfitriona','portero')
+              ORDER BY CASE
+                    WHEN rs.rol_slug = 'mesero' THEN 0
+                    WHEN rs.rol_slug IN ('hostess','hostes','host','anfitrion','anfitriona','portero') THEN 1
+                    ELSE 2
+                  END,
+                  rs.id ASC
+                 LIMIT 1";
+
+        $staff = Database::queryOne($sql, [':email' => $email]);
+        return $staff ? self::normalizeStaffUser($staff) : null;
+    }
+
     public static function findByPhone(string $phone): ?array
     {
         $sql = "SELECT * FROM mobile_usuarios WHERE telefono = :telefono LIMIT 1";
@@ -42,6 +77,63 @@ class User
                        que_busca, redes_sociales, is_social_active, current_restaurante_id, mesa
                 FROM mobile_usuarios WHERE id = :id LIMIT 1";
         return Database::queryOne($sql, [':id' => $id]);
+    }
+
+    public static function findAuthenticated(int $id, ?string $authSource = null): ?array
+    {
+        if ($authSource === 'staff') {
+            return self::findStaffById($id);
+        }
+
+        $user = self::findById($id);
+        if ($user) {
+            if (self::shouldPreferStaffIdentity($user)) {
+                $staff = self::findStaffByEmail((string)$user['email']);
+                if ($staff) {
+                    return $staff;
+                }
+            }
+
+            $user['auth_source'] = 'mobile';
+            return $user;
+        }
+
+        return $authSource === null ? self::findStaffById($id) : null;
+    }
+
+    public static function findStaffById(int $id): ?array
+    {
+        if (!self::tableExists('usuarios') || !self::tableExists('rest_staff')) {
+            return null;
+        }
+
+        $hasRoles = self::tableExists('roles');
+        $roleJoin = $hasRoles ? 'LEFT JOIN roles r ON r.id = u.rol_id' : '';
+        $roleField = $hasRoles ? ", COALESCE(rs.rol_slug, r.slug) AS staff_role_slug" : ", rs.rol_slug AS staff_role_slug";
+
+        $sql = "SELECT u.id, u.nombre, u.email, u.telefono, u.avatar AS foto_url,
+                       u.activo, u.created_at,
+                       rs.restaurante_id AS current_restaurante_id,
+                       rs.codigo AS staff_codigo,
+                       rs.rol_slug AS rest_staff_role_slug
+                       {$roleField}
+                  FROM usuarios u
+                 JOIN rest_staff rs ON rs.usuario_id = u.id
+                  {$roleJoin}
+                 WHERE u.id = :id
+                   AND u.activo = 1
+                   AND rs.activo = 1
+                   AND rs.rol_slug IN ('mesero','hostess','hostes','host','anfitrion','anfitriona','portero')
+              ORDER BY CASE
+                    WHEN rs.rol_slug = 'mesero' THEN 0
+                    WHEN rs.rol_slug IN ('hostess','hostes','host','anfitrion','anfitriona','portero') THEN 1
+                    ELSE 2
+                  END,
+                  rs.id ASC
+                 LIMIT 1";
+
+        $staff = Database::queryOne($sql, [':id' => $id]);
+        return $staff ? self::normalizeStaffUser($staff) : null;
     }
 
     /**
@@ -167,5 +259,68 @@ class User
 
         $result = Database::queryOne($sql, $params);
         return ($result['count'] ?? 0) > 0;
+    }
+
+    private static function normalizeStaffUser(array $staff): array
+    {
+        $roleSlug = strtolower(trim((string)($staff['staff_role_slug'] ?? $staff['rest_staff_role_slug'] ?? '')));
+        $appRole = self::normalizeStaffRoleForApp($roleSlug);
+        $fullName = trim((string)($staff['nombre'] ?? ''));
+
+        return [
+            'id' => (int)$staff['id'],
+            'nombre' => $fullName,
+            'email' => $staff['email'] ?? '',
+            'rol' => $appRole,
+            'telefono' => $staff['telefono'] ?? null,
+            'foto_url' => $staff['foto_url'] ?? null,
+            'password_hash' => $staff['password_hash'] ?? null,
+            'activo' => (bool)($staff['activo'] ?? true),
+            'created_at' => $staff['created_at'] ?? '',
+            'current_restaurante_id' => isset($staff['current_restaurante_id']) && $staff['current_restaurante_id'] !== null
+                ? (int)$staff['current_restaurante_id']
+                : null,
+            'staff_codigo' => $staff['staff_codigo'] ?? null,
+            'staff_role_slug' => $roleSlug,
+            'auth_source' => 'staff',
+            'google_id' => null,
+            'social_photos' => [],
+            'is_social_active' => false,
+            'modo_social' => false,
+            'mesa' => null,
+        ];
+    }
+
+    private static function normalizeStaffRoleForApp(string $roleSlug): string
+    {
+        return match ($roleSlug) {
+            'mesero' => 'mesero',
+            'hostess', 'hostes', 'host', 'anfitrion', 'anfitriona', 'portero' => 'hostess',
+            'admin', 'admin_restaurante', 'admin_local', 'comprador' => 'admin',
+            default => $roleSlug !== '' ? $roleSlug : 'staff',
+        };
+    }
+
+    private static function shouldPreferStaffIdentity(array $user): bool
+    {
+        $role = strtolower(trim((string)($user['rol'] ?? '')));
+        $email = trim((string)($user['email'] ?? ''));
+
+        return $email !== '' && in_array($role, [
+            'mesero',
+            'hostess',
+            'hostes',
+            'host',
+            'anfitrion',
+            'anfitriona',
+            'portero',
+            'staff',
+        ], true);
+    }
+
+    private static function tableExists(string $tableName): bool
+    {
+        $exists = Database::query("SHOW TABLES LIKE '{$tableName}'");
+        return !empty($exists);
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Amare\Api\Controllers;
 
 use Amare\Api\Config\Database;
+use Amare\Api\Helpers\ImageUploadHelper;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Models\User;
@@ -546,31 +547,17 @@ class SocialController
             Response::error('No se recibió ninguna imagen', 400);
         }
 
-        $ext = strtolower(pathinfo($file['name'] ?? 'photo.jpg', PATHINFO_EXTENSION));
-        $allowed = ['jpg', 'jpeg', 'png', 'webp'];
-
-        if (!in_array($ext, $allowed, true)) {
-            Response::error('Formato no permitido. Use: jpg, jpeg, png, webp', 400);
+        try {
+            ImageUploadHelper::inspectUploadedImage(
+                $file,
+                ['image/jpeg', 'image/png', 'image/webp'],
+                8 * 1024 * 1024,
+                240,
+                240
+            );
+        } catch (\InvalidArgumentException $exception) {
+            Response::error($exception->getMessage(), 400);
         }
-        if ((int)($file['size'] ?? 0) > 5 * 1024 * 1024) {
-            Response::error('La imagen no debe pesar más de 5 MB.', 400);
-        }
-        if (!is_uploaded_file((string)$file['tmp_name'])) {
-            Response::error('La imagen no se recibio correctamente.', 400);
-        }
-
-        $imageInfo = @getimagesize((string)$file['tmp_name']);
-        if ($imageInfo === false) {
-            Response::error('La foto debe ser una imagen valida donde se vea una persona.', 400);
-        }
-        $width = (int)($imageInfo[0] ?? 0);
-        $height = (int)($imageInfo[1] ?? 0);
-        $mime = strtolower((string)($imageInfo['mime'] ?? ''));
-        $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
-        if ($width < 240 || $height < 240 || !in_array($mime, $allowedMimes, true)) {
-            Response::error('Sube una foto clara de rostro o cuerpo en jpg, png o webp.', 400);
-        }
-
         if (!$this->hasSocialPhotosColumn()) {
             Response::serverError('La base de datos aún no tiene social_photos_json. Ejecuta la migración 023.');
         }
@@ -586,15 +573,19 @@ class SocialController
         }
 
         $uploadDir = __DIR__ . '/../../uploads/social/';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        $filename = 'social-' . $user->id . '-' . time() . '-' . count($currentPhotos) . '.' . $ext;
-        $destPath = $uploadDir . $filename;
-
-        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
-            Response::serverError('No se pudo guardar la imagen');
+        try {
+            $filename = ImageUploadHelper::saveCompressedUpload(
+                $file,
+                $uploadDir,
+                'social-' . $user->id . '-' . time() . '-' . count($currentPhotos),
+                1280,
+                1280,
+                78
+            );
+        } catch (\InvalidArgumentException $exception) {
+            Response::error($exception->getMessage(), 400);
+        } catch (\RuntimeException $exception) {
+            Response::serverError($exception->getMessage());
         }
 
         $baseUrl = rtrim($_ENV['APP_URL'] ?? 'https://amarerestaurant.club/api_restaurante', '/');
@@ -606,6 +597,7 @@ class SocialController
             'foto_url' => $primaryPhoto,
             'social_photos_json' => json_encode($photos, JSON_UNESCAPED_SLASHES),
         ])) {
+            ImageUploadHelper::deleteLocalUploadFromUrl($fotoUrl, __DIR__ . '/../../uploads/', 'social-' . $user->id . '-');
             Response::serverError('No se pudo actualizar la foto del perfil social');
         }
 
@@ -652,6 +644,12 @@ class SocialController
         ])) {
             Response::serverError('No se pudo eliminar la foto del perfil social');
         }
+
+        ImageUploadHelper::deleteLocalUploadFromUrl(
+            $photoUrl,
+            __DIR__ . '/../../uploads/',
+            'social-' . $user->id . '-'
+        );
 
         Response::success([
             'foto_url' => $primaryPhoto,

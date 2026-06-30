@@ -11,11 +11,49 @@ use Amare\Api\Models\User;
 
 class AuthController
 {
+    private static function normalizePhone(?string $value): string
+    {
+        return preg_replace('/\D+/', '', (string)($value ?? ''));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private static function phoneLookupCandidates(string $phone): array
+    {
+        $candidates = [$phone];
+
+        if (strlen($phone) === 10) {
+            $candidates[] = '52' . $phone;
+        }
+
+        if (substr($phone, 0, 2) === '52' && strlen($phone) === 12) {
+            $candidates[] = substr($phone, 2);
+        }
+
+        if (substr($phone, 0, 1) === '1' && strlen($phone) === 11) {
+            $candidates[] = substr($phone, 1);
+        }
+
+        return array_values(array_unique(array_filter($candidates)));
+    }
+
+    private static function findUserByPhoneCandidates(string $phone): ?array
+    {
+        foreach (self::phoneLookupCandidates($phone) as $candidate) {
+            $user = User::findByPhone($candidate);
+            if ($user) {
+                return $user;
+            }
+        }
+
+        return null;
+    }
+
     public function register(): void
     {
         $rules = [
             'name' => 'required|min:3|max:100',
-            'email' => 'required|email|max:100',
             'password' => 'required|min:6|max:100'
         ];
 
@@ -26,16 +64,38 @@ class AuthController
         }
 
         $input = ValidationMiddleware::getAllInput();
+        $email = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
+        $phone = self::normalizePhone($input['phone'] ?? $input['telefono'] ?? '');
 
-        if (User::existsByEmail($input['email'])) {
-            Response::error('El email ya está registrado', 409);
+        if (strlen($phone) === 10) {
+            $phone = '52' . $phone;
+        }
+
+        if ($phone === '') {
+            Response::validationError(['phone' => ['El teléfono es requerido']]);
+        }
+
+        if (strlen($phone) < 10 || strlen($phone) > 15) {
+            Response::validationError(['phone' => ['El teléfono debe tener entre 10 y 15 dígitos']]);
+        }
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::validationError(['email' => ['El correo electrónico no es válido']]);
+        }
+
+        if ($email !== '' && User::existsByEmail($email)) {
+            Response::error('El correo electrónico ya está registrado', 409);
+        }
+
+        if (self::findUserByPhoneCandidates($phone)) {
+            Response::error('El teléfono ya está registrado', 409);
         }
 
         $userId = User::create([
             'nombre' => $input['name'],
-            'email' => $input['email'],
+            'email' => $email !== '' ? $email : null,
             'password_hash' => password_hash($input['password'], PASSWORD_DEFAULT),
-            'telefono' => $input['phone'] ?? null
+            'telefono' => $phone
         ]);
 
         if (!$userId) {
@@ -47,7 +107,8 @@ class AuthController
             'id' => $user['id'],
             'email' => $user['email'],
             'nombre' => $user['nombre'],
-            'rol' => $user['rol'] ?? 'user'
+            'rol' => $user['rol'] ?? 'user',
+            'auth_source' => 'mobile'
         ]);
 
         unset($user['password_hash']);
@@ -61,7 +122,6 @@ class AuthController
     public function login(): void
     {
         $rules = [
-            'email' => 'required|email',
             'password' => 'required'
         ];
 
@@ -72,7 +132,40 @@ class AuthController
         }
 
         $input = ValidationMiddleware::getAllInput();
-        $user = User::findByEmail($input['email']);
+        $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? ''));
+
+        if ($identifier === '') {
+            Response::validationError(['identifier' => ['Correo o teléfono es requerido']]);
+        }
+
+        $isEmail = str_contains($identifier, '@');
+        $normalizedEmail = $isEmail ? strtolower($identifier) : '';
+
+        if ($isEmail) {
+            $staff = User::findStaffByEmail($normalizedEmail);
+            if ($staff && isset($staff['password_hash']) && User::verifyPassword($input['password'], $staff['password_hash'])) {
+                $token = AuthMiddleware::generateToken([
+                    'id' => $staff['id'],
+                    'email' => $staff['email'],
+                    'nombre' => $staff['nombre'],
+                    'rol' => $staff['rol'] ?? 'staff',
+                    'auth_source' => 'staff',
+                    'staff_role_slug' => $staff['staff_role_slug'] ?? null,
+                    'current_restaurante_id' => $staff['current_restaurante_id'] ?? null,
+                ]);
+
+                unset($staff['password_hash']);
+
+                Response::success([
+                    'user' => $staff,
+                    'token' => $token
+                ], 'Inicio de sesion exitoso');
+            }
+        }
+
+        $user = $isEmail
+            ? User::findByEmail($normalizedEmail)
+            : self::findUserByPhoneCandidates(self::normalizePhone($identifier));
 
         if (!$user || !isset($user['password_hash']) || !User::verifyPassword($input['password'], $user['password_hash'])) {
             Response::unauthorized('Credenciales inválidas');
@@ -82,7 +175,8 @@ class AuthController
             'id' => $user['id'],
             'email' => $user['email'],
             'nombre' => $user['nombre'],
-            'rol' => $user['rol'] ?? 'user'
+            'rol' => $user['rol'] ?? 'user',
+            'auth_source' => 'mobile'
         ]);
 
         unset($user['password_hash']);
@@ -90,7 +184,7 @@ class AuthController
         Response::success([
             'user' => $user,
             'token' => $token
-        ], 'Login exitoso');
+        ], 'Inicio de sesión exitoso');
     }
 
     public function google(): void
@@ -135,7 +229,8 @@ class AuthController
                 'id' => $user['id'],
                 'email' => $user['email'],
                 'nombre' => $user['nombre'],
-                'rol' => $user['rol'] ?? 'user'
+                'rol' => $user['rol'] ?? 'user',
+                'auth_source' => 'mobile'
             ]);
 
             unset($user['password_hash']);
@@ -143,7 +238,7 @@ class AuthController
             Response::success([
                 'user' => $user,
                 'token' => $token
-            ], 'Login con Google exitoso');
+            ], 'Inicio de sesión con Google exitoso');
         } catch (\Exception $e) {
             Response::serverError('Error al verificar token de Google');
         }
@@ -152,7 +247,10 @@ class AuthController
     public function me(): void
     {
         $user = AuthMiddleware::authenticate();
-        $userData = User::findById($user->id);
+        $userData = User::findAuthenticated(
+            (int)$user->id,
+            isset($user->auth_source) ? (string)$user->auth_source : null
+        );
 
         if (!$userData) {
             Response::notFound('Usuario no encontrado');
@@ -165,6 +263,10 @@ class AuthController
     {
         $user = AuthMiddleware::authenticate();
         $input = ValidationMiddleware::getAllInput();
+
+        if (($user->auth_source ?? 'mobile') === 'staff') {
+            Response::error('Actualiza tu contrasena desde el panel web.', 400);
+        }
 
         $rules = [
             'current_password' => 'required',
