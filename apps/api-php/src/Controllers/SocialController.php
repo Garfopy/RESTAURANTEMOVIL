@@ -1081,7 +1081,14 @@ class SocialController
                 null
             );
             $this->markConsumptionCovered($pdo, $consumption, 'social_cover');
-            $coveredExitPass = $this->ensureCoveredConsumptionExitPass($consumption, (int)$cover['covered_user_id']);
+            $pendingGiftCharges = $this->pendingSocialGiftChargesForConsumption(
+                $consumption,
+                (int)$cover['covered_user_id'],
+                (int)$cover['restaurante_id']
+            );
+            $coveredExitPass = empty($pendingGiftCharges)
+                ? $this->ensureCoveredConsumptionExitPass($consumption, (int)$cover['covered_user_id'])
+                : null;
             $this->updateSocialAccountCover($pdo, $coverId, [
                 'payer_pedido_id' => $payerOrderId,
                 'status' => 'charged_to_account',
@@ -1092,6 +1099,7 @@ class SocialController
                 'amount_mxn' => (float)$cover['amount_mxn'],
                 'payment_mode' => 'account',
                 'exit_pass' => $coveredExitPass,
+                'pending_social_gifts' => $pendingGiftCharges,
             ];
             $this->recordSocialAccountNotification(
                 $pdo,
@@ -1122,6 +1130,7 @@ class SocialController
             Response::success([
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'covered_exit_pass' => $coveredExitPass,
+                'pending_social_gifts' => $pendingGiftCharges,
             ], 'Aceptaste la solicitud. Tu cuenta fue cubierta.');
         } catch (\DomainException $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -1280,7 +1289,14 @@ class SocialController
                 'tarjeta'
             );
             $this->markConsumptionCovered($pdo, $consumption, 'tarjeta');
-            $coveredExitPass = $this->ensureCoveredConsumptionExitPass($consumption, (int)$cover['covered_user_id']);
+            $pendingGiftCharges = $this->pendingSocialGiftChargesForConsumption(
+                $consumption,
+                (int)$cover['covered_user_id'],
+                (int)$cover['restaurante_id']
+            );
+            $coveredExitPass = empty($pendingGiftCharges)
+                ? $this->ensureCoveredConsumptionExitPass($consumption, (int)$cover['covered_user_id'])
+                : null;
             $this->updateSocialAccountCover($pdo, $coverId, [
                 'payer_pedido_id' => $payerOrderId,
                 'status' => 'paid',
@@ -1297,6 +1313,7 @@ class SocialController
                     'cover_id' => $coverId,
                     'amount_mxn' => (float)$cover['amount_mxn'],
                     'exit_pass' => $coveredExitPass,
+                    'pending_social_gifts' => $pendingGiftCharges,
                 ]
             );
             $pdo->commit();
@@ -1307,6 +1324,7 @@ class SocialController
             Response::success([
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'covered_exit_pass' => $coveredExitPass,
+                'pending_social_gifts' => $pendingGiftCharges,
             ], 'Cuenta pagada y comensal avisado.');
         } catch (\DomainException $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -2287,6 +2305,7 @@ class SocialController
             }
 
             $this->cancelGiftCharge($pdo, $gift);
+            $refund = $this->refundRejectedGiftToWallet($pdo, $gift);
             $update = $pdo->prepare(
                 "UPDATE social_gift_orders
                     SET status = 'cancelado', updated_at = NOW()
@@ -2300,17 +2319,22 @@ class SocialController
                 (int)$user->id,
                 'social_gift_rejected',
                 'Regalo rechazado',
-                (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo.',
+                (string)($gift['recipient_nombre'] ?? 'El comensal') . ' rechazo tu regalo. Reembolsamos el 50% a tu Saldo Amare.',
                 [
                     'gift_id' => $giftId,
                     'gift_nombre' => $gift['gift_nombre'] ?? 'Regalo',
                     'recipient_user_id' => (int)$user->id,
+                    'refund_amount_mxn' => (float)($refund['refund_amount_mxn'] ?? 0),
+                    'wallet_balance_after_mxn' => (float)($refund['balance_after_mxn'] ?? 0),
                 ]
             );
             $pdo->commit();
 
             $gift['status'] = 'cancelado';
-            Response::success(['gift' => $this->giftPaymentResponse($gift)], 'Regalo rechazado.');
+            Response::success([
+                'gift' => $this->giftPaymentResponse($gift),
+                'refund' => $refund,
+            ], 'Regalo rechazado.');
         } catch (\DomainException $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             Response::error($exception->getMessage(), 409);
@@ -2471,8 +2495,9 @@ class SocialController
         $total = 0.0;
         $subtotal = 0.0;
         foreach ($items as $item) {
-            $subtotal += (float)($item['subtotal'] ?? 0);
-            $total += (float)($item['subtotal'] ?? 0);
+            $lineSubtotal = $this->socialOrderItemSubtotal($item);
+            $subtotal += $lineSubtotal;
+            $total += $lineSubtotal;
         }
         $consumoId = (string)($billableOrders[0]['consumo_id'] ?? '');
         if ($consumoId === '') {
@@ -2586,7 +2611,7 @@ class SocialController
         }
 
         return Database::query(
-            'SELECT pi.*, p.nombre AS platillo_nombre
+            'SELECT pi.*, p.nombre AS platillo_nombre, p.precio AS platillo_precio
                FROM rest_pedido_items pi
           LEFT JOIN rest_platillos p ON p.id = pi.platillo_id
               WHERE pi.pedido_id IN (' . implode(',', $placeholders) . ')
@@ -2599,15 +2624,22 @@ class SocialController
 
     private function socialConsumptionSummary(array $consumption): array
     {
-        $items = array_map(static function (array $item): array {
+        $items = array_map(function (array $item): array {
+            $quantity = max(1, (int)($item['cantidad'] ?? 1));
+            $subtotal = $this->socialOrderItemSubtotal($item);
+            $unitPrice = (float)($item['precio_unit'] ?? 0);
+            if ($unitPrice <= 0 && $quantity > 0) {
+                $unitPrice = round($subtotal / $quantity, 2);
+            }
+
             return [
                 'id' => (int)($item['id'] ?? 0),
                 'pedido_id' => (int)($item['pedido_id'] ?? 0),
                 'platillo_id' => isset($item['platillo_id']) ? (int)$item['platillo_id'] : null,
                 'nombre' => $item['platillo_nombre'] ?? 'Producto',
-                'cantidad' => (int)($item['cantidad'] ?? 1),
-                'precio_unit' => (float)($item['precio_unit'] ?? 0),
-                'subtotal' => (float)($item['subtotal'] ?? 0),
+                'cantidad' => $quantity,
+                'precio_unit' => $unitPrice,
+                'subtotal' => $subtotal,
             ];
         }, $consumption['items'] ?? []);
 
@@ -2619,6 +2651,136 @@ class SocialController
             'items_count' => count($items),
             'items' => $items,
         ];
+    }
+
+    private function pendingSocialGiftChargesForConsumption(array $consumption, int $userId, int $restaurantId): array
+    {
+        if (
+            $userId <= 0 ||
+            $restaurantId <= 0 ||
+            !$this->tableExists('social_gift_orders') ||
+            !$this->tableExists('rest_pedidos')
+        ) {
+            return [];
+        }
+
+        $giftColumns = $this->getTableColumns('social_gift_orders');
+        if (
+            !in_array('pedido_id', $giftColumns, true) ||
+            !in_array('cargado_cuenta_at', $giftColumns, true)
+        ) {
+            return [];
+        }
+
+        $orderColumns = $this->getTableColumns('rest_pedidos');
+        $where = [
+            'sg.sender_user_id = :user_id',
+            'sg.restaurante_id = :restaurant_id',
+            'sg.cargado_cuenta_at IS NOT NULL',
+            'sg.pedido_id IS NOT NULL',
+            'sg.pedido_id > 0',
+        ];
+        $params = [
+            ':user_id' => $userId,
+            ':restaurant_id' => $restaurantId,
+        ];
+
+        if (in_array('pagado_at', $giftColumns, true)) {
+            $where[] = 'sg.pagado_at IS NULL';
+        }
+        if (in_array('status', $giftColumns, true)) {
+            $where[] = "COALESCE(sg.status, '') <> 'cancelado'";
+        }
+        if (in_array('tipo_pedido', $orderColumns, true)) {
+            $where[] = "rp.tipo_pedido = 'eat_in'";
+        }
+
+        $consumoId = trim((string)($consumption['consumo_id'] ?? ''));
+        if ($consumoId !== '' && !str_starts_with($consumoId, 'ORD-') && in_array('consumo_id', $orderColumns, true)) {
+            $where[] = 'rp.consumo_id = :consumo_id';
+            $params[':consumo_id'] = $consumoId;
+        } else {
+            $mesaId = $this->firstConsumptionMesaId($consumption);
+            if ($mesaId !== null && in_array('mesa_id', $orderColumns, true)) {
+                $where[] = 'rp.mesa_id = :mesa_id';
+                $params[':mesa_id'] = $mesaId;
+            }
+            if (in_array('mobile_usuario_id', $orderColumns, true)) {
+                $where[] = 'rp.mobile_usuario_id = :user_id_for_order';
+                $params[':user_id_for_order'] = $userId;
+            }
+        }
+
+        $select = [
+            'sg.id',
+            'sg.folio',
+            'sg.gift_nombre',
+            'sg.gift_precio',
+            'sg.recipient_nombre',
+            'sg.recipient_mesa',
+            'sg.pedido_id',
+            'sg.status',
+            'sg.cargado_cuenta_at',
+        ];
+        if (in_array('pedido_item_id', $giftColumns, true)) {
+            $select[] = 'sg.pedido_item_id';
+        }
+        if (in_array('pagado_at', $giftColumns, true)) {
+            $select[] = 'sg.pagado_at';
+        }
+
+        $rows = Database::query(
+            'SELECT ' . implode(', ', $select) . '
+               FROM social_gift_orders sg
+               JOIN rest_pedidos rp ON rp.id = sg.pedido_id
+              WHERE ' . implode(' AND ', $where) . '
+           ORDER BY sg.created_at ASC, sg.id ASC',
+            $params
+        );
+
+        return array_map(static function (array $gift): array {
+            return [
+                'id' => (int)$gift['id'],
+                'folio' => $gift['folio'] ?? null,
+                'gift_nombre' => $gift['gift_nombre'] ?? 'Regalo',
+                'gift_precio' => isset($gift['gift_precio']) ? (float)$gift['gift_precio'] : 0,
+                'recipient_nombre' => $gift['recipient_nombre'] ?? null,
+                'recipient_mesa' => $gift['recipient_mesa'] ?? null,
+                'pedido_id' => isset($gift['pedido_id']) ? (int)$gift['pedido_id'] : null,
+                'pedido_item_id' => isset($gift['pedido_item_id']) ? (int)$gift['pedido_item_id'] : null,
+                'status' => $gift['status'] ?? null,
+                'cargado_cuenta_at' => $gift['cargado_cuenta_at'] ?? null,
+                'pagado_at' => $gift['pagado_at'] ?? null,
+            ];
+        }, $rows);
+    }
+
+    private function firstConsumptionMesaId(array $consumption): ?int
+    {
+        foreach (($consumption['orders'] ?? []) as $order) {
+            $mesaId = isset($order['mesa_id']) ? (int)$order['mesa_id'] : 0;
+            if ($mesaId > 0) {
+                return $mesaId;
+            }
+        }
+
+        return null;
+    }
+
+    private function socialOrderItemSubtotal(array $item): float
+    {
+        $quantity = max(1, (int)($item['cantidad'] ?? 1));
+        $storedSubtotal = round((float)($item['subtotal'] ?? 0), 2);
+        if ($storedSubtotal > 0) {
+            return $storedSubtotal;
+        }
+
+        $unitPrice = (float)($item['precio_unit'] ?? 0);
+        if ($unitPrice <= 0) {
+            $unitPrice = (float)($item['platillo_precio'] ?? 0);
+        }
+
+        return round($unitPrice * $quantity, 2);
     }
 
     private function createSocialAccountCoverRecord(
@@ -2945,6 +3107,39 @@ class SocialController
                 $stmt->execute($params);
             }
         }
+    }
+
+    private function refundRejectedGiftToWallet(\PDO $pdo, array $gift): array
+    {
+        $giftId = (int)($gift['id'] ?? 0);
+        $senderUserId = (int)($gift['sender_user_id'] ?? 0);
+        $giftPrice = round((float)($gift['gift_precio'] ?? 0), 2);
+        $refundAmount = round($giftPrice * 0.5, 2);
+
+        if ($giftId <= 0 || $senderUserId <= 0 || $refundAmount <= 0) {
+            return [
+                'already_applied' => false,
+                'refund_amount_mxn' => 0,
+                'balance_after_mxn' => null,
+                'points_after' => null,
+            ];
+        }
+
+        return (new RewardsService())->refundToBalance(
+            $pdo,
+            $senderUserId,
+            $refundAmount,
+            'social_gift_rejected',
+            $giftId,
+            'Reembolso 50% por regalo social rechazado',
+            [
+                'gift_id' => $giftId,
+                'gift_price_mxn' => $giftPrice,
+                'refund_rate' => 0.5,
+                'gift_nombre' => $gift['gift_nombre'] ?? null,
+                'recipient_user_id' => isset($gift['recipient_user_id']) ? (int)$gift['recipient_user_id'] : null,
+            ]
+        );
     }
 
     private function buildCoverRequestMessage(string $payerName, float $amount, string $mode): string

@@ -977,10 +977,16 @@ export default function SocialProfileScreen() {
   useEffect(() => {
     if (!modoSocial) {
       setAccountNotifications([]);
-      return;
+      return undefined;
     }
 
     void refreshAccountNotifications();
+
+    const refreshTimer = setInterval(() => {
+      void refreshAccountNotifications();
+    }, 3000);
+
+    return () => clearInterval(refreshTimer);
   }, [modoSocial]);
 
   useEffect(() => {
@@ -1239,7 +1245,7 @@ export default function SocialProfileScreen() {
       const notifications = await getSocialAccountNotifications();
       setAccountNotifications(notifications.filter(isActionableAccountNotification));
     } catch {
-      setAccountNotifications([]);
+      // Keep the last known notifications on transient polling failures.
     }
   }
 
@@ -3063,7 +3069,14 @@ export default function SocialProfileScreen() {
           </View>
 
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconButton} onPress={() => setNotificationsVisible(true)} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => {
+                void refreshAccountNotifications();
+                setNotificationsVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
               <Ionicons name="notifications-outline" size={22} color={Colors.text} />
               {accountNotifications.length > 0 ? (
                 <View style={styles.notificationBadge}>

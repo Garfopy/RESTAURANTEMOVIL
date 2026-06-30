@@ -223,6 +223,71 @@ class RewardsService
         return $this->walletResponse($wallet, $transactions);
     }
 
+    public function refundToBalance(
+        PDO $pdo,
+        int $userId,
+        float $amount,
+        string $referenceType,
+        int $referenceId,
+        string $description,
+        array $metadata = []
+    ): array {
+        $this->ensureSchema($pdo);
+        $amount = round(max(0, $amount), 2);
+        if ($amount <= 0) {
+            throw new \DomainException('El importe de reembolso no es valido.');
+        }
+
+        if ($this->rewardTransactionExists($pdo, 'wallet_refund', $referenceType, $referenceId)) {
+            $wallet = $this->ensureWallet($pdo, $userId);
+            return [
+                'already_applied' => true,
+                'refund_amount_mxn' => 0,
+                'balance_after_mxn' => round((float)$wallet['balance_mxn'], 2),
+                'points_after' => (int)$wallet['points'],
+            ];
+        }
+
+        $wallet = $this->ensureWallet($pdo, $userId, true);
+        $newBalance = round((float)$wallet['balance_mxn'] + $amount, 2);
+        $points = (int)$wallet['points'];
+
+        $stmt = $pdo->prepare(
+            'UPDATE amare_wallets
+                SET balance_mxn = :balance,
+                    simulated_balance = 0,
+                    updated_at = NOW()
+              WHERE id = :id'
+        );
+        $stmt->execute([
+            ':balance' => $newBalance,
+            ':id' => (int)$wallet['id'],
+        ]);
+
+        $this->insertTransaction($pdo, [
+            'wallet_id' => (int)$wallet['id'],
+            'user_id' => $userId,
+            'type' => 'wallet_refund',
+            'context' => 'gift_refund',
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'amount_mxn' => $amount,
+            'points_delta' => 0,
+            'balance_after_mxn' => $newBalance,
+            'points_after' => $points,
+            'description' => $description,
+            'metadata_json' => json_encode($metadata + ['refund_amount_mxn' => $amount], JSON_UNESCAPED_UNICODE),
+            'external_reference' => null,
+        ]);
+
+        return [
+            'already_applied' => false,
+            'refund_amount_mxn' => $amount,
+            'balance_after_mxn' => $newBalance,
+            'points_after' => $points,
+        ];
+    }
+
     public function redeemToBalance(
         PDO $pdo,
         int $userId,
