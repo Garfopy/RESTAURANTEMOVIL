@@ -59,6 +59,13 @@ $routes = [
     ['POST', '/waiter/tables/:id/splits/:splitId/accounts/:accountId/pay', ['Amare\Api\Controllers\WaiterController', 'paySplitAccount']],
     ['DELETE', '/waiter/tables/:id/splits/:splitId', ['Amare\Api\Controllers\WaiterController', 'cancelSplit']],
     ['POST', '/waiter/tables/:id/close', ['Amare\Api\Controllers\WaiterController', 'closeAccount']],
+
+    // Hostess routes
+    ['GET', '/hostess/branches', ['Amare\Api\Controllers\HostessController', 'branches']],
+    ['GET', '/hostess/orders', ['Amare\Api\Controllers\HostessController', 'orders']],
+    ['POST', '/hostess/orders/:id/complete', ['Amare\Api\Controllers\HostessController', 'completeOrder']],
+    ['GET', '/hostess/reservations', ['Amare\Api\Controllers\HostessController', 'reservations']],
+    ['POST', '/hostess/reservations/:id/complete', ['Amare\Api\Controllers\HostessController', 'completeReservation']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],

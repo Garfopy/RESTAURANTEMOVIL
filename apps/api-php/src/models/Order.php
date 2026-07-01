@@ -1417,6 +1417,10 @@ class Order
             }
         }
 
+        if (!empty($order['mesa_id'])) {
+            self::setTablePendingExit((int)$order['mesa_id']);
+        }
+
         $updated = self::rawOrderById($tokenOrderId, $userId) ?? self::rawOrderById($tokenOrderId) ?? $order;
         if ((int)($updated['id'] ?? 0) !== $tokenOrderId) {
             $updated['id'] = $tokenOrderId;
@@ -1567,7 +1571,43 @@ class Order
         }
         if (in_array('estado', $columns, true)) {
             $fields[] = 'estado = :estado';
-            $params[':estado'] = $occupied ? 'ocupada' : 'libre';
+            $params[':estado'] = $occupied ? 'ocupada' : 'disponible';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (empty($fields)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE rest_mesas SET ' . implode(', ', $fields) . ' WHERE id = :id',
+            $params
+        );
+    }
+
+    private static function setTablePendingExit(int $mesaId): void
+    {
+        if ($mesaId <= 0 || !self::tableExists('rest_mesas')) {
+            return;
+        }
+
+        $columns = self::getTableColumns('rest_mesas');
+        $fields = [];
+        $params = [':id' => $mesaId];
+
+        if (in_array('ocupada', $columns, true)) {
+            $fields[] = 'ocupada = 1';
+        }
+        if (in_array('disponible', $columns, true)) {
+            $fields[] = 'disponible = 0';
+        }
+        if (in_array('estado', $columns, true)) {
+            $fields[] = 'estado = :estado';
+            $params[':estado'] = self::columnAcceptsValue('rest_mesas', 'estado', 'pagando')
+                ? 'pagando'
+                : 'ocupada';
         }
         if (in_array('updated_at', $columns, true)) {
             $fields[] = 'updated_at = NOW()';

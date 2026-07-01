@@ -1628,7 +1628,7 @@ class WaiterController
     private function buildAccount(int $restaurantId, int $tableId, int $userId): array
     {
         $table = $this->buildTableResponse($restaurantId, $tableId, $userId);
-        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
+        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId, true);
         $items = [];
         $total = 0.0;
 
@@ -1682,7 +1682,7 @@ class WaiterController
 
     private function findOpenAccountForTable(int $restaurantId, int $tableId): ?array
     {
-        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
+        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId, true);
         if (empty($orders)) {
             return null;
         }
@@ -1704,7 +1704,7 @@ class WaiterController
         ];
     }
 
-    private function getOpenOrdersForTable(int $restaurantId, int $tableId): array
+    private function getOpenOrdersForTable(int $restaurantId, int $tableId, bool $includePendingExit = false): array
     {
         if (!$this->tableExists('rest_pedidos')) {
             return [];
@@ -1727,12 +1727,20 @@ class WaiterController
             ':table_id' => $tableId,
         ];
 
-        if (in_array('cuenta_abierta', $columns, true)) {
-            $sql .= ' AND cuenta_abierta = 1';
+        $hasOpenAccount = in_array('cuenta_abierta', $columns, true);
+        $hasExitQr = in_array('salida_qr_generado_at', $columns, true);
+        $hasExitValidation = in_array('salida_validado_at', $columns, true);
+
+        if ($hasOpenAccount) {
+            if ($includePendingExit && $hasExitQr && $hasExitValidation) {
+                $sql .= ' AND (cuenta_abierta = 1 OR (salida_qr_generado_at IS NOT NULL AND salida_validado_at IS NULL))';
+            } else {
+                $sql .= ' AND cuenta_abierta = 1';
+            }
         } else {
             $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
         }
-        if (in_array('salida_validado_at', $columns, true)) {
+        if ($hasExitValidation) {
             $sql .= ' AND salida_validado_at IS NULL';
         }
 
