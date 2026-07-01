@@ -1,5 +1,9 @@
 import { apiClient } from './api';
 
+export const socialAccountNotificationKeys = {
+  list: ['social', 'account-notifications'] as const,
+};
+
 type ApiEnvelope<T> = {
   success?: boolean;
   data?: T;

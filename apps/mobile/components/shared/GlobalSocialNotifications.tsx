@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { getApiError } from '../../services/api';
@@ -7,13 +7,14 @@ import {
   getSocialAccountNotifications,
   markSocialAccountNotificationRead,
   respondSocialAccountCoverRequest,
+  socialAccountNotificationKeys,
   type SocialAccountNotification,
 } from '../../services/social-account.service';
 import { getExitPass } from '../../services/orders.service';
 import { respondSocialGiftRequest } from '../../services/social-gifts.service';
 import { useUserStore } from '../../store/user.store';
 
-const QUERY_KEY = ['social', 'account-notifications', 'global'] as const;
+const QUERY_KEY = socialAccountNotificationKeys.list;
 
 export function GlobalSocialNotifications() {
   const router = useRouter();
@@ -35,9 +36,25 @@ export function GlobalSocialNotifications() {
     queryKey: QUERY_KEY,
     queryFn: getSocialAccountNotifications,
     enabled,
-    refetchInterval: 5000,
-    staleTime: 2000,
+    refetchInterval: enabled ? 2500 : false,
+    refetchIntervalInBackground: false,
+    refetchOnMount: 'always',
+    staleTime: 500,
   });
+
+  useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void query.refetch();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [enabled, query.refetch]);
 
   useEffect(() => {
     if (!enabled || activeAlertIdRef.current !== null) {
@@ -55,8 +72,11 @@ export function GlobalSocialNotifications() {
     presentNotification(notification);
   }, [enabled, query.data]);
 
-  async function refreshNotifications() {
-    await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  async function refreshRealtimeState() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['social'] }),
+    ]);
   }
 
   async function markRead(notification: SocialAccountNotification) {
@@ -64,7 +84,7 @@ export function GlobalSocialNotifications() {
     try {
       await markSocialAccountNotificationRead(notification.id);
     } finally {
-      await refreshNotifications();
+      await refreshRealtimeState();
     }
   }
 
@@ -276,6 +296,7 @@ export function GlobalSocialNotifications() {
   async function openExitPassFromOrder(orderId: number, mesaLabel?: string | null) {
     try {
       const exitPass = await getExitPass(orderId);
+      await refreshRealtimeState();
       router.push({
         pathname: '/checkout/exit-pass',
         params: {

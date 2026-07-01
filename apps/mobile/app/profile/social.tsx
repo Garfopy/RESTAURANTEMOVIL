@@ -32,6 +32,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import InputField from '../../components/ui/InputField';
 import { TableContextBanner } from '../../components/shared/TableContextBanner';
 import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../../constants/stripe';
@@ -624,6 +625,7 @@ function getSexualityDescription(value?: string | null): string | null {
 
 export default function SocialProfileScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { activateSocial } = useLocalSearchParams<{ activateSocial?: string }>();
   const { width, height } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
@@ -984,7 +986,7 @@ export default function SocialProfileScreen() {
 
     const refreshTimer = setInterval(() => {
       void refreshAccountNotifications();
-    }, 3000);
+    }, 2500);
 
     return () => clearInterval(refreshTimer);
   }, [modoSocial]);
@@ -1249,6 +1251,14 @@ export default function SocialProfileScreen() {
     }
   }
 
+  async function refreshRealtimeState() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['social'] }),
+    ]);
+    await refreshAccountNotifications();
+  }
+
   async function refreshReceivedLikes(trackLoading = false) {
     try {
       if (trackLoading) {
@@ -1410,6 +1420,8 @@ export default function SocialProfileScreen() {
       await markSocialAccountNotificationRead(notification.id);
     } catch {
       // Best effort; the card is already dismissed locally.
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: ['social'] });
     }
   }
 
@@ -1486,7 +1498,7 @@ export default function SocialProfileScreen() {
         Alert.alert('Solicitud rechazada', 'Le avisamos que preferiste conservar tu cuenta.');
       }
       setNotificationsVisible(false);
-      await refreshAccountNotifications();
+      await refreshRealtimeState();
     } catch (error) {
       Alert.alert('No se pudo responder', getApiError(error));
     } finally {
@@ -1509,7 +1521,7 @@ export default function SocialProfileScreen() {
           : 'Le avisamos al comensal que preferiste no recibirlo.'
       );
       setNotificationsVisible(false);
-      await refreshAccountNotifications();
+      await refreshRealtimeState();
     } catch (error) {
       Alert.alert('No se pudo responder', getApiError(error));
     } finally {
@@ -1547,7 +1559,7 @@ export default function SocialProfileScreen() {
       Alert.alert('Cuenta pagada', confirmation.cover?.message || 'Pagaste la cuenta. Le avisamos al comensal.');
       setApprovedCoverPayment(null);
       setApprovedCoverCardComplete(false);
-      await refreshAccountNotifications();
+      await refreshRealtimeState();
     } catch (error) {
       Alert.alert('No se pudo pagar', getApiError(error));
     } finally {
@@ -1717,7 +1729,7 @@ export default function SocialProfileScreen() {
           ? `${target.nombre} debe aceptar antes de que puedas pagar con tarjeta.`
           : `${target.nombre} debe aceptar antes de que su consumo se agregue a tu cuenta.`
       );
-      await refreshAccountNotifications();
+      await refreshRealtimeState();
       closeCoverAccountModal();
     } catch (error) {
       Alert.alert('No se pudo cubrir la cuenta', getApiError(error));

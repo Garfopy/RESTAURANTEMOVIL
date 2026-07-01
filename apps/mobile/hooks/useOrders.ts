@@ -16,7 +16,9 @@ export function useOrders() {
     queryKey: orderKeys.list,
     queryFn: () => getOrders(),
     enabled: Boolean(token),
-    staleTime: 30 * 1000,
+    staleTime: 5 * 1000,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
     refetchInterval: (query) => {
       const orders = query.state.data as Pedido[] | undefined;
       const hasActiveOrder = orders?.some((order) => {
@@ -31,7 +33,7 @@ export function useOrders() {
         );
       });
 
-      return hasActiveOrder ? 15000 : false;
+      return hasActiveOrder ? 5000 : false;
     },
   });
 }
@@ -43,11 +45,14 @@ export function useOrder(id?: number) {
     queryKey: orderKeys.detail(id ?? 0),
     queryFn: () => getOrderById(id!),
     enabled: Boolean(token) && id !== undefined,
+    staleTime: 5 * 1000,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
     refetchInterval: (query) => {
-      // Actualizar cada 15s mientras el pedido esté activo
+      // Actualizar con más frecuencia mientras el pedido está activo.
       const estado = (query.state.data as Pedido | undefined)?.estado;
       const inactivo = estado === 'entregado' || estado === 'cancelado';
-      return inactivo ? false : 15000;
+      return inactivo ? false : 5000;
     },
   });
 }
@@ -59,6 +64,9 @@ export function useOrderTracking(id?: number) {
     queryKey: orderKeys.tracking(id ?? 0),
     queryFn: () => getOrderTracking(id!),
     enabled: Boolean(token) && id !== undefined,
-    refetchInterval: 15000,
+    staleTime: 5 * 1000,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
+    refetchInterval: 5000,
   });
 }
