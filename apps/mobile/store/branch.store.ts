@@ -66,7 +66,9 @@ export const useBranchStore = create<BranchState>((set, get) => ({
       set({ sucursales: listaSucursales });
       get().autoSeleccionarSiUnica();
     } catch (error) {
-      console.error("🔴 Error en fetchSucursales de Zustand:", error);
+      if (__DEV__) {
+        console.error('Error en fetchSucursales de Zustand:', error);
+      }
     } finally {
       set({ loading: false });
     }

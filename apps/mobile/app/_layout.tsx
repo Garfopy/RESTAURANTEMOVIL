@@ -26,6 +26,7 @@ import { getMe } from '../services/auth.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
+import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
@@ -43,7 +44,7 @@ const queryClient = new QueryClient({
 });
 
 // Guard para detectar configuración incorrecta de Stripe
-if (!STRIPE_PUBLISHABLE_KEY) {
+if (__DEV__ && !STRIPE_PUBLISHABLE_KEY) {
   console.error('ERROR: EXPO_PUBLIC_STRIPE_KEY no está configurada');
 }
 
@@ -225,6 +226,7 @@ export default function RootLayout() {
           <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
             <ToastProvider>
               <BranchConfigRuntime />
+              <TableSessionRuntime />
               <GlobalSocialNotifications />
               <AuthGuard>
                 <StatusBar style="auto" />

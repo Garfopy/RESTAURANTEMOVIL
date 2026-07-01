@@ -27,7 +27,9 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 
   if (config.url?.startsWith('/')) config.url = config.url.substring(1);
 
-  console.log(`[API] Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+  if (__DEV__) {
+    console.log(`[API] Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+  }
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -67,13 +69,17 @@ apiClient.interceptors.response.use(
         originalRequest._retry = true;
         imunifyCookie = match[1];
 
-        console.log('Firewall Imunify360 detectado. Cookie encontrada:', imunifyCookie);
-        console.log('Simulando lectura humana (1.5s)...');
+        if (__DEV__) {
+          console.log('Firewall Imunify360 detectado. Cookie encontrada:', imunifyCookie);
+          console.log('Simulando lectura humana (1.5s)...');
+        }
         await new Promise((resolve) => setTimeout(resolve, 1500));
 
         // Only warm up POST/PUT/PATCH/DELETE requests. Doing this for GET can recurse forever.
         if (originalRequest.method?.toLowerCase() !== 'get') {
-          console.log(`Estableciendo cookie Imunify360 con GET...`);
+          if (__DEV__) {
+            console.log('Estableciendo cookie Imunify360 con GET...');
+          }
           try {
             await apiClient.get(originalRequest.url ?? '', {
               _imunifyWarmup: true,
@@ -83,9 +89,11 @@ apiClient.interceptors.response.use(
           }
         }
 
-        console.log(
-          `Reintentando ${originalRequest.method?.toUpperCase()} con cookie establecida: ${originalRequest.url}`
-        );
+        if (__DEV__) {
+          console.log(
+            `Reintentando ${originalRequest.method?.toUpperCase()} con cookie establecida: ${originalRequest.url}`
+          );
+        }
         return apiClient.request(originalRequest);
       }
     }
@@ -94,7 +102,7 @@ apiClient.interceptors.response.use(
       await useUserStore.getState().logout();
     }
 
-    if (!originalRequest?._suppressConsoleError) {
+    if (__DEV__ && !originalRequest?._suppressConsoleError) {
       console.error(`[API] Error ${error.response?.status} en ${error.config?.url}:`, error.message);
       console.log('Detalle del error:', JSON.stringify(error.response?.data, null, 2));
     }

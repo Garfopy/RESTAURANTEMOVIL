@@ -60,6 +60,7 @@ import { Colors, Shadows } from '../../theme';
 import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
+import { tableSessionKeys } from '../../services/table-session.service';
 
 const GIFT_TERMS_MESSAGE =
   'La persona no está obligada a recibirlo. El restaurante no se hace responsable de rechazos. El reembolso del 50% aplica solo en productos u objetos; no aplica en comida ni bebidas.';
@@ -1255,6 +1256,7 @@ export default function SocialProfileScreen() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['orders'] }),
       queryClient.invalidateQueries({ queryKey: ['social'] }),
+      queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic }),
     ]);
     await refreshAccountNotifications();
   }
@@ -2431,15 +2433,17 @@ export default function SocialProfileScreen() {
     }
 
     const requestKey = getGiftRequestKey();
-    console.log('[SocialGift][Stripe] Iniciando pago', {
-      restaurantId: selectedBranch.id,
-      recipientUserId: diner.user_id,
-      giftProductId: gift.id,
-      requestKey,
-      stripeAvailable,
-      giftCardComplete,
-      publishableKeyPreview: summarizeStripeKey(STRIPE_PUBLISHABLE_KEY),
-    });
+    if (__DEV__) {
+      console.log('[SocialGift][Stripe] Iniciando pago', {
+        restaurantId: selectedBranch.id,
+        recipientUserId: diner.user_id,
+        giftProductId: gift.id,
+        requestKey,
+        stripeAvailable,
+        giftCardComplete,
+        publishableKeyPreview: summarizeStripeKey(STRIPE_PUBLISHABLE_KEY),
+      });
+    }
 
     const payload = await createSocialGiftPayment({
       restaurant_id: selectedBranch.id,
@@ -2450,56 +2454,67 @@ export default function SocialProfileScreen() {
       payment_mode: 'stripe',
     });
 
-    console.log('[SocialGift][Stripe] Backend preparo pago', {
-      giftId: payload?.gift?.id ?? null,
-      status: payload?.gift?.status ?? null,
-      paymentIntentId: payload?.payment_intent_id ?? null,
-      clientSecretPreview: summarizeStripeSecret(payload?.client_secret),
-      requestKey,
-    });
+    if (__DEV__) {
+      console.log('[SocialGift][Stripe] Backend preparo pago', {
+        giftId: payload?.gift?.id ?? null,
+        status: payload?.gift?.status ?? null,
+        paymentIntentId: payload?.payment_intent_id ?? null,
+        clientSecretPreview: summarizeStripeSecret(payload?.client_secret),
+        requestKey,
+      });
+    }
 
     if (!payload?.gift?.id || !payload.client_secret || !payload.payment_intent_id) {
-      console.error('[SocialGift][Stripe] Respuesta incompleta al preparar pago', payload);
+      if (__DEV__) {
+        console.error('[SocialGift][Stripe] Respuesta incompleta al preparar pago', payload);
+      }
       throw new Error('No se pudo preparar el cobro del regalo con Stripe.');
     }
 
-    console.log('[SocialGift][Stripe] Confirmando tarjeta en Stripe', {
-      giftId: payload.gift.id,
-      paymentIntentId: payload.payment_intent_id,
-      requestKey,
-    });
+    if (__DEV__) {
+      console.log('[SocialGift][Stripe] Confirmando tarjeta en Stripe', {
+        giftId: payload.gift.id,
+        paymentIntentId: payload.payment_intent_id,
+        requestKey,
+      });
+    }
     const { error } = await stripeConfirm(payload.client_secret, {
       paymentMethodType: 'Card',
     });
     if (error) {
-      console.error('[SocialGift][Stripe] Stripe confirmPayment fallo', {
-        message: error.message,
-        code: 'code' in error ? (error as { code?: string }).code ?? null : null,
-        declineCode: 'declineCode' in error ? (error as { declineCode?: string }).declineCode ?? null : null,
-        localizedMessage:
-          'localizedMessage' in error
-            ? (error as { localizedMessage?: string }).localizedMessage ?? null
-            : null,
-        stripeError: error,
-        paymentIntentId: payload.payment_intent_id,
-        requestKey,
-      });
+      if (__DEV__) {
+        console.error('[SocialGift][Stripe] Stripe confirmPayment fallo', {
+          message: error.message,
+          code: 'code' in error ? (error as { code?: string }).code ?? null : null,
+          declineCode: 'declineCode' in error ? (error as { declineCode?: string }).declineCode ?? null : null,
+          localizedMessage:
+            'localizedMessage' in error
+              ? (error as { localizedMessage?: string }).localizedMessage ?? null
+              : null,
+          paymentIntentId: payload.payment_intent_id,
+          requestKey,
+        });
+      }
       throw new Error(error.message || 'Stripe no pudo confirmar el pago.');
     }
 
-    console.log('[SocialGift][Stripe] Stripe confirmo la tarjeta, verificando backend', {
-      giftId: payload.gift.id,
-      paymentIntentId: payload.payment_intent_id,
-      requestKey,
-    });
+    if (__DEV__) {
+      console.log('[SocialGift][Stripe] Stripe confirmo la tarjeta, verificando backend', {
+        giftId: payload.gift.id,
+        paymentIntentId: payload.payment_intent_id,
+        requestKey,
+      });
+    }
     const paidGift = await confirmSocialGiftPayment(payload.gift.id);
-    console.log('[SocialGift][Stripe] Backend confirmo regalo pagado', {
-      giftId: paidGift?.id ?? payload.gift.id,
-      status: paidGift?.status ?? null,
-      pedidoId: paidGift?.pedido_id ?? null,
-      pedidoItemId: paidGift?.pedido_item_id ?? null,
-      requestKey,
-    });
+    if (__DEV__) {
+      console.log('[SocialGift][Stripe] Backend confirmo regalo pagado', {
+        giftId: paidGift?.id ?? payload.gift.id,
+        status: paidGift?.status ?? null,
+        pedidoId: paidGift?.pedido_id ?? null,
+        pedidoItemId: paidGift?.pedido_item_id ?? null,
+        requestKey,
+      });
+    }
     showGiftSentAlert(paidGift, 'stripe');
   }
 
@@ -2554,11 +2569,12 @@ export default function SocialProfileScreen() {
       }
     } catch (error) {
       if (giftCheckoutMode === 'stripe' || giftCheckoutMode === 'wallet') {
-        console.error('[SocialGift] Flujo de pago fallo', {
-          requestKey: giftRequestKeyRef.current,
-          message: getApiError(error),
-          error,
-        });
+        if (__DEV__) {
+          console.error('[SocialGift] Flujo de pago fallo', {
+            requestKey: giftRequestKeyRef.current,
+            message: getApiError(error),
+          });
+        }
         giftRequestKeyRef.current = null;
       }
       Alert.alert(giftCheckoutMode === 'stripe' ? 'No se pudo cobrar el regalo' : 'No se pudo enviar', getApiError(error));

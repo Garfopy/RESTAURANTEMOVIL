@@ -2,6 +2,10 @@ import type { TableScanResult } from '@amare/types';
 import { apiClient } from './api';
 import { normalizeBranch } from './branches.service';
 
+export const tableSessionKeys = {
+  diagnostic: ['table-session', 'diagnostic'] as const,
+};
+
 type ApiEnvelope<T> = {
   success?: boolean;
   ok?: boolean;

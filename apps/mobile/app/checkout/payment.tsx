@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
@@ -20,6 +21,7 @@ import { useTableSessionStore } from '../../store/table-session.store';
 import { confirmPayment, createOrder, createPaymentIntent } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
+import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Shadows, Spacing, Typography } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
@@ -51,6 +53,7 @@ function dbMethodToUI(m: MetodoPagoHabilitado): PaymentMethod {
 
 export default function PaymentScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
   const {
@@ -312,6 +315,8 @@ export default function PaymentScreen() {
   }
 
   async function finishOrderFlow(targetOrderId: number, exitPass: any, orderFolio?: string | null) {
+    refreshRealtimeState(queryClient);
+
     if (tipoPedido === 'eat_in' && exitPass) {
       router.replace({
         pathname: '/checkout/exit-pass',
@@ -575,6 +580,12 @@ export default function PaymentScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function refreshRealtimeState(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['orders'] });
+  void queryClient.invalidateQueries({ queryKey: ['social'] });
+  void queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic });
 }
 
 const styles = StyleSheet.create({

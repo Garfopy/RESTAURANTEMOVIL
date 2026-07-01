@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import MapView, { Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -18,6 +19,7 @@ import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { createOrder, createPaymentIntent } from '../../services/orders.service';
+import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing } from '../../theme';
 
@@ -71,6 +73,7 @@ function getItemCostBreakdown(item: ReturnType<typeof useCartStore.getState>['it
 
 export default function OrderTypeScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
   const tableSession = useTableSessionStore((s) => s.session);
@@ -435,6 +438,7 @@ export default function OrderTypeScreen() {
         });
 
         clear();
+        refreshRealtimeState(queryClient);
         router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
         return;
       }
@@ -759,6 +763,12 @@ export default function OrderTypeScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function refreshRealtimeState(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['orders'] });
+  void queryClient.invalidateQueries({ queryKey: ['social'] });
+  void queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic });
 }
 
 const styles = StyleSheet.create({

@@ -12,6 +12,7 @@ import {
 } from '../../services/social-account.service';
 import { getExitPass } from '../../services/orders.service';
 import { respondSocialGiftRequest } from '../../services/social-gifts.service';
+import { tableSessionKeys } from '../../services/table-session.service';
 import { useUserStore } from '../../store/user.store';
 
 const QUERY_KEY = socialAccountNotificationKeys.list;
@@ -76,6 +77,7 @@ export function GlobalSocialNotifications() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['orders'] }),
       queryClient.invalidateQueries({ queryKey: ['social'] }),
+      queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic }),
     ]);
   }
 

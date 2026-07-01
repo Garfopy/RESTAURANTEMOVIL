@@ -10,14 +10,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { ExitQrCode } from '../../components/shared/ExitQrCode';
 import { getExitPass } from '../../services/orders.service';
+import { tableSessionKeys } from '../../services/table-session.service';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
 import { Colors, Spacing } from '../../theme';
 
 export default function ExitPassScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const clearTableSession = useTableSessionStore((state) => state.clearSession);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const { orderId, payload, folio, mesaLabel } = useLocalSearchParams<{
@@ -59,6 +62,7 @@ export default function ExitPassScreen() {
         if (exitPass.is_validated && !handledValidationRef.current) {
           handledValidationRef.current = true;
           releaseClientTableSession(clearTableSession, updateProfile);
+          refreshRealtimeState(queryClient);
           Alert.alert('Salida validada', 'Tu cuenta quedó cerrada y la mesa fue liberada.', [
             { text: 'Listo', onPress: () => router.replace('/(tabs)' as never) },
           ]);
@@ -74,7 +78,9 @@ export default function ExitPassScreen() {
           }
           return;
         }
-        console.error('Error consultando pase de salida:', error);
+        if (__DEV__) {
+          console.error('Error consultando pase de salida:', error);
+        }
       } finally {
         if (mounted) setChecking(false);
       }
@@ -89,7 +95,7 @@ export default function ExitPassScreen() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [clearTableSession, numericOrderId, pollingDisabled, qrPayload, router, updateProfile]);
+  }, [clearTableSession, numericOrderId, pollingDisabled, qrPayload, queryClient, router, updateProfile]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -144,6 +150,7 @@ export default function ExitPassScreen() {
                 setIsValidated(Boolean(exitPass.is_validated));
                 if (exitPass.is_validated) {
                   releaseClientTableSession(clearTableSession, updateProfile);
+                  refreshRealtimeState(queryClient);
                 }
               })
               .catch((error: any) => {
@@ -151,7 +158,9 @@ export default function ExitPassScreen() {
                   setPassUnavailable(!qrPayload);
                   return;
                 }
-                console.error('Error refrescando pase:', error);
+                if (__DEV__) {
+                  console.error('Error refrescando pase:', error);
+                }
               })
               .finally(() => setChecking(false));
           }}
@@ -180,6 +189,12 @@ function releaseClientTableSession(
     is_social_active: false,
     modo_social: false,
   });
+}
+
+function refreshRealtimeState(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['orders'] });
+  void queryClient.invalidateQueries({ queryKey: ['social'] });
+  void queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic });
 }
 
 const styles = StyleSheet.create({

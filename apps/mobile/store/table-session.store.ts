@@ -11,6 +11,7 @@ export type TableSession = {
   mesaLabel: string;
   mesaValue: string;
   branch: Sucursal | null;
+  createdAt?: string;
 };
 
 interface TableSessionState {
@@ -32,6 +33,7 @@ export const useTableSessionStore = create<TableSessionState>((set) => ({
       mesaLabel: result.mesa_label,
       mesaValue: result.mesa_value,
       branch: result.branch ?? null,
+      createdAt: new Date().toISOString(),
     };
     set({ session: nextSession, deferredBranch: null });
     AsyncStorage.setItem(TABLE_SESSION_KEY, JSON.stringify(nextSession)).catch(() => {});
