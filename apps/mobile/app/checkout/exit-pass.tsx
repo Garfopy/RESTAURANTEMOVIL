@@ -12,10 +12,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ExitQrCode } from '../../components/shared/ExitQrCode';
 import { getExitPass } from '../../services/orders.service';
+import { useTableSessionStore } from '../../store/table-session.store';
+import { useUserStore } from '../../store/user.store';
 import { Colors, Spacing } from '../../theme';
 
 export default function ExitPassScreen() {
   const router = useRouter();
+  const clearTableSession = useTableSessionStore((state) => state.clearSession);
+  const updateProfile = useUserStore((state) => state.updateProfile);
   const { orderId, payload, folio, mesaLabel } = useLocalSearchParams<{
     orderId: string;
     payload?: string;
@@ -54,6 +58,7 @@ export default function ExitPassScreen() {
 
         if (exitPass.is_validated && !handledValidationRef.current) {
           handledValidationRef.current = true;
+          releaseClientTableSession(clearTableSession, updateProfile);
           Alert.alert('Salida validada', 'Tu cuenta quedó cerrada y la mesa fue liberada.', [
             { text: 'Listo', onPress: () => router.replace('/(tabs)' as never) },
           ]);
@@ -84,7 +89,7 @@ export default function ExitPassScreen() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [numericOrderId, pollingDisabled, qrPayload, router]);
+  }, [clearTableSession, numericOrderId, pollingDisabled, qrPayload, router, updateProfile]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -137,6 +142,9 @@ export default function ExitPassScreen() {
                 setPassUnavailable(false);
                 setQrPayload(exitPass.payload);
                 setIsValidated(Boolean(exitPass.is_validated));
+                if (exitPass.is_validated) {
+                  releaseClientTableSession(clearTableSession, updateProfile);
+                }
               })
               .catch((error: any) => {
                 if (error?.response?.status === 404) {
@@ -159,6 +167,19 @@ export default function ExitPassScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function releaseClientTableSession(
+  clearTableSession: () => void,
+  updateProfile: ReturnType<typeof useUserStore.getState>['updateProfile']
+): void {
+  clearTableSession();
+  updateProfile({
+    mesa: null,
+    current_restaurante_id: null,
+    is_social_active: false,
+    modo_social: false,
+  });
 }
 
 const styles = StyleSheet.create({

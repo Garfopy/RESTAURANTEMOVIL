@@ -74,7 +74,7 @@ const TabIcon = memo(
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <Ionicons
             name={focused ? iconFocused : icon}
-            size={compact ? 27 : 30}
+            size={compact ? 24 : 26}
             color={color}
           />
         </Animated.View>
@@ -89,10 +89,10 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const compact = width < 380;
-  const horizontalInset = compact ? 12 : 20;
+  const horizontalInset = Math.max(compact ? 24 : 28, Math.round(width * 0.065));
   const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
   const tabBarBottom = safeBottom + (Platform.OS === 'ios' ? 8 : 6);
-  const tabBarHeight = compact ? 58 : 62;
+  const tabBarHeight = compact ? 56 : 60;
   const socialActive = Boolean(user?.is_social_active || user?.modo_social);
 
   return (
@@ -184,15 +184,15 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   iconContainer: {
-    width: 56,
-    height: 48,
+    width: 50,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
   },
   iconContainerCompact: {
-    width: 50,
-    height: 46,
+    width: 46,
+    height: 42,
   },
   activePill: {
     position: 'absolute',

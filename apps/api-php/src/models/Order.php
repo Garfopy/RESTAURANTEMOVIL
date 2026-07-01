@@ -308,33 +308,53 @@ class Order
 
     private static function resolveOpenConsumptionId(int $restaurantId, int $userId, ?int $mesaId, bool $byTableOnly = false): string
     {
-        if ($mesaId !== null && self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+        if ($mesaId !== null) {
             $sql = "SELECT consumo_id
-                      FROM rest_pedidos
-                     WHERE restaurante_id = :restaurant_id
-                       AND mesa_id = :mesa_id
-                       AND tipo_pedido = 'eat_in'
-                       AND consumo_id IS NOT NULL
-                       AND consumo_id <> ''
-                       AND cuenta_abierta = 1";
+                      FROM rest_pedidos p
+                     WHERE p.restaurante_id = :restaurant_id
+                       AND p.mesa_id = :mesa_id
+                       AND p.tipo_pedido = 'eat_in'
+                       AND p.consumo_id IS NOT NULL
+                       AND p.consumo_id <> ''";
             $params = [
                 ':restaurant_id' => $restaurantId,
                 ':mesa_id' => $mesaId,
             ];
 
             if (!$byTableOnly) {
-                $sql .= ' AND mobile_usuario_id = :user_id';
+                $sql .= ' AND p.mobile_usuario_id = :user_id';
                 $params[':user_id'] = $userId;
             }
 
             if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
-                $sql .= ' AND salida_qr_generado_at IS NULL';
+                $sql .= ' AND p.salida_qr_generado_at IS NULL';
             }
             if (self::columnExists('rest_pedidos', 'salida_validado_at')) {
-                $sql .= ' AND salida_validado_at IS NULL';
+                $sql .= ' AND p.salida_validado_at IS NULL';
             }
 
-            $sql .= ' ORDER BY created_at DESC, id DESC LIMIT 1';
+            $closedVisitConditions = [];
+            if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
+                $closedVisitConditions[] = 'closed.salida_qr_generado_at IS NOT NULL';
+            }
+            if (self::columnExists('rest_pedidos', 'salida_validado_at')) {
+                $closedVisitConditions[] = 'closed.salida_validado_at IS NOT NULL';
+            }
+            if (!empty($closedVisitConditions)) {
+                $sql .= ' AND NOT EXISTS (
+                    SELECT 1
+                      FROM rest_pedidos closed
+                     WHERE closed.consumo_id = p.consumo_id
+                       AND closed.tipo_pedido = \'eat_in\'
+                       AND (' . implode(' OR ', $closedVisitConditions) . ')
+                     LIMIT 1
+                )';
+            }
+
+            $orderBy = self::columnExists('rest_pedidos', 'cuenta_abierta')
+                ? 'p.cuenta_abierta DESC, p.created_at DESC, p.id DESC'
+                : 'p.created_at DESC, p.id DESC';
+            $sql .= ' ORDER BY ' . $orderBy . ' LIMIT 1';
             $existing = Database::queryOne($sql, $params);
             if (!empty($existing['consumo_id'])) {
                 return (string)$existing['consumo_id'];
@@ -356,8 +376,7 @@ class Order
         foreach ($orders as $order) {
             if (
                 self::isConsumableEatInOrder($order) &&
-                !empty($order['consumo_id']) &&
-                !self::isSocialGiftChargeOrderId((int)($order['id'] ?? 0))
+                !empty($order['consumo_id'])
             ) {
                 $grouped[(string)$order['consumo_id']][] = $order;
                 continue;
@@ -391,7 +410,11 @@ class Order
 
         return $total > 0
             || (is_array($items) && count($items) > 0)
-            || ((int)($order['cuenta_abierta'] ?? 0) === 1 && empty($order['salida_validado_at']));
+            || ((int)($order['cuenta_abierta'] ?? 0) === 1 && empty($order['salida_validado_at']))
+            || !empty($order['salida_qr_generado_at'])
+            || !empty($order['salida_validado_at'])
+            || !empty($order['pagado_at'])
+            || !empty($order['cerrado_at']);
     }
 
     /**
@@ -407,6 +430,9 @@ class Order
         $items = [];
         $subtotal = 0.0;
         $total = 0.0;
+        $historicalItems = [];
+        $historicalSubtotal = 0.0;
+        $historicalTotal = 0.0;
         $isOpen = false;
         $validatedAt = null;
         $generatedAt = null;
@@ -418,7 +444,7 @@ class Order
 
         foreach ($orders as $order) {
             $isSettled = self::isOrderSettled($order);
-            $isOpen = $isOpen || ((int)($order['cuenta_abierta'] ?? 0) === 1 && empty($order['salida_validado_at']));
+            $isOpen = $isOpen || (!$isSettled && (int)($order['cuenta_abierta'] ?? 0) === 1 && empty($order['salida_validado_at']));
             $generatedAt = $generatedAt ?? ($order['salida_qr_generado_at'] ?? null);
             $validatedAt = $validatedAt ?? ($order['salida_validado_at'] ?? null);
             $paidAt = $paidAt ?? ($order['pagado_at'] ?? null);
@@ -427,6 +453,15 @@ class Order
             $allPaid = $allPaid && !empty($order['pagado_at']);
             $allClosed = $allClosed && !empty($order['cerrado_at']);
 
+            $orderItems = self::getOrderItems((int)$order['id']);
+            $historicalSubtotal += (float)($order['subtotal'] ?? 0);
+            $historicalTotal += (float)($order['total'] ?? 0);
+            foreach ($orderItems as $item) {
+                $item['pedido_id'] = (int)$order['id'];
+                $item['pedido_folio'] = $order['folio'] ?? null;
+                $historicalItems[] = $item;
+            }
+
             if ($isSettled) {
                 continue;
             }
@@ -434,11 +469,32 @@ class Order
             $subtotal += (float)($order['subtotal'] ?? 0);
             $total += (float)($order['total'] ?? 0);
 
-            foreach (self::getOrderItems((int)$order['id']) as $item) {
+            foreach ($orderItems as $item) {
                 $item['pedido_id'] = (int)$order['id'];
                 $item['pedido_folio'] = $order['folio'] ?? null;
                 $items[] = $item;
             }
+        }
+
+        $showHistoricalSnapshot = empty($items)
+            && ($validatedAt !== null || $generatedAt !== null || $paidAt !== null || $closedAt !== null);
+        if ($showHistoricalSnapshot) {
+            $subtotal = $historicalSubtotal;
+            $total = $historicalTotal;
+            $items = $historicalItems;
+        }
+
+        $hasPendingBalance = round($total, 2) > 0 && !empty($items);
+        if ($validatedAt !== null && !$hasPendingBalance) {
+            $consumptionStatus = 'entregado';
+        } elseif ($hasPendingBalance || $isOpen) {
+            $consumptionStatus = 'pendiente';
+        } elseif ($generatedAt !== null) {
+            $consumptionStatus = 'listo';
+        } elseif ($paidAt !== null || $closedAt !== null) {
+            $consumptionStatus = 'entregado';
+        } else {
+            $consumptionStatus = 'pendiente';
         }
 
         $anchor['id'] = (int)$anchor['id'];
@@ -446,7 +502,7 @@ class Order
         $anchor['subtotal'] = $subtotal;
         $anchor['total'] = $total;
         $anchor['items'] = $items;
-        $anchor['estado'] = ($validatedAt || $paidAt || $closedAt) ? 'entregado' : ($generatedAt ? 'listo' : 'pendiente');
+        $anchor['estado'] = $consumptionStatus;
         $anchor['created_at'] = $latest['created_at'] ?? $anchor['created_at'];
         $anchor['cuenta_abierta'] = $isOpen ? 1 : 0;
         $anchor['salida_qr_generado_at'] = $generatedAt;
@@ -503,7 +559,6 @@ class Order
             return [$orderId];
         }
 
-        $isSocialGiftOrder = self::isSocialGiftChargeOrderId($orderId);
         $rows = Database::query(
             "SELECT * FROM rest_pedidos WHERE consumo_id = :consumo_id AND tipo_pedido = 'eat_in'",
             [':consumo_id' => $order['consumo_id']]
@@ -512,9 +567,6 @@ class Order
         foreach ($rows as $row) {
             $candidateId = (int)$row['id'];
             if ($candidateId <= 0) {
-                continue;
-            }
-            if (self::isSocialGiftChargeOrderId($candidateId) !== $isSocialGiftOrder) {
                 continue;
             }
             if (self::isOrderSettled($row) || round((float)($row['total'] ?? 0), 2) <= 0) {
@@ -1340,6 +1392,9 @@ class Order
         );
 
         $closeFields = [];
+        if (self::columnExists('rest_pedidos', 'salida_qr_generado_at')) {
+            $closeFields[] = 'salida_qr_generado_at = COALESCE(salida_qr_generado_at, NOW())';
+        }
         if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
             $closeFields[] = 'cuenta_abierta = 0';
         }

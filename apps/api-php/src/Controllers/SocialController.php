@@ -1087,6 +1087,7 @@ class SocialController
                 (int)$cover['restaurante_id']
             );
             $coveredExitPass = null;
+            $coveredOrderId = (int)($consumption['order_ids'][0] ?? 0);
             $this->updateSocialAccountCover($pdo, $coverId, [
                 'payer_pedido_id' => $payerOrderId,
                 'status' => 'charged_to_account',
@@ -1097,6 +1098,7 @@ class SocialController
                 'amount_mxn' => (float)$cover['amount_mxn'],
                 'payment_mode' => 'account',
                 'exit_pass' => $coveredExitPass,
+                'covered_order_id' => $coveredOrderId,
                 'pending_social_gifts' => $pendingGiftCharges,
             ];
             $this->recordSocialAccountNotification(
@@ -1128,6 +1130,7 @@ class SocialController
             Response::success([
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'covered_exit_pass' => $coveredExitPass,
+                'covered_order_id' => $coveredOrderId,
                 'pending_social_gifts' => $pendingGiftCharges,
             ], 'Aceptaste la solicitud. Tu cuenta fue cubierta.');
         } catch (\DomainException $exception) {
@@ -1293,6 +1296,7 @@ class SocialController
                 (int)$cover['restaurante_id']
             );
             $coveredExitPass = null;
+            $coveredOrderId = (int)($consumption['order_ids'][0] ?? 0);
             $this->updateSocialAccountCover($pdo, $coverId, [
                 'payer_pedido_id' => $payerOrderId,
                 'status' => 'paid',
@@ -1309,6 +1313,7 @@ class SocialController
                     'cover_id' => $coverId,
                     'amount_mxn' => (float)$cover['amount_mxn'],
                     'exit_pass' => $coveredExitPass,
+                    'covered_order_id' => $coveredOrderId,
                     'pending_social_gifts' => $pendingGiftCharges,
                 ]
             );
@@ -1320,6 +1325,7 @@ class SocialController
             Response::success([
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'covered_exit_pass' => $coveredExitPass,
+                'covered_order_id' => $coveredOrderId,
                 'pending_social_gifts' => $pendingGiftCharges,
             ], 'Cuenta pagada y comensal avisado.');
         } catch (\DomainException $exception) {
@@ -2930,8 +2936,12 @@ class SocialController
         $orderIds = array_values(array_filter(array_map('intval', $consumption['order_ids'] ?? [])));
         if (!$orderIds) return;
         $columns = $this->getTableColumns('rest_pedidos');
+        $hasPaidAt = in_array('pagado_at', $columns, true);
+        $hasClosedAt = in_array('cerrado_at', $columns, true);
         $set = ['estado = :estado'];
-        $params = [':estado' => 'en_preparacion'];
+        $params = [
+            ':estado' => ($hasPaidAt || $hasClosedAt) ? 'en_preparacion' : 'entregado',
+        ];
         if (in_array('cuenta_abierta', $columns, true)) {
             $set[] = 'cuenta_abierta = 0';
         }
@@ -2942,8 +2952,11 @@ class SocialController
             $set[] = 'payment_method = :method';
             $params[':method'] = $method;
         }
-        if (in_array('pagado_at', $columns, true)) {
+        if ($hasPaidAt) {
             $set[] = 'pagado_at = COALESCE(pagado_at, NOW())';
+        }
+        if (!$hasPaidAt && $hasClosedAt) {
+            $set[] = 'cerrado_at = COALESCE(cerrado_at, NOW())';
         }
         if (in_array('updated_at', $columns, true)) {
             $set[] = 'updated_at = NOW()';
@@ -3486,9 +3499,6 @@ class SocialController
         if (in_array('pagado_at', $columns, true)) {
             $set[] = 'pagado_at = COALESCE(pagado_at, NOW())';
         }
-        if (in_array('cerrado_at', $columns, true)) {
-            $set[] = 'cerrado_at = COALESCE(cerrado_at, NOW())';
-        }
         if (in_array('salida_qr_generado_at', $columns, true)) {
             $set[] = 'salida_qr_generado_at = NULL';
         }
@@ -3534,7 +3544,7 @@ class SocialController
         $orderColumns = $this->getTableColumns('rest_pedidos');
         $notes = 'Regalo social para ' . $recipientName . ' - ' . $this->formatMesaLabel($recipientTable);
         $finalConsumoId = null;
-        if ($openAccount && in_array('consumo_id', $orderColumns, true)) {
+        if (in_array('consumo_id', $orderColumns, true)) {
             $finalConsumoId = $consumoId ?: $this->resolveOpenConsumptionIdForGift($pdo, $restaurantId, $senderUserId, $tableId);
         }
         $orderData = [
@@ -3548,7 +3558,7 @@ class SocialController
             'pedido_origen' => 'cliente',
             'cliente_nombre' => substr($senderName, 0, 120),
             'notas' => $notes,
-            'cuenta_abierta' => $openAccount ? 1 : 0,
+            'cuenta_abierta' => 1,
             'mesa_id' => $tableId,
             'consumo_id' => $finalConsumoId,
             'created_at' => date('Y-m-d H:i:s'),
@@ -3574,9 +3584,6 @@ class SocialController
         if (!$openAccount) {
             if (in_array('pagado_at', $orderColumns, true)) {
                 $orderData['pagado_at'] = date('Y-m-d H:i:s');
-            }
-            if (in_array('cerrado_at', $orderColumns, true)) {
-                $orderData['cerrado_at'] = date('Y-m-d H:i:s');
             }
             if (in_array('total_pagado', $orderColumns, true)) {
                 $orderData['total_pagado'] = $price;
@@ -3644,28 +3651,42 @@ class SocialController
     {
         $orderColumns = $this->getTableColumns('rest_pedidos');
         $where = [
-            'restaurante_id = :restaurant_id',
-            'mesa_id = :table_id',
-            "tipo_pedido = 'eat_in'",
-            'consumo_id IS NOT NULL',
-            "consumo_id <> ''",
+            'p.restaurante_id = :restaurant_id',
+            'p.mesa_id = :table_id',
+            "p.tipo_pedido = 'eat_in'",
+            'p.consumo_id IS NOT NULL',
+            "p.consumo_id <> ''",
         ];
-        if (in_array('cuenta_abierta', $orderColumns, true)) {
-            $where[] = 'cuenta_abierta = 1';
-        }
         if (in_array('mobile_usuario_id', $orderColumns, true)) {
-            $where[] = 'mobile_usuario_id = :user_id';
+            $where[] = 'p.mobile_usuario_id = :user_id';
         }
         if (in_array('salida_qr_generado_at', $orderColumns, true)) {
-            $where[] = 'salida_qr_generado_at IS NULL';
+            $where[] = 'p.salida_qr_generado_at IS NULL';
         }
         if (in_array('salida_validado_at', $orderColumns, true)) {
-            $where[] = 'salida_validado_at IS NULL';
+            $where[] = 'p.salida_validado_at IS NULL';
+        }
+        $closedVisitConditions = [];
+        if (in_array('salida_qr_generado_at', $orderColumns, true)) {
+            $closedVisitConditions[] = 'closed.salida_qr_generado_at IS NOT NULL';
+        }
+        if (in_array('salida_validado_at', $orderColumns, true)) {
+            $closedVisitConditions[] = 'closed.salida_validado_at IS NOT NULL';
+        }
+        if (!empty($closedVisitConditions)) {
+            $where[] = 'NOT EXISTS (
+                SELECT 1
+                  FROM rest_pedidos closed
+                 WHERE closed.consumo_id = p.consumo_id
+                   AND closed.tipo_pedido = \'eat_in\'
+                   AND (' . implode(' OR ', $closedVisitConditions) . ')
+                 LIMIT 1
+            )';
         }
 
         $existing = $pdo->prepare(
-            'SELECT consumo_id FROM rest_pedidos WHERE ' . implode(' AND ', $where) .
-            ' ORDER BY id DESC LIMIT 1'
+            'SELECT p.consumo_id FROM rest_pedidos p WHERE ' . implode(' AND ', $where) .
+            ' ORDER BY ' . (in_array('cuenta_abierta', $orderColumns, true) ? 'p.cuenta_abierta DESC, ' : '') . 'p.id DESC LIMIT 1'
         );
         $params = [
             ':restaurant_id' => $restaurantId,

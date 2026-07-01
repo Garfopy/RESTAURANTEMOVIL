@@ -60,6 +60,7 @@ export type CoverSocialAccountResult = {
   charged_to_account?: boolean;
   approval_required?: boolean;
   covered_exit_pass?: unknown;
+  covered_order_id?: number | null;
   client_secret?: string;
   payment_intent_id?: string;
 };

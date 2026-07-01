@@ -25,6 +25,7 @@ import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
+import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
@@ -50,26 +51,31 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
   const { isAuthenticated, isLoading, user } = useUserStore();
+  const inAuth = segments[0] === '(auth)';
+  const inWaiter = segments[0] === '(waiter)';
+  const inHostess = segments[0] === '(hostess)';
+  const isWaiter = user?.rol === 'mesero';
+  const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
+    String(user?.rol ?? '').toLowerCase()
+  );
+  const redirectTo =
+    !isLoading && !isAuthenticated && !inAuth
+      ? '/(auth)/login'
+      : !isLoading && isAuthenticated && isWaiter && !inWaiter
+        ? '/(waiter)'
+        : !isLoading && isAuthenticated && isHostess && !inHostess
+          ? '/(hostess)'
+          : !isLoading && isAuthenticated && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)
+            ? '/(tabs)'
+            : null;
 
   useEffect(() => {
-    if (isLoading) return;
-
-    const inAuth = segments[0] === '(auth)';
-    const inWaiter = segments[0] === '(waiter)';
-    const inHostess = segments[0] === '(hostess)';
-    const isWaiter = user?.rol === 'mesero';
-    const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(String(user?.rol ?? '').toLowerCase());
-
-    if (!isAuthenticated && !inAuth) {
-      router.replace('/(auth)/login');
-    } else if (isAuthenticated && isWaiter && !inWaiter) {
-      router.replace('/(waiter)' as never);
-    } else if (isAuthenticated && isHostess && !inHostess) {
-      router.replace('/(hostess)' as never);
-    } else if (isAuthenticated && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)) {
-      router.replace('/(tabs)');
+    if (redirectTo) {
+      router.replace(redirectTo as never);
     }
-  }, [isAuthenticated, isLoading, segments, user?.rol]);
+  }, [redirectTo, router]);
+
+  if (isLoading || redirectTo) return null;
 
   return <>{children}</>;
 }
@@ -219,6 +225,7 @@ export default function RootLayout() {
           <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
             <ToastProvider>
               <BranchConfigRuntime />
+              <GlobalSocialNotifications />
               <AuthGuard>
                 <StatusBar style="auto" />
                 <View style={{ flex: 1 }}>

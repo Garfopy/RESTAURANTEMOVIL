@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiClient, formatImageUrl } from '../../services/api';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import type { BannerItem } from '../../components/shared/BannerCarousel';
-import { EmptyState } from '../../components/ui/EmptyState';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 
 interface Promocion {
@@ -73,12 +72,8 @@ export default function PromotionsScreen() {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
       
-      {/* Header Estilizado */}
       <View style={styles.header}>
-        <View style={styles.headerTitleRow}>
-          <Ionicons name="gift-outline" size={24} color={Colors.primary} style={{ marginRight: 8 }} />
-          <Text style={styles.title}>Promociones</Text>
-        </View>
+        <Text style={styles.title}>Promociones</Text>
         <Text style={styles.subtitle}>Aprovecha los beneficios que Amare tiene para ti</Text>
       </View>
 
@@ -146,11 +141,13 @@ export default function PromotionsScreen() {
           }}
         />
       ) : (
-        <EmptyState
-          icon="pricetag-outline"
-          title="Sin promociones activas"
-          description="Vuelve pronto para ver las ofertas del día."
-        />
+        <View style={styles.emptyWrap}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="pricetag-outline" size={34} color={Colors.textMuted} />
+          </View>
+          <Text style={styles.emptyTitle}>Sin promociones activas</Text>
+          <Text style={styles.emptyText}>Vuelve pronto para ver las ofertas del dia.</Text>
+        </View>
       )}
     </SafeAreaView>
   );
@@ -160,11 +157,11 @@ export default function PromotionsScreen() {
 function PromotionsSkeleton() {
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={[styles.header, { borderBottomWidth: 0 }]}>
-        <View style={[styles.skeletonLine, { width: '50%', height: 28, marginBottom: 8 }]} />
-        <View style={[styles.skeletonLine, { width: '80%', height: 16 }]} />
+      <View style={styles.header}>
+        <View style={[styles.skeletonLine, { width: '62%', height: 36, marginBottom: 8 }]} />
+        <View style={[styles.skeletonLine, { width: '84%', height: 18 }]} />
       </View>
-      <View style={{ paddingHorizontal: Spacing.base, gap: Spacing.md }}>
+      <View style={{ paddingHorizontal: 24, gap: Spacing.md }}>
         <View style={[styles.skeletonLine, { width: '100%', height: 160, borderRadius: 16 }]} />
         {[1, 2, 3].map((i) => (
           <View key={i} style={[styles.card, { height: 110, backgroundColor: '#EFEFEF', borderWidth: 0 }]} />
@@ -177,27 +174,27 @@ function PromotionsSkeleton() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
-    paddingHorizontal: Spacing.base,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.base,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
     backgroundColor: Colors.background,
   },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
   title: { 
-    ...Typography.h2, 
+    fontSize: 34,
+    lineHeight: 42,
     fontWeight: '800', 
     color: Colors.text,
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
+    paddingTop: 4,
   },
   subtitle: {
-    ...Typography.bodySM,
+    fontSize: 15,
+    lineHeight: 22,
     color: Colors.textMuted,
+    marginTop: 2,
   },
   listContent: { 
+    paddingTop: 8,
     paddingBottom: 120,
   },
   carouselContainer: {
@@ -208,17 +205,17 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: '700',
     color: Colors.text,
-    marginHorizontal: Spacing.base,
+    marginHorizontal: 24,
     marginBottom: Spacing.sm,
   },
   
   // Refactorización total de Cards (Horizontal Layout con soporte multimedia)
   card: {
     flexDirection: 'row',
-    marginHorizontal: Spacing.base,
-    marginBottom: Spacing.base,
+    marginHorizontal: 24,
+    marginBottom: 16,
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: Colors.border || '#F3F4F6',
@@ -271,5 +268,35 @@ const styles = StyleSheet.create({
   skeletonLine: {
     backgroundColor: '#E5E7EB',
     borderRadius: 4,
+  },
+  emptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingBottom: 110,
+  },
+  emptyIcon: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: Colors.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: Colors.textMuted,
+    textAlign: 'center',
   },
 });
