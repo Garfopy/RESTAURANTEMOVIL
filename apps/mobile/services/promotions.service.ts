@@ -7,6 +7,7 @@ import { apiClient } from './api';
 export interface Promotion {
   id: number;
   usuario_id: number;
+  platillo_id?: number | null;
   titulo: string;
   descripcion?: string | null;
   imagen?: string | null;
@@ -18,6 +19,16 @@ export interface Promotion {
   // Campos extra cuando viene del admin (JOIN con usuarios)
   usuario_nombre?: string;
   usuario_email?: string;
+}
+
+export interface PromotionQuote {
+  promotion: Promotion;
+  code: string;
+  discount: number;
+  subtotal: number;
+  eligible_subtotal: number;
+  total: number;
+  applicable_product_ids: number[];
 }
 
 export interface PaginationMeta {
@@ -46,6 +57,7 @@ export interface UserListResponse {
 
 export interface CreatePromotionPayload {
   usuario_id: number;
+  platillo_id?: number | null;
   titulo: string;
   descripcion?: string;
   imagen?: string;
@@ -74,9 +86,12 @@ export async function getPromotion(id: number): Promise<Promotion> {
 }
 
 /** POST /promotions/validate  -  Valida un código de descuento */
-export async function validatePromoCode(code: string): Promise<Promotion> {
-  const res = await apiClient.post('/promotions/validate', { code });
-  return res.data.data.promotion;
+export async function validatePromoCode(
+  code: string,
+  items: Array<{ product_id: number; quantity: number; unit_price: number; origen?: string }>
+): Promise<PromotionQuote> {
+  const res = await apiClient.post('/promotions/validate', { code, items });
+  return res.data.data;
 }
 
 // ─────────────────────────────────────────────

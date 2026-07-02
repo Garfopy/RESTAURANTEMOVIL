@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -18,8 +19,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
-import { confirmPayment, createOrder, createPaymentIntent } from '../../services/orders.service';
+import { confirmPayment, createOrder, createPaymentIntent, getOrderById } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
+import { validatePromoCode, type PromotionQuote } from '../../services/promotions.service';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
@@ -114,6 +116,9 @@ export default function PaymentScreen() {
   const [rewardsWallet, setRewardsWallet] = useState<RewardsWallet | null>(null);
   const [rewardsQuote, setRewardsQuote] = useState<RewardsQuote | null>(null);
   const [rewardsLoading, setRewardsLoading] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponQuote, setCouponQuote] = useState<PromotionQuote | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
 
   const config = useBranchConfigStore((state) => (state.branchId === resolvedRestaurantId ? state.config : null));
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
@@ -158,12 +163,14 @@ export default function PaymentScreen() {
   }, []);
 
   const rewardsPaymentMode = selectedMethod === 'amare' ? 'wallet' : 'external';
+  const couponDiscount = Math.max(0, Number(couponQuote?.discount ?? 0));
+  const promoAdjustedAmount = Math.max(0, Math.round((paymentAmount - couponDiscount) * 100) / 100);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadQuote() {
-      if (paymentAmount <= 0) {
+      if (promoAdjustedAmount <= 0) {
         setRewardsQuote(null);
         return;
       }
@@ -172,7 +179,7 @@ export default function PaymentScreen() {
       try {
         const quote = await quoteRewards({
           context: 'food',
-          amount: paymentAmount,
+          amount: promoAdjustedAmount,
           use_points: useRewardsPoints,
           payment_mode: rewardsPaymentMode,
           items: items.map((item) => ({
@@ -193,21 +200,25 @@ export default function PaymentScreen() {
     return () => {
       cancelled = true;
     };
-  }, [items, paymentAmount, rewardsPaymentMode, useRewardsPoints]);
+  }, [items, promoAdjustedAmount, rewardsPaymentMode, useRewardsPoints]);
 
   const availablePoints = Number(rewardsWallet?.points ?? rewardsQuote?.points ?? 0);
   const walletBalance = Number(rewardsWallet?.balance_mxn ?? rewardsQuote?.balance_mxn ?? 0);
-  const methodDiscount = selectedMethod === 'amare' ? Math.round(paymentAmount * 0.1 * 100) / 100 : 0;
-  const totalAfterMethodDiscount = Math.max(0, Math.round((paymentAmount - methodDiscount) * 100) / 100);
+  const methodDiscount = selectedMethod === 'amare' ? Math.round(promoAdjustedAmount * 0.1 * 100) / 100 : 0;
+  const totalAfterMethodDiscount = Math.max(0, Math.round((promoAdjustedAmount - methodDiscount) * 100) / 100);
   const pointsApplied = useRewardsPoints ? Math.min(availablePoints, Math.floor(totalAfterMethodDiscount)) : 0;
   const pointsDiscount = pointsApplied;
   const effectivePaymentAmount = Math.max(0, Math.round((totalAfterMethodDiscount - pointsDiscount) * 100) / 100);
   const pointsEarned = selectedMethod === 'amare' ? 0 : Math.max(0, Math.round(effectivePaymentAmount * 0.05));
-  const walletPreviewDiscount = Math.round(paymentAmount * 0.1 * 100) / 100;
-  const walletPreviewTotalAfterDiscount = Math.max(0, Math.round((paymentAmount - walletPreviewDiscount) * 100) / 100);
+  const walletPreviewDiscount = Math.round(promoAdjustedAmount * 0.1 * 100) / 100;
+  const walletPreviewTotalAfterDiscount = Math.max(0, Math.round((promoAdjustedAmount - walletPreviewDiscount) * 100) / 100);
   const walletPreviewPoints = useRewardsPoints ? Math.min(availablePoints, Math.floor(walletPreviewTotalAfterDiscount)) : 0;
   const walletPreviewTotal = Math.max(0, Math.round((walletPreviewTotalAfterDiscount - walletPreviewPoints) * 100) / 100);
   const canPayWithAmare = walletBalance >= walletPreviewTotal;
+
+  useEffect(() => {
+    setCouponQuote(null);
+  }, [items, paymentAmount]);
 
   function getCardWidth() {
     const count = enabledMethods.length;
@@ -220,11 +231,75 @@ export default function PaymentScreen() {
     return (available - gap * (count - 1)) / count;
   }
 
+  function promoItemsPayload() {
+    return items.map((item) => ({
+      product_id: item.platillo.id,
+      quantity: item.cantidad,
+      unit_price: item.precio_unitario,
+      origen: 'menu',
+    }));
+  }
+
+  async function resolvePromoItemsPayload() {
+    const cartItems = promoItemsPayload();
+    if (cartItems.length > 0 || !existingOrderId) {
+      return cartItems;
+    }
+
+    const order = await getOrderById(existingOrderId);
+    return (order.items ?? []).map((item) => ({
+      product_id: item.platillo_id,
+      quantity: item.cantidad,
+      unit_price: item.precio_unit,
+      origen: item.origen ?? 'menu',
+    }));
+  }
+
+  async function applyCoupon(): Promise<PromotionQuote | null> {
+    const code = couponCode.trim();
+    if (!code) {
+      Alert.alert('Codigo requerido', 'Escribe el codigo de la promocion.');
+      return null;
+    }
+
+    setCouponLoading(true);
+    try {
+      const promoItems = await resolvePromoItemsPayload();
+      if (promoItems.length === 0) {
+        Alert.alert('Sin productos', 'No se detectaron productos para validar este cupon.');
+        return null;
+      }
+
+      const quote = await validatePromoCode(code, promoItems);
+      setCouponQuote(quote);
+      setCouponCode(quote.code ?? code.toUpperCase());
+      return quote;
+    } catch (error) {
+      setCouponQuote(null);
+      Alert.alert('Cupon no valido', getApiError(error) || 'Este codigo no es valido para tu carrito.');
+      return null;
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  function clearCoupon() {
+    setCouponQuote(null);
+    setCouponCode('');
+  }
+
   async function handlePay() {
     setLoading(true);
     try {
       if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
         throw new Error('No se detecto la sucursal del pedido. Regresa al carrito e intenta de nuevo.');
+      }
+
+      if (couponCode.trim() !== '' && !couponQuote) {
+        const quote = await applyCoupon();
+        if (!quote) return;
+        Alert.alert('Cupon aplicado', 'Revisa el nuevo total y vuelve a tocar Pagar.');
+        return;
       }
 
       if (selectedMethod === 'cash') {
@@ -235,6 +310,7 @@ export default function PaymentScreen() {
           payment_intent_id: intentId ?? '',
           metodo: 'cash',
           use_points: useRewardsPoints,
+          promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
@@ -252,6 +328,7 @@ export default function PaymentScreen() {
           pedido_id: targetOrderId,
           metodo: 'amare_wallet',
           use_points: useRewardsPoints,
+          promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
@@ -277,6 +354,7 @@ export default function PaymentScreen() {
           payment_intent_id: paymentIntent.intentId,
           metodo: 'card',
           use_points: useRewardsPoints,
+          promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
@@ -294,6 +372,7 @@ export default function PaymentScreen() {
           payment_intent_id: paymentIntent.intentId,
           metodo: walletMethod,
           use_points: useRewardsPoints,
+          promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
@@ -386,6 +465,7 @@ export default function PaymentScreen() {
         })),
       })),
       payment_intent_id: paymentIntentId || intentId || undefined,
+      promo_code: couponQuote?.code ?? undefined,
       notas: `Pago via: ${metodoPago}`,
     });
   }
@@ -465,6 +545,49 @@ export default function PaymentScreen() {
           </View>
         ) : null}
 
+        <View style={styles.couponBox}>
+            <View style={styles.couponHeader}>
+              <View style={styles.couponIcon}>
+                <Ionicons name="pricetag-outline" size={18} color={Colors.primary} />
+              </View>
+              <View style={styles.couponCopy}>
+                <Text style={styles.couponTitle}>Cupon de promocion</Text>
+                <Text style={styles.couponSubtitle}>Aplica solo si el producto de la promo esta en tu pedido.</Text>
+              </View>
+            </View>
+
+            <View style={styles.couponForm}>
+              <TextInput
+                value={couponCode}
+                onChangeText={(text) => {
+                  setCouponCode(text.toUpperCase());
+                  setCouponQuote(null);
+                }}
+                autoCapitalize="characters"
+                placeholder="CODIGO"
+                placeholderTextColor={Colors.textMuted}
+                style={styles.couponInput}
+                editable={!couponLoading}
+              />
+              {couponQuote ? (
+                <TouchableOpacity style={styles.couponClearButton} onPress={clearCoupon}>
+                  <Ionicons name="close" size={18} color={Colors.textMuted} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.couponButton} onPress={() => void applyCoupon()} disabled={couponLoading}>
+                  <Text style={styles.couponButtonText}>{couponLoading ? '...' : 'Aplicar'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {couponQuote ? (
+              <View style={styles.couponApplied}>
+                <Text style={styles.couponAppliedTitle}>{couponQuote.promotion.titulo}</Text>
+                <Text style={styles.couponAppliedText}>Descuento aplicado: -${couponDiscount.toFixed(2)}</Text>
+              </View>
+            ) : null}
+        </View>
+
         <View style={styles.pointsBox}>
           <View style={styles.pointsHeader}>
             <View style={{ flex: 1 }}>
@@ -524,7 +647,7 @@ export default function PaymentScreen() {
             <View style={styles.rewardsRows}>
               <View style={styles.rewardsRow}>
                 <Text style={styles.rewardsLabel}>Subtotal</Text>
-                <Text style={styles.rewardsValue}>${paymentAmount.toFixed(2)}</Text>
+                <Text style={styles.rewardsValue}>${promoAdjustedAmount.toFixed(2)}</Text>
               </View>
               <View style={styles.rewardsRow}>
                 <Text style={styles.rewardsLabel}>Descuento Amare</Text>
@@ -549,8 +672,34 @@ export default function PaymentScreen() {
         ) : null}
 
         <View style={styles.totalBox}>
-          <Text style={styles.totalLabel}>Total a pagar</Text>
-          <Text style={styles.totalValue}>${effectivePaymentAmount.toFixed(2)} MXN</Text>
+          <View style={styles.totalRows}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Subtotal</Text>
+              <Text style={styles.totalLineValue}>${paymentAmount.toFixed(2)}</Text>
+            </View>
+            {couponDiscount > 0 ? (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Cupon</Text>
+                <Text style={styles.totalDiscountValue}>-${couponDiscount.toFixed(2)}</Text>
+              </View>
+            ) : null}
+            {methodDiscount > 0 ? (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Descuento Amare</Text>
+                <Text style={styles.totalDiscountValue}>-${methodDiscount.toFixed(2)}</Text>
+              </View>
+            ) : null}
+            {pointsDiscount > 0 ? (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Puntos</Text>
+                <Text style={styles.totalDiscountValue}>-${pointsDiscount.toFixed(2)}</Text>
+              </View>
+            ) : null}
+            <View style={[styles.totalRow, styles.totalFinalRow]}>
+              <Text style={styles.totalFinalLabel}>Total a pagar</Text>
+              <Text style={styles.totalValue}>${effectivePaymentAmount.toFixed(2)} MXN</Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
 
@@ -650,6 +799,97 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   secureNote: { fontSize: 12, color: Colors.success, textAlign: 'center', marginTop: 4 },
+  couponBox: {
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+  },
+  couponHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  couponIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: `${Colors.primary}14`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  couponTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  couponSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  couponForm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  couponInput: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  couponButton: {
+    height: 46,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponButtonText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  couponClearButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Colors.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponApplied: {
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    padding: 10,
+    gap: 2,
+  },
+  couponAppliedTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  couponAppliedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#047857',
+  },
   pointsBox: {
     gap: 12,
     borderRadius: 16,
@@ -733,14 +973,17 @@ const styles = StyleSheet.create({
   rewardsValue: { flexShrink: 0, fontSize: 13, fontWeight: '800', color: '#064E3B', textAlign: 'right' },
   rewardsWarning: { fontSize: 12, fontWeight: '700', color: Colors.error || '#DC2626' },
   totalBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: Spacing.md,
   },
+  totalRows: { gap: 9 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+  totalFinalRow: { borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 10, marginTop: 2 },
   totalLabel: { fontSize: 14, fontWeight: '600', color: Colors.textMuted },
+  totalFinalLabel: { fontSize: 14, fontWeight: '800', color: Colors.text },
+  totalLineValue: { fontSize: 14, fontWeight: '800', color: Colors.text },
+  totalDiscountValue: { fontSize: 14, fontWeight: '900', color: Colors.success },
   totalValue: { fontSize: 20, fontWeight: '800', color: Colors.primary },
   footer: {
     position: 'absolute',

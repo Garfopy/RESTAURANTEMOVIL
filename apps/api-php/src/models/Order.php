@@ -203,6 +203,23 @@ class Order
         $data['items'] = $normalizedItems;
         $data['subtotal'] = round($subtotal, 2);
         $data['total'] = round($subtotal, 2);
+
+        $promoCode = trim((string)($data['promo_code'] ?? $data['coupon_code'] ?? ''));
+        if ($promoCode !== '' && !empty($data['user_id'])) {
+            try {
+                $quote = Promotion::quoteCode($promoCode, (int)$data['user_id'], $normalizedItems);
+            } catch (\DomainException $exception) {
+                throw new \InvalidArgumentException($exception->getMessage());
+            }
+            if (!$quote) {
+                throw new \InvalidArgumentException('Codigo de promocion invalido, expirado o no asignado a este usuario.');
+            }
+
+            $data['promo_code'] = (string)$quote['code'];
+            $data['promo_discount'] = round((float)$quote['discount'], 2);
+            $data['total'] = round(max(0, $data['subtotal'] - $data['promo_discount']), 2);
+        }
+
         return $data;
     }
 
@@ -593,11 +610,6 @@ class Order
 
         $params = [':consumo_id' => $order['consumo_id']];
         $sql = "SELECT id FROM rest_pedidos WHERE consumo_id = :consumo_id AND tipo_pedido = 'eat_in'";
-
-        if (!empty($order['mobile_usuario_id'])) {
-            $sql .= ' AND mobile_usuario_id = :user_id';
-            $params[':user_id'] = (int)$order['mobile_usuario_id'];
-        }
 
         $rows = Database::query($sql, $params);
         $ids = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $rows)));
@@ -1204,6 +1216,7 @@ class Order
                 'folio' => $folio,
                 'estado' => $data['estado'] ?? 'pendiente',
                 'subtotal' => $data['subtotal'],
+                'descuento' => $data['promo_discount'] ?? 0,
                 'total' => $data['total'],
                 'tipo_pedido' => $data['order_type'],
                 'pedido_origen' => $data['pedido_origen'] ?? 'cliente',
@@ -1418,8 +1431,9 @@ class Order
         }
 
         if (!empty($order['mesa_id'])) {
-            self::setTablePendingExit((int)$order['mesa_id']);
+            self::setTableOccupied((int)$order['mesa_id'], false);
         }
+        self::clearDinerTableSessionsForOrders($targetOrderIds);
 
         $updated = self::rawOrderById($tokenOrderId, $userId) ?? self::rawOrderById($tokenOrderId) ?? $order;
         if ((int)($updated['id'] ?? 0) !== $tokenOrderId) {
@@ -1449,6 +1463,67 @@ class Order
         }
 
         return self::formatExitPass($order, (string)$order['salida_token']);
+    }
+
+    public static function applyPromotionCode(int $orderId, int $userId, string $code): ?array
+    {
+        $code = trim($code);
+        if ($orderId <= 0 || $userId <= 0 || $code === '') {
+            return null;
+        }
+
+        $order = self::rawOrderById($orderId, $userId);
+        if (!$order) {
+            return null;
+        }
+
+        $items = self::getOrderItems($orderId);
+        $quoteItems = [];
+        foreach ($items as $item) {
+            $quoteItems[] = [
+                'product_id' => (int)($item['platillo_id'] ?? 0),
+                'quantity' => (int)($item['cantidad'] ?? 0),
+                'unit_price' => (float)($item['precio_unit'] ?? 0),
+                'origen' => $item['origen'] ?? 'menu',
+            ];
+        }
+
+        try {
+            $quote = Promotion::quoteCode($code, $userId, $quoteItems);
+        } catch (\DomainException $exception) {
+            throw new \InvalidArgumentException($exception->getMessage());
+        }
+
+        if (!$quote) {
+            throw new \InvalidArgumentException('Codigo de promocion invalido, expirado o no asignado a este usuario.');
+        }
+
+        $columns = self::getTableColumns('rest_pedidos');
+        $fields = [];
+        $params = [
+            ':id' => $orderId,
+            ':total' => (float)$quote['total'],
+        ];
+
+        if (in_array('descuento', $columns, true)) {
+            $fields[] = 'descuento = :descuento';
+            $params[':descuento'] = (float)$quote['discount'];
+        }
+        if (in_array('total', $columns, true)) {
+            $fields[] = 'total = :total';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        if (!empty($fields)) {
+            Database::rowCount(
+                'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id = :id',
+                $params
+            );
+        }
+
+        return self::rawOrderById($orderId, $userId);
     }
 
     public static function validateExitPass(string $payload, int $validatorUserId): ?array
@@ -1657,6 +1732,37 @@ class Order
             'UPDATE mobile_usuarios SET ' . implode(', ', $fields) . ' WHERE id = :id',
             $params
         );
+    }
+
+    /**
+     * @param array<int> $orderIds
+     */
+    private static function clearDinerTableSessionsForOrders(array $orderIds): void
+    {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if (empty($orderIds) || !self::tableExists('rest_pedidos')) {
+            return;
+        }
+
+        $params = [];
+        $placeholders = [];
+        foreach ($orderIds as $index => $orderId) {
+            $key = ':id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $orderId;
+        }
+
+        $rows = Database::query(
+            'SELECT DISTINCT mobile_usuario_id
+               FROM rest_pedidos
+              WHERE id IN (' . implode(', ', $placeholders) . ')
+                AND mobile_usuario_id IS NOT NULL',
+            $params
+        );
+
+        foreach ($rows as $row) {
+            self::clearDinerTableSession((int)($row['mobile_usuario_id'] ?? 0));
+        }
     }
 
     /**

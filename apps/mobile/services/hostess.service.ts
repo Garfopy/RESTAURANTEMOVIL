@@ -53,9 +53,52 @@ export type HostessReleaseOrder = {
   updated_at?: string | null;
 };
 
+export type HostessTableStatus = 'libre' | 'ocupada' | 'reservada' | 'pagando';
+
+export type HostessTable = {
+  id: number;
+  label: string;
+  value: string;
+  status: HostessTableStatus;
+  estado?: string | null;
+  zona_id?: number | null;
+  zona_nombre?: string | null;
+  cliente_nombre?: string | null;
+  mesero_nombre?: string | null;
+  ocupada: boolean;
+  cuenta_abierta: boolean;
+  ocupada_desde?: string | null;
+  total: number;
+};
+
+export type HostessTableSummary = {
+  total: number;
+  libres: number;
+  ocupadas: number;
+  reservadas: number;
+  wait_minutes: number;
+  wait_label: string;
+};
+
 export async function getHostessBranches(): Promise<Sucursal[]> {
   const { data } = await apiClient.get<Envelope<{ branches: Sucursal[] }>>('/hostess/branches');
   return (unwrap(data).branches ?? []).map(normalizeBranch);
+}
+
+export async function getHostessTables(restaurantId: number): Promise<{
+  tables: HostessTable[];
+  summary: HostessTableSummary;
+}> {
+  const { data } = await apiClient.get<Envelope<{ tables: HostessTable[]; summary: HostessTableSummary }>>(
+    '/hostess/tables',
+    { params: { restaurant_id: restaurantId } }
+  );
+  const payload = unwrap(data);
+
+  return {
+    tables: (payload.tables ?? []).map(normalizeTable),
+    summary: normalizeTableSummary(payload.summary),
+  };
 }
 
 export async function getHostessReservations(restaurantId: number): Promise<HostessReservation[]> {
@@ -112,5 +155,27 @@ function normalizeReleaseOrder(order: HostessReleaseOrder): HostessReleaseOrder 
     subtotal: Number(order.subtotal || 0),
     total: Number(order.total || 0),
     items_count: Number(order.items_count || 0),
+  };
+}
+
+function normalizeTable(table: HostessTable): HostessTable {
+  return {
+    ...table,
+    id: Number(table.id || 0),
+    zona_id: table.zona_id != null ? Number(table.zona_id) : null,
+    ocupada: Boolean(table.ocupada),
+    cuenta_abierta: Boolean(table.cuenta_abierta),
+    total: Number(table.total || 0),
+  };
+}
+
+function normalizeTableSummary(summary?: HostessTableSummary): HostessTableSummary {
+  return {
+    total: Number(summary?.total || 0),
+    libres: Number(summary?.libres || 0),
+    ocupadas: Number(summary?.ocupadas || 0),
+    reservadas: Number(summary?.reservadas || 0),
+    wait_minutes: Number(summary?.wait_minutes || 0),
+    wait_label: summary?.wait_label || 'Sin espera',
   };
 }

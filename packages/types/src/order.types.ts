@@ -106,4 +106,5 @@ export interface CreateOrderPayload {
   consumo_por_mesa?: boolean;
   notas?: string;
   payment_intent_id?: string;
+  promo_code?: string;
 }

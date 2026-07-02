@@ -52,6 +52,38 @@ class PromotionsController
     }
 
     /**
+     * POST /promotions/validate
+     * Valida un codigo de promocion contra los productos del carrito.
+     */
+    public function validateCode(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = ValidationMiddleware::getAllInput();
+
+        $rules = [
+            'code' => 'required|string|max:50',
+            'items' => 'required|array',
+        ];
+
+        $errors = ValidationMiddleware::validate($rules, $input);
+        if (!empty($errors)) {
+            Response::validationError($errors);
+        }
+
+        try {
+            $quote = Promotion::quoteCode((string)$input['code'], (int)$user->id, (array)$input['items']);
+        } catch (\DomainException $exception) {
+            Response::error($exception->getMessage(), 422);
+        }
+
+        if (!$quote) {
+            Response::error('Codigo de promocion invalido, expirado o no asignado a este usuario', 404);
+        }
+
+        Response::success($quote);
+    }
+
+    /**
      * POST /admin/promotions/validate
      * Valida un código promocional (SOLO para admin desde panel web).
      * Útil para verificar que un código sea válido antes de asignarlo.
@@ -241,6 +273,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
     $newId = Promotion::create([
         'usuario_id'  => (int)$input['usuario_id'],
+        'platillo_id' => !empty($input['platillo_id']) ? (int)$input['platillo_id'] : null,
         'titulo'      => trim($input['titulo']),
         'descripcion' => $input['descripcion'] ?? null,
         'imagen' => $imagenUrl,
@@ -314,6 +347,9 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         // Normalizar código a mayúsculas si se proporciona
         if (isset($input['code']) && $input['code'] !== null) {
             $input['code'] = strtoupper(trim($input['code']));
+        }
+        if (array_key_exists('platillo_id', $input)) {
+            $input['platillo_id'] = !empty($input['platillo_id']) ? (int)$input['platillo_id'] : null;
         }
 
         Promotion::update($id, $input, (int)$user->id);

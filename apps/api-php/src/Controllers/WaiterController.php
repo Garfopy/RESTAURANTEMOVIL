@@ -685,10 +685,16 @@ class WaiterController
             Response::error('Esta mesa tiene cuentas separadas pendientes.', 409);
         }
 
-        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId);
+        $orders = $this->getOpenOrdersForTable($restaurantId, $tableId, true);
         if (empty($orders)) {
             Response::error('Esta mesa no tiene cuenta abierta.', 409);
         }
+
+        $orderIds = array_values(array_unique(array_map(
+            static fn(array $order): int => (int)$order['id'],
+            $orders
+        )));
+        $orderPlaceholders = [];
 
         $total = array_reduce(
             $orders,
@@ -703,6 +709,11 @@ class WaiterController
             ':restaurant_id' => $restaurantId,
             ':table_id' => $tableId,
         ];
+        foreach ($orderIds as $index => $orderId) {
+            $placeholder = ':order_id_' . $index;
+            $orderPlaceholders[] = $placeholder;
+            $params[$placeholder] = $orderId;
+        }
 
         if (in_array('cuenta_abierta', $columns, true)) {
             $set[] = 'cuenta_abierta = 0';
@@ -746,13 +757,9 @@ class WaiterController
 
         $sql = 'UPDATE rest_pedidos
                    SET ' . implode(', ', $set) . '
-                 WHERE restaurante_id = :restaurant_id
+                 WHERE id IN (' . implode(', ', $orderPlaceholders) . ')
+                   AND restaurante_id = :restaurant_id
                    AND mesa_id = :table_id';
-        if (in_array('cuenta_abierta', $columns, true)) {
-            $sql .= ' AND cuenta_abierta = 1';
-        } else {
-            $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
-        }
 
         Database::rowCount($sql, $params);
         $this->clearDinerSessionsForOrders($orders);
@@ -1730,10 +1737,22 @@ class WaiterController
         $hasOpenAccount = in_array('cuenta_abierta', $columns, true);
         $hasExitQr = in_array('salida_qr_generado_at', $columns, true);
         $hasExitValidation = in_array('salida_validado_at', $columns, true);
+        $hasPaidAt = in_array('pagado_at', $columns, true);
+        $hasClosedAt = in_array('cerrado_at', $columns, true);
 
         if ($hasOpenAccount) {
             if ($includePendingExit && $hasExitQr && $hasExitValidation) {
-                $sql .= ' AND (cuenta_abierta = 1 OR (salida_qr_generado_at IS NOT NULL AND salida_validado_at IS NULL))';
+                $pendingExitConditions = [
+                    'salida_qr_generado_at IS NOT NULL',
+                    'salida_validado_at IS NULL',
+                ];
+                if ($hasPaidAt) {
+                    $pendingExitConditions[] = 'pagado_at IS NULL';
+                }
+                if ($hasClosedAt) {
+                    $pendingExitConditions[] = 'cerrado_at IS NULL';
+                }
+                $sql .= ' AND (cuenta_abierta = 1 OR (' . implode(' AND ', $pendingExitConditions) . '))';
             } else {
                 $sql .= ' AND cuenta_abierta = 1';
             }
@@ -1787,9 +1806,6 @@ class WaiterController
         }
         if (in_array('salida_validado_at', $columns, true)) {
             $sql .= ' AND salida_validado_at IS NULL';
-        }
-        if (in_array('pedido_origen', $columns, true)) {
-            $sql .= " AND pedido_origen = 'cliente'";
         }
         if (in_array('mesero_usuario_id', $columns, true)) {
             $params[':waiter_id'] = $waiterId;
@@ -1879,10 +1895,6 @@ class WaiterController
             ':restaurant_id' => $restaurantId,
         ];
 
-        if (in_array('pedido_origen', $columns, true)) {
-            $sql .= " AND pedido_origen = 'cliente'";
-        }
-
         return Database::queryOne($sql, $params);
     }
 
@@ -1918,6 +1930,7 @@ class WaiterController
             'consumo_id' => $order['consumo_id'] ?? null,
             'created_at' => $order['created_at'] ?? null,
             'items_count' => $kitchen['items_count'],
+            'items' => $items,
         ];
     }
 

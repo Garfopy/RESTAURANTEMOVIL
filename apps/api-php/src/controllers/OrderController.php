@@ -42,6 +42,15 @@ class OrderController
             Response::validationError(['metodo' => ["Método de pago no válido: {$metodo}"]]);
         }
 
+        $promoCode = trim((string)($input['promo_code'] ?? $input['coupon_code'] ?? ''));
+        if ($promoCode !== '') {
+            try {
+                $order = Order::applyPromotionCode($id, (int)$user->id, $promoCode) ?? $order;
+            } catch (\InvalidArgumentException $exception) {
+                Response::validationError(['promo_code' => [$exception->getMessage()]]);
+            }
+        }
+
         $paymentIntentId = $input['payment_intent_id'] ?? null;
 
         if ($metodo === 'amare_wallet') {
@@ -366,6 +375,7 @@ class OrderController
                 'mesa_id' => $input['mesa_id'] ?? null,
                 'consumo_por_mesa' => !empty($input['consumo_por_mesa']),
                 'payment_intent_id' => $input['payment_intent_id'] ?? null,
+                'promo_code' => $input['promo_code'] ?? $input['coupon_code'] ?? null,
                 'items' => $items
             ]);
         } catch (\InvalidArgumentException $e) {

@@ -1,9 +1,11 @@
 import React from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
   FlatList,
+  Modal,
   TouchableOpacity,
   RefreshControl,
   StatusBar,
@@ -13,21 +15,26 @@ import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { apiClient, formatImageUrl } from '../../services/api';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import type { BannerItem } from '../../components/shared/BannerCarousel';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 
 interface Promocion {
-  id: string;
+  id: string | number;
   titulo: string;
   descripcion?: string;
   imagen?: string;
+  deep_link?: string;
   deepLink?: string;
+  code?: string | null;
+  expires_at?: string | null;
 }
 
 export default function PromotionsScreen() {
   const router = useRouter();
+  const [selectedPromo, setSelectedPromo] = React.useState<Promocion | null>(null);
 
   const { data: promos, isLoading, refetch, isFetching } = useQuery<Promocion[]>({
     queryKey: ['promotions'],
@@ -44,11 +51,11 @@ export default function PromotionsScreen() {
       if (!imagen) return null;
 
       return {
-        id: p.id,
+        id: String(p.id),
         imagen,
         titulo: p.titulo,
         subtitulo: p.descripcion,
-        deepLink: p.deepLink,
+        deepLink: getPromoDeepLink(p),
       };
     })
     .filter((item): item is BannerItem => item !== null);
@@ -61,6 +68,12 @@ export default function PromotionsScreen() {
     } catch (error) {
       console.warn('Ruta de deepLink inválida o no configurada:', deepLink);
     }
+  };
+
+  const copyCode = async (code?: string | null) => {
+    if (!code) return;
+    await Clipboard.setStringAsync(code);
+    Alert.alert('Codigo copiado', code);
   };
 
   // Renderizador de esqueleto en lo que carga la petición
@@ -80,7 +93,7 @@ export default function PromotionsScreen() {
       {promos && promos.length > 0 ? (
         <FlatList
           data={promos}
-          keyExtractor={(p) => p.id}
+          keyExtractor={(p) => String(p.id)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -101,11 +114,12 @@ export default function PromotionsScreen() {
           }
           renderItem={({ item }) => {
             const hasImage = !!item.imagen;
+            const deepLink = getPromoDeepLink(item);
             return (
               <TouchableOpacity
                 style={styles.card}
-                onPress={() => handlePromoPress(item.deepLink)}
-                activeOpacity={item.deepLink ? 0.9 : 1}
+                onPress={() => setSelectedPromo(item)}
+                activeOpacity={0.9}
               >
               {hasImage && (
                 <Image
@@ -121,7 +135,7 @@ export default function PromotionsScreen() {
                     <View style={styles.promoBadge}>
                       <Text style={styles.promoBadgeText}>Exclusivo</Text>
                     </View>
-                    {item.deepLink && (
+                    {deepLink && (
                       <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
                     )}
                   </View>
@@ -149,8 +163,80 @@ export default function PromotionsScreen() {
           <Text style={styles.emptyText}>Vuelve pronto para ver las ofertas del dia.</Text>
         </View>
       )}
+
+      <Modal
+        visible={selectedPromo !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedPromo(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            {selectedPromo?.imagen ? (
+              <Image
+                source={formatImageUrl(selectedPromo.imagen)}
+                style={styles.modalImage}
+                contentFit="cover"
+              />
+            ) : null}
+            <View style={styles.modalBody}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{selectedPromo?.titulo}</Text>
+                <TouchableOpacity style={styles.modalClose} onPress={() => setSelectedPromo(null)}>
+                  <Ionicons name="close" size={20} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+              {selectedPromo?.descripcion ? (
+                <Text style={styles.modalDesc}>{selectedPromo.descripcion}</Text>
+              ) : null}
+
+              {selectedPromo?.code ? (
+                <View style={styles.codeBox}>
+                  <View>
+                    <Text style={styles.codeLabel}>Codigo</Text>
+                    <Text style={styles.codeText}>{selectedPromo.code}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.copyButton} onPress={() => void copyCode(selectedPromo.code)}>
+                    <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.copyButtonText}>Copiar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              {selectedPromo?.expires_at ? (
+                <Text style={styles.expiryText}>Vence: {formatPromoDate(selectedPromo.expires_at)}</Text>
+              ) : null}
+
+              <View style={styles.modalActions}>
+                {getPromoDeepLink(selectedPromo ?? undefined) ? (
+                  <TouchableOpacity
+                    style={styles.primaryAction}
+                    onPress={() => {
+                      const deepLink = getPromoDeepLink(selectedPromo ?? undefined);
+                      setSelectedPromo(null);
+                      handlePromoPress(deepLink);
+                    }}
+                  >
+                    <Text style={styles.primaryActionText}>Ver producto</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
+}
+
+function getPromoDeepLink(promo?: Promocion | null): string | undefined {
+  return promo?.deep_link || promo?.deepLink || undefined;
+}
+
+function formatPromoDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // Vista interna de carga para evitar saltos bruscos en pantalla
@@ -298,5 +384,113 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: Colors.textMuted,
     textAlign: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    overflow: 'hidden',
+    maxHeight: '86%',
+    ...Shadows.card,
+  },
+  modalImage: {
+    width: '100%',
+    height: 190,
+    backgroundColor: '#F3F4F6',
+  },
+  modalBody: {
+    padding: 18,
+    gap: 14,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '900',
+    color: Colors.text,
+  },
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalDesc: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  codeBox: {
+    borderRadius: 14,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  codeLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#9A3412',
+    textTransform: 'uppercase',
+  },
+  codeText: {
+    marginTop: 3,
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '900',
+    color: '#7C2D12',
+  },
+  copyButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    backgroundColor: Colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  copyButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  expiryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textMuted,
+  },
+  modalActions: {
+    flexDirection: 'row',
+  },
+  primaryAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: Colors.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryActionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
   },
 });

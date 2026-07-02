@@ -132,6 +132,108 @@ class HostessController
         Response::success(['reservations' => array_map([$this, 'normalizeReservation'], $rows)]);
     }
 
+    public function tables(): void
+    {
+        $user = $this->requireHostess();
+        $restaurantId = isset($_GET['restaurant_id']) ? (int)$_GET['restaurant_id'] : 0;
+
+        if ($restaurantId <= 0) {
+            Response::validationError(['restaurant_id' => ['Selecciona una sucursal valida']]);
+        }
+        $this->assertAssignedRestaurant((int)$user['id'], $restaurantId, $user);
+
+        if (!$this->tableExists('rest_mesas')) {
+            Response::success(['tables' => [], 'summary' => $this->emptyTableSummary()]);
+        }
+
+        $columns = $this->getTableColumns('rest_mesas');
+        $idColumn = $this->firstExistingColumn($columns, ['id']);
+        $labelColumn = $this->firstExistingColumn($columns, ['numero_mesa', 'numero', 'mesa', 'nombre', 'codigo', 'qr_codigo']);
+        $restaurantColumn = $this->firstExistingColumn($columns, ['restaurante_id', 'sucursal_id', 'branch_id']);
+        $activeColumn = $this->firstExistingColumn($columns, ['activo']);
+        $stateColumn = $this->firstExistingColumn($columns, ['estado']);
+        $orderColumn = $this->firstExistingColumn($columns, ['orden', 'numero_mesa', 'numero', 'mesa', 'nombre', 'id']);
+        $zoneColumn = $this->firstExistingColumn($columns, ['zona_id', 'zone_id']);
+        $zoneColumns = $this->tableExists('rest_zonas') ? $this->getTableColumns('rest_zonas') : [];
+        $zoneIdColumn = $this->firstExistingColumn($zoneColumns, ['id']);
+        $zoneLabelColumn = $this->firstExistingColumn($zoneColumns, ['nombre', 'nombre_zona', 'zona', 'name']);
+        $zoneRestaurantColumn = $this->firstExistingColumn($zoneColumns, ['restaurante_id', 'sucursal_id', 'branch_id']);
+        $canJoinZone = $zoneColumn !== null && $zoneIdColumn !== null && $zoneLabelColumn !== null;
+
+        if ($idColumn === null || $labelColumn === null) {
+            Response::success(['tables' => [], 'summary' => $this->emptyTableSummary()]);
+        }
+
+        $fields = [
+            "m.`{$idColumn}` AS id",
+            "m.`{$labelColumn}` AS mesa_label",
+        ];
+        foreach (['mesero_usuario_id', 'mesero_nombre', 'cliente_nombre', 'reclamada_at'] as $column) {
+            if (in_array($column, $columns, true)) {
+                $fields[] = "m.`{$column}`";
+            }
+        }
+        if ($stateColumn !== null) {
+            $fields[] = "m.`{$stateColumn}` AS mesa_estado";
+        }
+        if ($zoneColumn !== null) {
+            $fields[] = "m.`{$zoneColumn}` AS zona_id";
+        }
+        if ($canJoinZone) {
+            $fields[] = "z.`{$zoneLabelColumn}` AS zona_nombre";
+        }
+
+        $sql = 'SELECT ' . implode(', ', $fields) . ' FROM rest_mesas m';
+        if ($canJoinZone) {
+            $sql .= " LEFT JOIN rest_zonas z ON z.`{$zoneIdColumn}` = m.`{$zoneColumn}`";
+            if ($zoneRestaurantColumn !== null && $restaurantColumn !== null) {
+                $sql .= " AND z.`{$zoneRestaurantColumn}` = m.`{$restaurantColumn}`";
+            }
+        }
+        $sql .= ' WHERE 1 = 1';
+        $params = [];
+        if ($restaurantColumn !== null) {
+            $sql .= " AND m.`{$restaurantColumn}` = :restaurant_id";
+            $params[':restaurant_id'] = $restaurantId;
+        }
+        if ($activeColumn !== null) {
+            $sql .= " AND m.`{$activeColumn}` = 1";
+        }
+        if ($orderColumn !== null) {
+            $sql .= " ORDER BY m.`{$orderColumn}` ASC";
+        }
+
+        $rows = Database::query($sql, $params);
+        $tables = [];
+        foreach ($rows as $row) {
+            $tableId = (int)$row['id'];
+            $account = $this->findOpenTableAccount($restaurantId, $tableId);
+            $rawState = strtolower(trim((string)($row['mesa_estado'] ?? '')));
+            $status = $this->hostessTableStatus($rawState, $account !== null);
+
+            $tables[] = [
+                'id' => $tableId,
+                'label' => $this->formatMesaLabel((string)$row['mesa_label']),
+                'value' => (string)$row['mesa_label'],
+                'status' => $status,
+                'estado' => $row['mesa_estado'] ?? null,
+                'zona_id' => isset($row['zona_id']) && $row['zona_id'] !== null ? (int)$row['zona_id'] : null,
+                'zona_nombre' => $row['zona_nombre'] ?? null,
+                'cliente_nombre' => $row['cliente_nombre'] ?? ($account['cliente_nombre'] ?? null),
+                'mesero_nombre' => $row['mesero_nombre'] ?? ($account['mesero_nombre'] ?? null),
+                'ocupada' => $status !== 'libre',
+                'cuenta_abierta' => $account !== null,
+                'ocupada_desde' => $row['reclamada_at'] ?? ($account['created_at'] ?? null),
+                'total' => $account !== null ? (float)($account['total'] ?? 0) : 0,
+            ];
+        }
+
+        Response::success([
+            'tables' => $tables,
+            'summary' => $this->buildTableSummary($tables),
+        ]);
+    }
+
     public function orders(): void
     {
         $user = $this->requireHostess();
@@ -409,6 +511,119 @@ class HostessController
             'reservas_habilitadas' => (bool)($row['reservas_habilitadas'] ?? false),
             'activo' => (bool)($row['activo'] ?? true),
             'tipos_entrega' => $types,
+        ];
+    }
+
+    private function findOpenTableAccount(int $restaurantId, int $tableId): ?array
+    {
+        if (!$this->tableExists('rest_pedidos')) {
+            return null;
+        }
+
+        $columns = $this->getTableColumns('rest_pedidos');
+        if (!in_array('mesa_id', $columns, true)) {
+            return null;
+        }
+
+        $fields = ['id', 'total', 'created_at'];
+        foreach (['consumo_id', 'cuenta_abierta', 'cliente_nombre', 'mesero_nombre', 'salida_qr_generado_at', 'salida_validado_at', 'pagado_at', 'cerrado_at'] as $column) {
+            if (in_array($column, $columns, true)) {
+                $fields[] = $column;
+            }
+        }
+
+        $sql = 'SELECT ' . implode(', ', array_map(static fn(string $field): string => "`{$field}`", array_unique($fields))) . '
+                  FROM rest_pedidos
+                 WHERE restaurante_id = :restaurant_id
+                   AND mesa_id = :table_id';
+        $params = [':restaurant_id' => $restaurantId, ':table_id' => $tableId];
+
+        if (in_array('cuenta_abierta', $columns, true)) {
+            $sql .= ' AND cuenta_abierta = 1';
+        } else {
+            $sql .= " AND estado NOT IN ('entregado', 'cancelado')";
+        }
+        if (in_array('salida_validado_at', $columns, true)) {
+            $sql .= ' AND salida_validado_at IS NULL';
+        }
+        if (in_array('pagado_at', $columns, true)) {
+            $sql .= ' AND pagado_at IS NULL';
+        }
+        if (in_array('cerrado_at', $columns, true)) {
+            $sql .= ' AND cerrado_at IS NULL';
+        }
+
+        $sql .= ' ORDER BY created_at ASC, id ASC';
+        $orders = Database::query($sql, $params);
+        if (!$orders) {
+            return null;
+        }
+
+        $total = 0.0;
+        $latest = $orders[count($orders) - 1];
+        foreach ($orders as $order) {
+            $total += (float)($order['total'] ?? 0);
+        }
+        $latest['total'] = $total;
+        return $latest;
+    }
+
+    private function hostessTableStatus(string $rawState, bool $hasOpenAccount): string
+    {
+        if ($hasOpenAccount) {
+            return 'ocupada';
+        }
+        if (in_array($rawState, ['reservada', 'reserved'], true)) {
+            return 'reservada';
+        }
+        if (in_array($rawState, ['pagando', 'payment', 'paying'], true)) {
+            return 'pagando';
+        }
+        if (in_array($rawState, ['ocupada', 'occupied'], true)) {
+            return 'ocupada';
+        }
+
+        return 'libre';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $tables
+     */
+    private function buildTableSummary(array $tables): array
+    {
+        $summary = $this->emptyTableSummary();
+        $summary['total'] = count($tables);
+
+        foreach ($tables as $table) {
+            $status = (string)($table['status'] ?? 'libre');
+            if ($status === 'libre') {
+                $summary['libres']++;
+            } elseif ($status === 'reservada') {
+                $summary['reservadas']++;
+            } else {
+                $summary['ocupadas']++;
+            }
+        }
+
+        $summary['wait_minutes'] = $summary['libres'] > 0
+            ? 0
+            : min(90, max(15, $summary['ocupadas'] * 5));
+        $summary['wait_label'] = $summary['wait_minutes'] === 0
+            ? 'Sin espera'
+            : $summary['wait_minutes'] . ' min aprox.';
+
+        return $summary;
+    }
+
+    private function emptyTableSummary(): array
+    {
+        return [
+            'total' => 0,
+            'libres' => 0,
+            'ocupadas' => 0,
+            'reservadas' => 0,
+            'wait_minutes' => 0,
+            'wait_label' => 'Sin espera',
         ];
     }
 

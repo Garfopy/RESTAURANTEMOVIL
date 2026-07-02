@@ -8,13 +8,52 @@ use Amare\Api\Config\Database;
 
 class Promotion
 {
+    private static array $tableColumns = [];
+
+    private static function columnExists(string $column): bool
+    {
+        if (!isset(self::$tableColumns['mobile_promociones'])) {
+            $columns = Database::query('SHOW COLUMNS FROM mobile_promociones');
+            self::$tableColumns['mobile_promociones'] = array_values(array_map(
+                static fn(array $row): string => (string)($row['Field'] ?? ''),
+                $columns
+            ));
+        }
+
+        return in_array($column, self::$tableColumns['mobile_promociones'], true);
+    }
+
+    private static function selectColumns(string $alias = ''): string
+    {
+        $prefix = $alias !== '' ? $alias . '.' : '';
+        $fields = [
+            "{$prefix}id",
+            "{$prefix}usuario_id",
+        ];
+
+        if (self::columnExists('platillo_id')) {
+            $fields[] = "{$prefix}platillo_id";
+        }
+
+        return implode(', ', array_merge($fields, [
+            "{$prefix}titulo",
+            "{$prefix}descripcion",
+            "{$prefix}imagen",
+            "{$prefix}deep_link",
+            "{$prefix}code",
+            "{$prefix}activo",
+            "{$prefix}expires_at",
+            "{$prefix}created_at",
+        ]));
+    }
+
     /**
      * Obtener promociones activas de un usuario específico (app móvil).
      * Filtra por activo = 1 y que no hayan expirado.
      */
     public static function getByUser(int $userId): array
     {
-        $sql = "SELECT id, usuario_id, titulo, descripcion, imagen, deep_link, code, activo, expires_at, created_at
+        $sql = "SELECT " . self::selectColumns() . "
                 FROM mobile_promociones
                 WHERE activo = 1
                   AND usuario_id = :usuario_id
@@ -30,7 +69,7 @@ class Promotion
      */
     public static function getAll(?int $userId = null): array
     {
-        $sql = "SELECT id, usuario_id, titulo, descripcion, imagen, deep_link, code, activo, expires_at, created_at
+        $sql = "SELECT " . self::selectColumns() . "
                 FROM mobile_promociones
                 WHERE activo = 1
                   AND (expires_at IS NULL OR expires_at > NOW())";
@@ -62,16 +101,7 @@ class Promotion
         }
 
         $sql = "SELECT
-                    p.id,
-                    p.usuario_id,
-                    p.titulo,
-                    p.descripcion,
-                    p.imagen,
-                    p.deep_link,
-                    p.code,
-                    p.activo,
-                    p.expires_at,
-                    p.created_at,
+                    " . self::selectColumns('p') . ",
                     u.nombre  AS usuario_nombre,
                     u.email   AS usuario_email
                 FROM mobile_promociones p
@@ -110,16 +140,7 @@ class Promotion
     public static function findById(int $id): ?array
     {
         $sql = "SELECT
-                    p.id,
-                    p.usuario_id,
-                    p.titulo,
-                    p.descripcion,
-                    p.imagen,
-                    p.deep_link,
-                    p.code,
-                    p.activo,
-                    p.expires_at,
-                    p.created_at,
+                    " . self::selectColumns('p') . ",
                     u.nombre  AS usuario_nombre,
                     u.email   AS usuario_email
                 FROM mobile_promociones p
@@ -137,12 +158,9 @@ class Promotion
      */
     public static function create(array $data, int $createdBy): int
     {
-        $sql = "INSERT INTO mobile_promociones
-                    (usuario_id, titulo, descripcion, imagen, deep_link, code, activo, expires_at, created_at, created_by)
-                VALUES
-                    (:usuario_id, :titulo, :descripcion, :imagen, :deep_link, :code, :activo, :expires_at, NOW(), :created_by)";
-
-        return Database::execute($sql, [
+        $columns = ['usuario_id', 'titulo', 'descripcion', 'imagen', 'deep_link', 'code', 'activo', 'expires_at', 'created_at', 'created_by'];
+        $values = [':usuario_id', ':titulo', ':descripcion', ':imagen', ':deep_link', ':code', ':activo', ':expires_at', 'NOW()', ':created_by'];
+        $params = [
             ':usuario_id'  => $data['usuario_id'],
             ':titulo'      => $data['titulo'],
             ':descripcion' => $data['descripcion'] ?? null,
@@ -152,7 +170,18 @@ class Promotion
             ':activo'      => $data['activo'] ?? 1,
             ':expires_at'  => $data['expires_at'] ?? null,
             ':created_by'  => $createdBy,
-        ]);
+        ];
+
+        if (self::columnExists('platillo_id')) {
+            array_splice($columns, 1, 0, 'platillo_id');
+            array_splice($values, 1, 0, ':platillo_id');
+            $params[':platillo_id'] = !empty($data['platillo_id']) ? (int)$data['platillo_id'] : null;
+        }
+
+        $sql = 'INSERT INTO mobile_promociones (' . implode(', ', $columns) . ')
+                VALUES (' . implode(', ', $values) . ')';
+
+        return Database::execute($sql, $params);
     }
 
     /**
@@ -165,6 +194,9 @@ class Promotion
         $params = [':id' => $id, ':updated_by' => $updatedBy];
 
         $allowed = ['titulo', 'descripcion', 'imagen', 'deep_link', 'code', 'activo', 'expires_at', 'usuario_id'];
+        if (self::columnExists('platillo_id')) {
+            $allowed[] = 'platillo_id';
+        }
 
         foreach ($allowed as $key) {
             if (array_key_exists($key, $data)) {
@@ -211,9 +243,9 @@ class Promotion
      */
     public static function validateCode(string $code, ?int $userId = null): ?array
     {
-        $sql = "SELECT id, usuario_id, titulo, descripcion, imagen, deep_link, code, activo, expires_at, created_at
+        $sql = "SELECT " . self::selectColumns() . "
                 FROM mobile_promociones
-                WHERE code = :code
+                WHERE UPPER(code) = UPPER(:code)
                   AND activo = 1
                   AND (expires_at IS NULL OR expires_at > NOW())";
 
@@ -232,7 +264,154 @@ class Promotion
 
     /**
      * Verificar si un código ya existe (para evitar duplicados al crear admin).
+     * Cotiza un codigo promocional contra los productos del carrito.
      */
+    public static function quoteCode(string $code, int $userId, array $items): ?array
+    {
+        $promotion = self::validateCode(trim($code), $userId);
+        if (!$promotion) {
+            return null;
+        }
+
+        $normalizedItems = self::normalizeCartItems($items);
+        if (empty($normalizedItems)) {
+            throw new \DomainException('Agrega productos al carrito para usar este codigo.');
+        }
+
+        $productIds = self::extractProductIds($promotion);
+        $eligibleItems = [];
+        foreach ($normalizedItems as $item) {
+            if (!empty($productIds) && !in_array((int)$item['product_id'], $productIds, true)) {
+                continue;
+            }
+            $eligibleItems[] = $item;
+        }
+
+        if (empty($eligibleItems)) {
+            throw new \DomainException('Este codigo no es valido para los productos de tu carrito.');
+        }
+
+        $subtotal = self::sumItems($normalizedItems);
+        $eligibleSubtotal = self::sumItems($eligibleItems);
+        $discount = self::calculateDiscount($promotion, $eligibleItems, $eligibleSubtotal);
+
+        if ($discount <= 0) {
+            throw new \DomainException('Este codigo no cumple las condiciones para tu carrito.');
+        }
+
+        $discount = min($discount, $eligibleSubtotal, $subtotal);
+
+        return [
+            'promotion' => $promotion,
+            'code' => $promotion['code'],
+            'discount' => round($discount, 2),
+            'subtotal' => round($subtotal, 2),
+            'eligible_subtotal' => round($eligibleSubtotal, 2),
+            'total' => round(max(0, $subtotal - $discount), 2),
+            'applicable_product_ids' => $productIds,
+        ];
+    }
+
+    private static function normalizeCartItems(array $items): array
+    {
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $productId = (int)($item['product_id'] ?? $item['platillo_id'] ?? $item['id'] ?? 0);
+            $quantity = max(0, (int)($item['quantity'] ?? $item['cantidad'] ?? $item['qty'] ?? 0));
+            $unitPrice = round((float)($item['unit_price'] ?? $item['precio_unit'] ?? $item['price'] ?? 0), 2);
+            $origin = (string)($item['origen'] ?? 'menu');
+
+            if ($productId <= 0 || $quantity <= 0 || $unitPrice <= 0 || $origin !== 'menu') {
+                continue;
+            }
+
+            $normalized[] = [
+                'product_id' => $productId,
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private static function extractProductIds(array $promotion): array
+    {
+        if (!empty($promotion['platillo_id'])) {
+            return [(int)$promotion['platillo_id']];
+        }
+
+        $deepLink = (string)($promotion['deep_link'] ?? '');
+        $ids = [];
+
+        if (preg_match_all('#/product/(\d+)#', $deepLink, $matches)) {
+            foreach ($matches[1] as $id) {
+                $ids[] = (int)$id;
+            }
+        }
+        if (preg_match_all('/(?:product_id|platillo_id)=([0-9]+)/', $deepLink, $matches)) {
+            foreach ($matches[1] as $id) {
+                $ids[] = (int)$id;
+            }
+        }
+
+        return array_values(array_unique(array_filter($ids, static fn(int $id): bool => $id > 0)));
+    }
+
+    private static function sumItems(array $items): float
+    {
+        return array_reduce(
+            $items,
+            static fn(float $sum, array $item): float => $sum + ((float)$item['unit_price'] * (int)$item['quantity']),
+            0.0
+        );
+    }
+
+    private static function calculateDiscount(array $promotion, array $items, float $eligibleSubtotal): float
+    {
+        $text = strtoupper(trim(implode(' ', [
+            (string)($promotion['titulo'] ?? ''),
+            (string)($promotion['descripcion'] ?? ''),
+            (string)($promotion['code'] ?? ''),
+        ])));
+
+        if (preg_match('/2\s*X\s*1/', $text) === 1) {
+            $discount = 0.0;
+            foreach ($items as $item) {
+                $discount += floor((int)$item['quantity'] / 2) * (float)$item['unit_price'];
+            }
+            return round($discount, 2);
+        }
+
+        if (preg_match('/(\d{1,2})\s*%/', $text, $matches) === 1) {
+            $percent = min(100, max(1, (int)$matches[1]));
+            return round($eligibleSubtotal * ($percent / 100), 2);
+        }
+
+        if (preg_match('/(?:A\s+SOLO|SOLO)\s*\$?\s*(\d+(?:[.,]\d+)?)/', $text, $matches) === 1) {
+            $promoPrice = (float)str_replace(',', '.', $matches[1]);
+            return round(max(0, $eligibleSubtotal - $promoPrice), 2);
+        }
+
+        if (str_contains($text, 'GRATIS') || str_contains($text, 'REGALO')) {
+            $unitPrices = array_map(static fn(array $item): float => (float)$item['unit_price'], $items);
+            return round(min($unitPrices ?: [0]), 2);
+        }
+
+        if (
+            (str_contains($text, 'DESCUENTO') || str_contains($text, ' OFF') || str_contains($text, 'OFF '))
+            && preg_match('/\$?\s*(\d+(?:[.,]\d+)?)\s*(?:MXN|PESOS)?/', $text, $matches) === 1
+        ) {
+            return round((float)str_replace(',', '.', $matches[1]), 2);
+        }
+
+        return 0.0;
+    }
+
     public static function codeExists(string $code, ?int $excludeId = null): bool
     {
         $sql = "SELECT COUNT(*) as cnt FROM mobile_promociones WHERE code = :code";

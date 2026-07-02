@@ -40,6 +40,7 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     mesa_id: payload.mesa_id ?? null,
     consumo_por_mesa: payload.consumo_por_mesa ?? (payload.tipo_pedido === 'eat_in' && payload.mesa_id != null),
     payment_intent_id: payload.payment_intent_id ?? null,
+    promo_code: payload.promo_code ?? null,
     notas: payload.notas ?? null,
   });
 
@@ -153,6 +154,7 @@ export async function confirmPayment(params: {
   pedido_id: number;
   metodo: MetodoPago;
   use_points?: boolean;
+  promo_code?: string;
 }) {
   const { data } = await apiClient.post<{
     success: boolean;
@@ -162,6 +164,7 @@ export async function confirmPayment(params: {
     payment_intent_id: params.payment_intent_id ?? '',
     metodo: params.metodo,
     use_points: params.use_points ?? false,
+    promo_code: params.promo_code ?? null,
   });
 
   if (!data?.data) {

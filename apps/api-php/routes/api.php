@@ -62,6 +62,7 @@ $routes = [
 
     // Hostess routes
     ['GET', '/hostess/branches', ['Amare\Api\Controllers\HostessController', 'branches']],
+    ['GET', '/hostess/tables', ['Amare\Api\Controllers\HostessController', 'tables']],
     ['GET', '/hostess/orders', ['Amare\Api\Controllers\HostessController', 'orders']],
     ['POST', '/hostess/orders/:id/complete', ['Amare\Api\Controllers\HostessController', 'completeOrder']],
     ['GET', '/hostess/reservations', ['Amare\Api\Controllers\HostessController', 'reservations']],
@@ -130,6 +131,7 @@ $routes = [
     
     // Promotions routes (app movil - SOLO LECTURA)
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],
+    ['POST', '/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'validateCode']],
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
 
     // Admin - Promotions routes (panel web, requiere rol=admin)

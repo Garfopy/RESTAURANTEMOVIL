@@ -927,8 +927,8 @@ export default function WaiterTableScreen() {
       />
 
       <Modal visible={menuVisible} animationType="slide" onRequestClose={() => setMenuVisible(false)}>
-        <SafeAreaView style={styles.modalSafe} edges={['top', 'left', 'right']}>
-          <View style={styles.menuHeader}>
+        <SafeAreaView style={styles.modalSafe} edges={['left', 'right']}>
+          <View style={[styles.menuHeader, { paddingTop: Math.max(insets.top + 8, 14) }]}>
             <TouchableOpacity style={styles.iconButton} onPress={() => setMenuVisible(false)} activeOpacity={0.8}>
               <Ionicons name="close" size={22} color="#111827" />
             </TouchableOpacity>

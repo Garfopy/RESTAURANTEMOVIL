@@ -97,6 +97,7 @@ export type WaiterIncomingOrder = {
   consumo_id?: string | null;
   created_at?: string | null;
   items_count: number;
+  items?: WaiterAccountItem[];
 };
 
 export type WaiterOrderItemPayload = {
@@ -249,6 +250,16 @@ export async function getWaiterIncomingOrders(restaurantId: number): Promise<Wai
     total: Number(order.total || 0),
     table_id: Number(order.table_id || 0),
     items_count: Number(order.items_count || 0),
+    items: (order.items ?? []).map((item) => ({
+      ...item,
+      id: Number(item.id || 0),
+      pedido_id: Number(item.pedido_id || 0),
+      platillo_id: Number(item.platillo_id || 0),
+      cantidad: Number(item.cantidad || 0),
+      precio_unit: Number(item.precio_unit || 0),
+      subtotal: Number(item.subtotal || 0),
+      imagen: formatImageUrl(item.imagen ?? null) ?? item.imagen ?? null,
+    })),
   }));
 }
 

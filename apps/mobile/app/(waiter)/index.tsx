@@ -15,7 +15,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  type GestureResponderEvent,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,8 +24,6 @@ import * as Haptics from 'expo-haptics';
 import { getApiError } from '../../services/api';
 import {
   claimWaiterTable,
-  claimWaiterIncomingOrder,
-  deliverWaiterIncomingOrder,
   getWaiterBranches,
   getWaiterGifts,
   getWaiterIncomingOrders,
@@ -96,8 +93,6 @@ export default function WaiterHomeScreen() {
   const [claiming, setClaiming] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TableFilter>('all');
-  const [incomingExpanded, setIncomingExpanded] = useState(false);
-  const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
   const [tableGrouping, setTableGrouping] = useState<'status' | 'zone'>('status');
   const seenGiftIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
   const seenClientOrderIds = useRef<{ branchId: number | null; ids: Set<number> }>({ branchId: null, ids: new Set() });
@@ -144,7 +139,6 @@ export default function WaiterHomeScreen() {
 
   const giftInbox = giftsQuery.data ?? { active: [], history: [], pending_count: 0 };
   const incomingOrders = incomingOrdersQuery.data ?? [];
-  const visibleIncomingOrders = incomingExpanded ? incomingOrders : incomingOrders.slice(0, 4);
   const incomingOrderByTable = useMemo(() => incomingOrders.reduce<Record<number, WaiterIncomingOrder>>((map, order) => {
     if (!map[order.table_id]) {
       map[order.table_id] = order;
@@ -319,22 +313,6 @@ export default function WaiterHomeScreen() {
     return { mine, support, free, total };
   }, [incomingOrderByTable, tables, user?.id]);
 
-  function openIncomingOrder(order: WaiterIncomingOrder) {
-    if (!selectedBranch) return;
-    const table = tables.find((item) => item.id === order.table_id);
-    router.push({
-      pathname: '/(waiter)/table/[id]',
-      params: {
-        id: String(order.table_id),
-        restaurantId: String(selectedBranch.id),
-        tableLabel: table?.label ?? order.table_label,
-        clienteNombre: order.cliente_nombre ?? table?.cliente_nombre ?? 'Cliente app',
-        meseroNombre: table?.mesero_nombre ?? order.mesero_nombre ?? '',
-        supportMode: table?.mesero_usuario_id && table.mesero_usuario_id !== user?.id ? '1' : '0',
-      },
-    });
-  }
-
   function openTable(table: WaiterTable) {
     if (!selectedBranch) return;
 
@@ -402,97 +380,6 @@ export default function WaiterHomeScreen() {
           <Text style={styles.tableTotal}>{effectiveTotal > 0 ? money(effectiveTotal) : 'Sin consumo'}</Text>
           <Text style={styles.tableHint}>{table.status === 'libre' && !incomingOrder ? 'Reclamar' : 'Abrir'}</Text>
         </View>
-      </TouchableOpacity>
-    );
-  }
-
-  async function handleClaimIncomingOrder(order: WaiterIncomingOrder, event?: GestureResponderEvent) {
-    event?.stopPropagation();
-    if (!selectedBranch || updatingOrderId) return;
-
-    try {
-      setUpdatingOrderId(order.id);
-      await claimWaiterIncomingOrder(order.id, selectedBranch.id);
-      await Promise.all([incomingOrdersQuery.refetch(), tablesQuery.refetch()]);
-      toast.success(`Comanda reclamada en ${order.table_label}`);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      Alert.alert('No se pudo reclamar', getApiError(error));
-    } finally {
-      setUpdatingOrderId(null);
-    }
-  }
-
-  async function handleDeliverIncomingOrder(order: WaiterIncomingOrder, event?: GestureResponderEvent) {
-    event?.stopPropagation();
-    if (!selectedBranch || updatingOrderId) return;
-
-    try {
-      setUpdatingOrderId(order.id);
-      await deliverWaiterIncomingOrder(order.id, selectedBranch.id);
-      await Promise.all([incomingOrdersQuery.refetch(), tablesQuery.refetch()]);
-      toast.success(`Comanda entregada en ${order.table_label}`);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      Alert.alert('No se pudo entregar', getApiError(error));
-    } finally {
-      setUpdatingOrderId(null);
-    }
-  }
-
-  function renderIncomingOrder(order: WaiterIncomingOrder) {
-    const updating = updatingOrderId === order.id;
-    const actionLabel = !order.claimed_by_me
-      ? 'Reclamar'
-      : order.is_ready
-        ? 'Entregar'
-        : 'En cocina';
-    const actionDisabled = updating || (Boolean(order.claimed_by_me) && !order.is_ready);
-    const statusLabel = order.is_ready ? 'Listo para entregar' : 'En cocina';
-
-    return (
-      <TouchableOpacity
-        key={order.id}
-        style={styles.incomingOrderCard}
-        activeOpacity={0.88}
-        onPress={() => openIncomingOrder(order)}
-      >
-        <View style={styles.incomingOrderIcon}>
-          <Ionicons name="phone-portrait-outline" size={18} color="#FFFFFF" />
-        </View>
-        <View style={styles.incomingOrderCopy}>
-          <Text style={styles.incomingOrderTitle} numberOfLines={1}>
-            {order.table_label} - {order.items_count} productos
-          </Text>
-          <Text style={styles.incomingOrderText} numberOfLines={1}>
-            {order.cliente_nombre || 'Cliente app'} - {money(order.total)}
-          </Text>
-          <Text style={[styles.incomingOrderStatus, order.is_ready && styles.incomingOrderStatusReady]} numberOfLines={1}>
-            {statusLabel}{order.mesero_nombre ? ` - ${order.mesero_nombre}` : ''}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={[
-            styles.incomingOrderAction,
-            order.claimed_by_me && order.is_ready && styles.incomingOrderActionReady,
-            actionDisabled && styles.incomingOrderActionDisabled,
-          ]}
-          activeOpacity={0.82}
-          disabled={actionDisabled}
-          onPress={(event) => {
-            if (!order.claimed_by_me) {
-              void handleClaimIncomingOrder(order, event);
-              return;
-            }
-            void handleDeliverIncomingOrder(order, event);
-          }}
-        >
-          {updating ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.incomingOrderActionText}>{actionLabel}</Text>
-          )}
-        </TouchableOpacity>
       </TouchableOpacity>
     );
   }
@@ -681,7 +568,7 @@ export default function WaiterHomeScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {incomingOrders.length > 0 ? (
+          {false && incomingOrders.length > 0 ? (
             <View style={styles.incomingPanel}>
               <View style={styles.incomingHeader}>
                 <View>
@@ -691,23 +578,23 @@ export default function WaiterHomeScreen() {
                 {incomingOrdersQuery.isRefetching ? <ActivityIndicator size="small" color="#92400E" /> : null}
               </View>
               <ScrollView
-                style={incomingExpanded ? styles.incomingListExpanded : undefined}
+                style={undefined}
                 nestedScrollEnabled
-                showsVerticalScrollIndicator={incomingExpanded}
+                showsVerticalScrollIndicator={false}
               >
-                {visibleIncomingOrders.map(renderIncomingOrder)}
+                {null}
               </ScrollView>
               {incomingOrders.length > 4 ? (
                 <TouchableOpacity
                   style={styles.incomingToggle}
                   activeOpacity={0.82}
-                  onPress={() => setIncomingExpanded((current) => !current)}
+                  onPress={() => undefined}
                 >
                   <Text style={styles.incomingToggleText}>
-                    {incomingExpanded ? 'Mostrar menos' : `Ver ${incomingOrders.length - 4} más`}
+                    {`Ver ${incomingOrders.length - 4} más`}
                   </Text>
                   <Ionicons
-                    name={incomingExpanded ? 'chevron-up' : 'chevron-down'}
+                    name="chevron-down"
                     size={17}
                     color="#C2410C"
                   />
