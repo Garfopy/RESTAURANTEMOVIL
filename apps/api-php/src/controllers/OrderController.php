@@ -8,6 +8,7 @@ use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
+use Amare\Api\Models\InvoiceRequest;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\Product;
 use Amare\Api\Models\User;
@@ -49,6 +50,13 @@ class OrderController
             } catch (\InvalidArgumentException $exception) {
                 Response::validationError(['promo_code' => [$exception->getMessage()]]);
             }
+        }
+
+        try {
+            InvoiceRequest::validateForPayment((int)($order['restaurante_id'] ?? 0), $input['invoice_request'] ?? null);
+        } catch (\InvalidArgumentException $exception) {
+            $errors = json_decode($exception->getMessage(), true);
+            Response::validationError(is_array($errors) ? $errors : ['invoice_request' => [$exception->getMessage()]]);
         }
 
         $paymentIntentId = $input['payment_intent_id'] ?? null;
@@ -96,6 +104,8 @@ class OrderController
                 }
             }
 
+            $invoiceRequest = $this->createInvoiceRequestForOrder($order ?? [], $input, (int)$user->id, $metodo);
+
             Response::success([
                 'ok' => true,
                 'pedido_id' => $order['id'],
@@ -103,6 +113,8 @@ class OrderController
                 'metodo_pago' => $metodo,
                 'reward' => $reward,
                 'exit_pass' => $exitPass,
+                'invoice_request' => $invoiceRequest,
+                'invoice_request_id' => $invoiceRequest['id'] ?? null,
             ], 'Pago con Saldo Amare confirmado');
         }
 
@@ -150,6 +162,8 @@ class OrderController
             }
         }
 
+        $invoiceRequest = $this->createInvoiceRequestForOrder($order ?? [], $input, (int)$user->id, $metodo);
+
         Response::success([
             'ok' => true,
             'pedido_id' => $order['id'],
@@ -157,7 +171,37 @@ class OrderController
             'metodo_pago' => $metodo,
             'reward' => $reward,
             'exit_pass' => $exitPass,
+            'invoice_request' => $invoiceRequest,
+            'invoice_request_id' => $invoiceRequest['id'] ?? null,
         ], 'Pago confirmado exitosamente');
+    }
+
+    private function createInvoiceRequestForOrder(array $order, array $input, int $userId, string $paymentMethod): ?array
+    {
+        $payload = $input['invoice_request'] ?? null;
+        if (!is_array($payload) || !InvoiceRequest::isRequired($payload)) {
+            return null;
+        }
+
+        try {
+            return InvoiceRequest::createFromPayment([
+                'restaurante_id' => (int)($order['restaurante_id'] ?? 0),
+                'pedido_id' => (int)($order['id'] ?? 0),
+                'consumo_id' => $order['consumo_id'] ?? null,
+                'mesa_id' => $order['mesa_id'] ?? null,
+                'mobile_usuario_id' => $userId,
+                'solicitado_por_usuario_id' => $userId,
+                'origen' => 'cliente',
+                'scope' => 'pedido',
+                'monto' => (float)($order['total'] ?? $order['subtotal'] ?? 0),
+                'metodo_pago' => $paymentMethod,
+            ], $payload);
+        } catch (\InvalidArgumentException $exception) {
+            $errors = json_decode($exception->getMessage(), true);
+            Response::validationError(is_array($errors) ? $errors : ['invoice_request' => [$exception->getMessage()]]);
+        }
+
+        return null;
     }
 
     public function exitPass(int $id): void

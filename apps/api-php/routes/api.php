@@ -84,6 +84,10 @@ $routes = [
     ['PUT', '/profile', ['Amare\Api\Controllers\ProfileController', 'update']],
     ['GET', '/profile/orders', ['Amare\Api\Controllers\ProfileController', 'orders']],
     ['POST', '/profile/avatar', ['Amare\Api\Controllers\ProfileController', 'updateAvatar']],
+    ['GET', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'show']],
+    ['POST', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'store']],
+    ['PUT', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'update']],
+    ['DELETE', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'destroy']],
     
     // Address routes
     ['GET', '/profile/addresses', ['Amare\Api\Controllers\AddressController', 'index']],
@@ -143,6 +147,11 @@ $routes = [
     ['PUT', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'adminUpdate']],
     ['DELETE', '/admin/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'adminDestroy']],
     ['PUT', '/admin/promotions/:id/deactivate', ['Amare\Api\Controllers\PromotionsController', 'adminDeactivate']],
+
+    // Admin - Invoice requests routes (panel web, requiere rol=admin)
+    ['GET', '/admin/invoice-requests', ['Amare\Api\Controllers\InvoiceRequestController', 'adminIndex']],
+    ['GET', '/admin/invoice-requests/:id', ['Amare\Api\Controllers\InvoiceRequestController', 'adminShow']],
+    ['PUT', '/admin/invoice-requests/:id', ['Amare\Api\Controllers\InvoiceRequestController', 'adminUpdate']],
 
     // Admin - Users routes (panel web, requiere rol=admin)
     ['GET', '/admin/users', ['Amare\Api\Controllers\AdminController', 'users']],

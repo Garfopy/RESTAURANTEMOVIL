@@ -26,6 +26,13 @@ import type { Modificador, ModificadorSeleccionado, OpcionModificador, Platillo 
 import { getCategories, getDishById, getDishes } from '../../../services/menu.service';
 import { getApiError } from '../../../services/api';
 import {
+  EMPTY_FISCAL_DATA,
+  buildInvoiceRequest,
+  getFiscalData,
+  validateFiscalData,
+  type FiscalData,
+} from '../../../services/fiscal.service';
+import {
   closeWaiterAccount,
   createWaiterOrder,
   getWaiterAccount,
@@ -41,6 +48,7 @@ import {
   type WaiterTicketLine,
   type WaiterTicketStatus,
 } from '../../../components/waiter/WaiterTicketPreviewModal';
+import { InvoiceRequestForm } from '../../../components/shared/InvoiceRequestForm';
 
 const PLACEHOLDER_FOOD = require('../../../assets/placeholder-food.jpg');
 
@@ -202,6 +210,9 @@ export default function WaiterTableScreen() {
   const [paymentMethod, setPaymentMethod] = useState<WaiterPaymentMethod>('efectivo');
   const [tipMode, setTipMode] = useState<TipMode>('none');
   const [customTip, setCustomTip] = useState('');
+  const [invoiceRequired, setInvoiceRequired] = useState(false);
+  const [invoiceSaveToProfile, setInvoiceSaveToProfile] = useState(true);
+  const [invoiceFiscalData, setInvoiceFiscalData] = useState<FiscalData>(EMPTY_FISCAL_DATA);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [menuSearch, setMenuSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Platillo | null>(null);
@@ -215,7 +226,9 @@ export default function WaiterTableScreen() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const resumedSplitId = useRef<number | null>(null);
   const configVersion = useBranchConfigStore((state) => state.branchId === restaurantId ? state.version : 0);
+  const config = useBranchConfigStore((state) => state.branchId === restaurantId ? state.config : null);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+  const invoiceEnabled = Boolean(config?.facturacion?.habilitada);
 
   const waiterCart = useWaiterCartStore();
   const cartItems = waiterCart.tableId === tableId && waiterCart.restaurantId === restaurantId ? waiterCart.items : [];
@@ -286,6 +299,24 @@ export default function WaiterTableScreen() {
       setPendingReviewVisible(false);
     }
   }, [cartItems.length, pendingReviewVisible]);
+
+  useEffect(() => {
+    if (!invoiceEnabled) {
+      setInvoiceRequired(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadFiscalData() {
+      const saved = await getFiscalData().catch(() => null);
+      if (!cancelled && saved) setInvoiceFiscalData(saved);
+    }
+
+    void loadFiscalData();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceEnabled]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -493,6 +524,13 @@ export default function WaiterTableScreen() {
       return;
     }
 
+    const invoiceValidation = invoiceRequired ? validateFiscalData(invoiceFiscalData) : null;
+    if (invoiceValidation) {
+      Alert.alert('Datos fiscales incompletos', invoiceValidation);
+      return;
+    }
+    const invoiceRequest = buildInvoiceRequest(invoiceRequired, invoiceFiscalData, invoiceSaveToProfile);
+
     try {
       setClosing(true);
       await closeWaiterAccount({
@@ -500,6 +538,7 @@ export default function WaiterTableScreen() {
         restaurantId,
         metodoPago: paymentMethod,
         propina: selectedTipAmount,
+        invoiceRequest,
       });
       waiterCart.clear();
       setCloseVisible(false);
@@ -509,6 +548,9 @@ export default function WaiterTableScreen() {
       setTicketLines(accountTicketLines);
       setTicketTipAmount(selectedTipAmount);
       setTicketCloseAction('goBack');
+      if (invoiceRequest) {
+        Alert.alert('Solicitud de factura recibida', 'La solicitud quedo registrada para esta cuenta.');
+      }
       showTicketAfterModalTransition();
     } catch (error) {
       Alert.alert('No se pudo cerrar', getApiError(error));
@@ -908,6 +950,7 @@ export default function WaiterTableScreen() {
         tableLabel={tableLabel}
         items={sentItems}
         activeSplit={activeSplit}
+        invoiceEnabled={invoiceEnabled}
         onClose={() => setSplitVisible(false)}
         onSplitChanged={() => { void accountQuery.refetch(); }}
         onPreviewTicket={openSplitTicketPreview}
@@ -1249,6 +1292,7 @@ export default function WaiterTableScreen() {
             ]}
             onPress={(event) => event.stopPropagation()}
           >
+            <ScrollView contentContainerStyle={styles.closeModalContent} showsVerticalScrollIndicator={false}>
             <View style={styles.sheetHandle} />
             <Text style={styles.closeTitle}>Cerrar cuenta</Text>
             <Text style={styles.closeText}>Selecciona el método de pago para liberar {tableLabel}.</Text>
@@ -1297,6 +1341,17 @@ export default function WaiterTableScreen() {
               ) : null}
             </View>
 
+            <InvoiceRequestForm
+              enabled={invoiceEnabled}
+              required={invoiceRequired}
+              data={invoiceFiscalData}
+              saveToProfile={invoiceSaveToProfile}
+              disabled={closing}
+              onRequiredChange={setInvoiceRequired}
+              onDataChange={setInvoiceFiscalData}
+              onSaveToProfileChange={setInvoiceSaveToProfile}
+            />
+
             {([
               ['efectivo', 'Efectivo'],
               ['tarjeta', 'Tarjeta'],
@@ -1327,6 +1382,7 @@ export default function WaiterTableScreen() {
                 {closing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmCloseText}>Cerrar cuenta</Text>}
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -2413,12 +2469,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   closeModal: {
+    maxHeight: '92%',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 18,
     paddingTop: 10,
     paddingBottom: 22,
+  },
+  closeModalContent: {
+    paddingBottom: 4,
   },
   closeTitle: {
     fontSize: 22,

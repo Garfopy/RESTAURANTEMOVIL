@@ -107,6 +107,37 @@ class ConfigController
             }
         }
 
+        if (isset($input['facturacion'])) {
+            if (!is_array($input['facturacion'])) {
+                Response::validationError(['facturacion' => ['La configuracion de facturacion no es valida']]);
+            }
+
+            if (array_key_exists('habilitada', $input['facturacion'])) {
+                $data['facturacion_habilitada'] = (bool)$input['facturacion']['habilitada'];
+            }
+
+            if (array_key_exists('emisor', $input['facturacion'])) {
+                $emisor = $input['facturacion']['emisor'];
+                if ($emisor !== null && !is_array($emisor)) {
+                    Response::validationError(['facturacion.emisor' => ['Los datos del emisor no son validos']]);
+                }
+                $data['facturacion_emisor'] = $emisor !== null ? [
+                    'rfc' => strtoupper(trim((string)($emisor['rfc'] ?? ''))),
+                    'nombre_fiscal' => trim((string)($emisor['nombre_fiscal'] ?? $emisor['razon_social'] ?? '')),
+                    'regimen_fiscal' => strtoupper(trim((string)($emisor['regimen_fiscal'] ?? ''))),
+                    'codigo_postal' => trim((string)($emisor['codigo_postal'] ?? $emisor['cp'] ?? '')),
+                ] : null;
+            }
+
+            if (array_key_exists('email_notificacion', $input['facturacion'])) {
+                $email = strtolower(trim((string)($input['facturacion']['email_notificacion'] ?? '')));
+                if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    Response::validationError(['facturacion.email_notificacion' => ['Ingresa un email valido']]);
+                }
+                $data['facturacion_email_notificacion'] = $email !== '' ? $email : null;
+            }
+        }
+
         $success = RestaurantConfig::upsert($restauranteId, $data);
 
         if (!$success && empty($data)) {

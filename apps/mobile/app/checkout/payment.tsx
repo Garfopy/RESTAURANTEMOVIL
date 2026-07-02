@@ -21,10 +21,18 @@ import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { confirmPayment, createOrder, createPaymentIntent, getOrderById } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
+import {
+  EMPTY_FISCAL_DATA,
+  buildInvoiceRequest,
+  getFiscalData,
+  validateFiscalData,
+  type FiscalData,
+} from '../../services/fiscal.service';
 import { validatePromoCode, type PromotionQuote } from '../../services/promotions.service';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
+import { InvoiceRequestForm } from '../../components/shared/InvoiceRequestForm';
 import { Colors, Shadows, Spacing, Typography } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
 
@@ -119,9 +127,13 @@ export default function PaymentScreen() {
   const [couponCode, setCouponCode] = useState('');
   const [couponQuote, setCouponQuote] = useState<PromotionQuote | null>(null);
   const [couponLoading, setCouponLoading] = useState(false);
+  const [invoiceRequired, setInvoiceRequired] = useState(false);
+  const [invoiceSaveToProfile, setInvoiceSaveToProfile] = useState(true);
+  const [invoiceFiscalData, setInvoiceFiscalData] = useState<FiscalData>(EMPTY_FISCAL_DATA);
 
   const config = useBranchConfigStore((state) => (state.branchId === resolvedRestaurantId ? state.config : null));
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+  const invoiceEnabled = Boolean(config?.facturacion?.habilitada);
 
   const enabledMethodIds: PaymentMethod[] = config
     ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
@@ -143,6 +155,26 @@ export default function PaymentScreen() {
       setSelectedMethod(ids[0] ?? 'cash');
     }
   }, [config, selectedMethod]);
+
+  useEffect(() => {
+    if (!invoiceEnabled) {
+      setInvoiceRequired(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadFiscalData() {
+      const saved = await getFiscalData().catch(() => null);
+      if (!cancelled && saved) {
+        setInvoiceFiscalData(saved);
+      }
+    }
+
+    void loadFiscalData();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -302,6 +334,13 @@ export default function PaymentScreen() {
         return;
       }
 
+      const invoiceValidation = invoiceRequired ? validateFiscalData(invoiceFiscalData) : null;
+      if (invoiceValidation) {
+        Alert.alert('Datos fiscales incompletos', invoiceValidation);
+        return;
+      }
+      const invoiceRequest = buildInvoiceRequest(invoiceRequired, invoiceFiscalData, invoiceSaveToProfile);
+
       if (selectedMethod === 'cash') {
         const order = existingOrderId ? null : await createOrderBackend('cash');
         const targetOrderId = existingOrderId ?? order!.id;
@@ -311,9 +350,11 @@ export default function PaymentScreen() {
           metodo: 'cash',
           use_points: useRewardsPoints,
           promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
+          invoice_request: invoiceRequest,
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
+        showInvoiceReceived(invoiceRequest !== null);
         await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
         return;
       }
@@ -329,9 +370,11 @@ export default function PaymentScreen() {
           metodo: 'amare_wallet',
           use_points: useRewardsPoints,
           promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
+          invoice_request: invoiceRequest,
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
+        showInvoiceReceived(invoiceRequest !== null);
         await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
         return;
       }
@@ -355,9 +398,11 @@ export default function PaymentScreen() {
           metodo: 'card',
           use_points: useRewardsPoints,
           promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
+          invoice_request: invoiceRequest,
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
+        showInvoiceReceived(invoiceRequest !== null);
         await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
         return;
       }
@@ -373,9 +418,11 @@ export default function PaymentScreen() {
           metodo: walletMethod,
           use_points: useRewardsPoints,
           promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
+          invoice_request: invoiceRequest,
         });
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
+        showInvoiceReceived(invoiceRequest !== null);
         await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
       }
     } catch (err: any) {
@@ -468,6 +515,12 @@ export default function PaymentScreen() {
       promo_code: couponQuote?.code ?? undefined,
       notas: `Pago via: ${metodoPago}`,
     });
+  }
+
+  function showInvoiceReceived(enabled: boolean) {
+    if (enabled) {
+      Alert.alert('Solicitud de factura recibida', 'La sucursal recibio tus datos fiscales para procesarla.');
+    }
   }
 
   const cardWidth = getCardWidth();
@@ -670,6 +723,17 @@ export default function PaymentScreen() {
             ) : null}
           </View>
         ) : null}
+
+        <InvoiceRequestForm
+          enabled={invoiceEnabled}
+          required={invoiceRequired}
+          data={invoiceFiscalData}
+          saveToProfile={invoiceSaveToProfile}
+          disabled={loading}
+          onRequiredChange={setInvoiceRequired}
+          onDataChange={setInvoiceFiscalData}
+          onSaveToProfileChange={setInvoiceSaveToProfile}
+        />
 
         <View style={styles.totalBox}>
           <View style={styles.totalRows}>

@@ -8,6 +8,7 @@ use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
+use Amare\Api\Models\InvoiceRequest;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\Product;
 use Amare\Api\Models\User;
@@ -684,6 +685,7 @@ class WaiterController
         if ($this->getActiveSplit($restaurantId, $tableId) !== null) {
             Response::error('Esta mesa tiene cuentas separadas pendientes.', 409);
         }
+        $invoicePayload = $this->validatedInvoicePayload($input, $restaurantId);
 
         $orders = $this->getOpenOrdersForTable($restaurantId, $tableId, true);
         if (empty($orders)) {
@@ -768,6 +770,18 @@ class WaiterController
             $orders
         ));
         $this->updateTableClaim($tableId, null, null, null, false);
+        $invoiceRequest = $this->createWaiterInvoiceRequest([
+            'restaurante_id' => $restaurantId,
+            'pedido_id' => $orderIds[0] ?? null,
+            'consumo_id' => $orders[count($orders) - 1]['consumo_id'] ?? null,
+            'mesa_id' => $tableId,
+            'mobile_usuario_id' => $orders[count($orders) - 1]['mobile_usuario_id'] ?? null,
+            'solicitado_por_usuario_id' => (int)$user['id'],
+            'origen' => 'mesero',
+            'scope' => 'mesa',
+            'monto' => $grandTotal,
+            'metodo_pago' => $paymentMethod,
+        ], $invoicePayload);
 
         Response::success([
             'table_id' => $tableId,
@@ -778,6 +792,8 @@ class WaiterController
             'total' => $grandTotal,
             'orders_count' => count($orders),
             'closed' => true,
+            'invoice_request' => $invoiceRequest,
+            'invoice_request_id' => $invoiceRequest['id'] ?? null,
         ], 'Cuenta cerrada');
     }
 
@@ -964,6 +980,7 @@ class WaiterController
         if ($restaurantId <= 0 || $paymentMethod === null) {
             Response::validationError(['metodo_pago' => ['Selecciona efectivo, tarjeta o transferencia']]);
         }
+        $invoicePayload = $this->validatedInvoicePayload($input, $restaurantId);
         $this->assertAssignedRestaurant((int)$user['id'], $restaurantId);
         $this->assertTableIdInAssignedZone((int)$user['id'], $restaurantId, $tableId);
 
@@ -971,7 +988,7 @@ class WaiterController
         try {
             $pdo->beginTransaction();
             $stmt = $pdo->prepare(
-                "SELECT c.id, c.estado AS cuenta_estado, d.estado AS division_estado
+                "SELECT c.id, c.total, c.estado AS cuenta_estado, d.estado AS division_estado
                    FROM rest_cuenta_division_cuentas c
                    JOIN rest_cuenta_divisiones d ON d.id = c.division_id
                   WHERE c.id = :account_id AND d.id = :split_id
@@ -1039,10 +1056,25 @@ class WaiterController
                 $this->updateTableClaim($tableId, null, null, null, false);
             }
 
+            $invoiceRequest = $this->createWaiterInvoiceRequest([
+                'restaurante_id' => $restaurantId,
+                'mesa_id' => $tableId,
+                'division_id' => $splitId,
+                'division_cuenta_id' => $accountId,
+                'mobile_usuario_id' => null,
+                'solicitado_por_usuario_id' => (int)$user['id'],
+                'origen' => 'mesero',
+                'scope' => 'cuenta_separada',
+                'monto' => (float)($row['total'] ?? 0),
+                'metodo_pago' => $paymentMethod,
+            ], $invoicePayload);
+
             $pdo->commit();
             Response::success([
                 'split' => $this->getSplitById($splitId),
                 'closed' => $pending === 0,
+                'invoice_request' => $invoiceRequest,
+                'invoice_request_id' => $invoiceRequest['id'] ?? null,
             ], $pending === 0 ? 'Mesa liquidada' : 'Cuenta pagada');
         } catch (\DomainException $e) {
             if ($pdo->inTransaction()) {
@@ -1275,6 +1307,39 @@ class WaiterController
     private function markGiftOrdersPaid(array $orderIds): void
     {
         Order::markSocialGiftOrdersPaidForOrders($orderIds);
+    }
+
+    private function validatedInvoicePayload(array $input, int $restaurantId): ?array
+    {
+        $payload = $input['invoice_request'] ?? null;
+        if (!is_array($payload) || !InvoiceRequest::isRequired($payload)) {
+            return null;
+        }
+
+        try {
+            InvoiceRequest::validateForPayment($restaurantId, $payload);
+        } catch (\InvalidArgumentException $exception) {
+            $errors = json_decode($exception->getMessage(), true);
+            Response::validationError(is_array($errors) ? $errors : ['invoice_request' => [$exception->getMessage()]]);
+        }
+
+        return $payload;
+    }
+
+    private function createWaiterInvoiceRequest(array $context, ?array $payload): ?array
+    {
+        if ($payload === null) {
+            return null;
+        }
+
+        try {
+            return InvoiceRequest::createFromPayment($context, $payload);
+        } catch (\InvalidArgumentException $exception) {
+            $errors = json_decode($exception->getMessage(), true);
+            Response::validationError(is_array($errors) ? $errors : ['invoice_request' => [$exception->getMessage()]]);
+        }
+
+        return null;
     }
 
     /**

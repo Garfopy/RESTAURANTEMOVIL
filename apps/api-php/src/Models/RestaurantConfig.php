@@ -41,6 +41,13 @@ class RestaurantConfig
                     'exclusiones' => true,
                     'extras' => true,
                 ],
+                'facturacion' => [
+                    'habilitada' => false,
+                    'modo' => 'solicitud',
+                    'emisor_configurado' => false,
+                    'emisor' => null,
+                    'email_notificacion' => null,
+                ],
                 'activo' => true,
             ];
         }
@@ -62,12 +69,34 @@ class RestaurantConfig
             'exclusiones' => $config['modificadores']['exclusiones_habilitadas'],
             'extras' => $config['modificadores']['extras_habilitados'],
         ];
+        $emisor = [];
+        if (!empty($config['facturacion_emisor_json'])) {
+            $decoded = json_decode((string)$config['facturacion_emisor_json'], true);
+            $emisor = is_array($decoded) ? $decoded : [];
+        }
+        $config['facturacion'] = [
+            'habilitada' => (bool)($config['facturacion_habilitada'] ?? false),
+            'modo' => 'solicitud',
+            'emisor_configurado' => !empty($emisor['rfc'])
+                && !empty($emisor['nombre_fiscal'])
+                && !empty($emisor['regimen_fiscal'])
+                && !empty($emisor['codigo_postal']),
+            'emisor' => !empty($emisor) ? $emisor : null,
+            'email_notificacion' => $config['facturacion_email_notificacion'] ?? null,
+        ];
         $config['platillos_modificadores'] = self::getDishModifiers(
             $restauranteId,
             $config['modificadores']['exclusiones_habilitadas'],
             $config['modificadores']['extras_habilitados']
         );
-        unset($config['config_version'], $config['exclusiones_habilitadas'], $config['extras_habilitados']);
+        unset(
+            $config['config_version'],
+            $config['exclusiones_habilitadas'],
+            $config['extras_habilitados'],
+            $config['facturacion_habilitada'],
+            $config['facturacion_emisor_json'],
+            $config['facturacion_email_notificacion']
+        );
         $config['activo'] = (bool) $config['activo'];
 
         return $config;
@@ -125,6 +154,23 @@ class RestaurantConfig
         if (isset($data['activo'])) {
             $fields[] = "activo = :activo";
             $params[':activo'] = (int) $data['activo'];
+        }
+
+        if (array_key_exists('facturacion_habilitada', $data)) {
+            $fields[] = 'facturacion_habilitada = :facturacion_habilitada';
+            $params[':facturacion_habilitada'] = (int)$data['facturacion_habilitada'];
+        }
+
+        if (array_key_exists('facturacion_emisor', $data)) {
+            $fields[] = 'facturacion_emisor_json = :facturacion_emisor_json';
+            $params[':facturacion_emisor_json'] = $data['facturacion_emisor'] !== null
+                ? json_encode($data['facturacion_emisor'], JSON_UNESCAPED_UNICODE)
+                : null;
+        }
+
+        if (array_key_exists('facturacion_email_notificacion', $data)) {
+            $fields[] = 'facturacion_email_notificacion = :facturacion_email_notificacion';
+            $params[':facturacion_email_notificacion'] = $data['facturacion_email_notificacion'];
         }
 
         if (empty($fields)) {

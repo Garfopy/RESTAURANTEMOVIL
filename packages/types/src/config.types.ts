@@ -67,5 +67,17 @@ export interface RestaurantConfig {
     exclusiones: boolean;
     extras: boolean;
   };
+  facturacion?: {
+    habilitada: boolean;
+    modo?: 'solicitud' | string;
+    emisor_configurado?: boolean;
+    emisor?: {
+      rfc?: string;
+      nombre_fiscal?: string;
+      regimen_fiscal?: string;
+      codigo_postal?: string;
+    } | null;
+    email_notificacion?: string | null;
+  };
   activo: boolean;
 }

@@ -23,6 +23,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { getApiError } from '../../services/api';
 import {
+  EMPTY_FISCAL_DATA,
+  buildInvoiceRequest,
+  getFiscalData,
+  validateFiscalData,
+  type FiscalData,
+} from '../../services/fiscal.service';
+import {
   cancelWaiterSplit,
   createWaiterSplit,
   payWaiterSplitAccount,
@@ -31,6 +38,7 @@ import {
   type WaiterSplit,
 } from '../../services/waiter.service';
 import type { WaiterTicketStatus } from './WaiterTicketPreviewModal';
+import { InvoiceRequestForm } from '../shared/InvoiceRequestForm';
 
 type DraftAccount = { key: string; name: string; guestKey?: string };
 type Unit = {
@@ -52,6 +60,7 @@ type Props = {
   tableLabel: string;
   items: WaiterAccountItem[];
   activeSplit?: WaiterSplit | null;
+  invoiceEnabled?: boolean;
   onClose: () => void;
   onSplitChanged: (split: WaiterSplit | null) => void;
   onPreviewTicket: (preview: {
@@ -173,6 +182,7 @@ export function SplitAccountModal({
   tableLabel,
   items,
   activeSplit,
+  invoiceEnabled = false,
   onClose,
   onSplitChanged,
   onPreviewTicket,
@@ -189,6 +199,9 @@ export function SplitAccountModal({
   const [selectedPaymentAccountId, setSelectedPaymentAccountId] = useState<number | null>(null);
   const [expandedPaymentAccountId, setExpandedPaymentAccountId] = useState<number | null>(null);
   const [expandedGuestKey, setExpandedGuestKey] = useState<string | null>(null);
+  const [invoiceRequired, setInvoiceRequired] = useState(false);
+  const [invoiceSaveToProfile, setInvoiceSaveToProfile] = useState(true);
+  const [invoiceFiscalData, setInvoiceFiscalData] = useState<FiscalData>(EMPTY_FISCAL_DATA);
   const zoneRefs = useRef<Record<string, ViewType | null>>({});
   const zones = useRef<Zone[]>([]);
   const nextAccountNumber = useRef(3);
@@ -265,6 +278,24 @@ export function SplitAccountModal({
     setHoveredZone(null);
     setExpandedGuestKey(guestGroups[0]?.key ?? null);
   }, [activeSplit, guestGroups, units, visible]);
+
+  useEffect(() => {
+    if (!invoiceEnabled) {
+      setInvoiceRequired(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadFiscalData() {
+      const saved = await getFiscalData().catch(() => null);
+      if (!cancelled && saved) setInvoiceFiscalData(saved);
+    }
+
+    void loadFiscalData();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceEnabled]);
 
   const sourceItemsById = useMemo(() => Object.fromEntries(items.map((item) => [item.id, item])), [items]);
   const unassigned = units.filter((unit) => !allocation[unit.key]);
@@ -429,6 +460,12 @@ export function SplitAccountModal({
         null
       : null;
     if (!split || !current) return;
+    const invoiceValidation = invoiceRequired ? validateFiscalData(invoiceFiscalData) : null;
+    if (invoiceValidation) {
+      Alert.alert('Datos fiscales incompletos', invoiceValidation);
+      return;
+    }
+    const invoiceRequest = buildInvoiceRequest(invoiceRequired, invoiceFiscalData, invoiceSaveToProfile);
     try {
       setSaving(true);
       const result = await payWaiterSplitAccount({
@@ -437,10 +474,14 @@ export function SplitAccountModal({
         splitId: split.id,
         accountId: current.id,
         metodoPago: paymentMethod,
+        invoiceRequest,
       });
       setSplit(result.split);
       onSplitChanged(result.split);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (invoiceRequest) {
+        Alert.alert('Solicitud de factura recibida', 'La solicitud quedo registrada para esta cuenta.');
+      }
       onPreviewTicket({
         account: { ...current, estado: 'pagada', metodo_pago: paymentMethod },
         status: 'paid',
@@ -629,6 +670,16 @@ export function SplitAccountModal({
                   <Ionicons name="receipt-outline" size={18} color="#2563EB" />
                   <Text style={styles.checkoutPreviewText}>Ver precuenta para imprimir</Text>
                 </TouchableOpacity>
+                <InvoiceRequestForm
+                  enabled={invoiceEnabled}
+                  required={invoiceRequired}
+                  data={invoiceFiscalData}
+                  saveToProfile={invoiceSaveToProfile}
+                  disabled={saving}
+                  onRequiredChange={setInvoiceRequired}
+                  onDataChange={setInvoiceFiscalData}
+                  onSaveToProfileChange={setInvoiceSaveToProfile}
+                />
                 {PAYMENT_METHODS.map(([value, label, icon]) => {
                   const selected = paymentMethod === value;
                   return (

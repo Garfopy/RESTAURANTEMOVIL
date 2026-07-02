@@ -1,4 +1,5 @@
 import { apiClient, formatImageUrl } from './api';
+import type { InvoiceRequestPayload } from './fiscal.service';
 import type { ModificadorSeleccionado, Sucursal } from '@amare/types';
 
 function flattenModifierSelection(modifiers: ModificadorSeleccionado[]): Array<{ modificador_id: number; cantidad: number }> {
@@ -189,6 +190,7 @@ export type WaiterCloseAccountResponse = {
   total: number;
   orders_count: number;
   closed: boolean;
+  invoice_request_id?: number | null;
 };
 
 export async function getWaiterBranches(): Promise<Sucursal[]> {
@@ -300,6 +302,7 @@ export async function closeWaiterAccount(params: {
   restaurantId: number;
   metodoPago: WaiterPaymentMethod;
   propina?: number;
+  invoiceRequest?: InvoiceRequestPayload | null;
 }): Promise<WaiterCloseAccountResponse> {
   const { data } = await apiClient.post<Envelope<WaiterCloseAccountResponse>>(
     `/waiter/tables/${params.tableId}/close`,
@@ -307,6 +310,7 @@ export async function closeWaiterAccount(params: {
       restaurant_id: params.restaurantId,
       metodo_pago: params.metodoPago,
       propina: Math.max(0, Number(params.propina || 0)),
+      invoice_request: params.invoiceRequest ?? null,
     }
   );
   return unwrap(data);
@@ -330,10 +334,15 @@ export async function payWaiterSplitAccount(params: {
   splitId: number;
   accountId: number;
   metodoPago: WaiterPaymentMethod;
-}): Promise<{ split: WaiterSplit; closed: boolean }> {
-  const { data } = await apiClient.post<Envelope<{ split: WaiterSplit; closed: boolean }>>(
+  invoiceRequest?: InvoiceRequestPayload | null;
+}): Promise<{ split: WaiterSplit; closed: boolean; invoice_request_id?: number | null }> {
+  const { data } = await apiClient.post<Envelope<{ split: WaiterSplit; closed: boolean; invoice_request_id?: number | null }>>(
     `/waiter/tables/${params.tableId}/splits/${params.splitId}/accounts/${params.accountId}/pay`,
-    { restaurant_id: params.restaurantId, metodo_pago: params.metodoPago }
+    {
+      restaurant_id: params.restaurantId,
+      metodo_pago: params.metodoPago,
+      invoice_request: params.invoiceRequest ?? null,
+    }
   );
   return unwrap(data);
 }

@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import type { InvoiceRequestPayload } from './fiscal.service';
 import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago, ExitPass, TrackingEvent } from '@amare/types';
 
 function flattenModifierSelection(modifiers: any[]): Array<{ modificador_id: number; cantidad: number }> {
@@ -155,6 +156,7 @@ export async function confirmPayment(params: {
   metodo: MetodoPago;
   use_points?: boolean;
   promo_code?: string;
+  invoice_request?: InvoiceRequestPayload | null;
 }) {
   const { data } = await apiClient.post<{
     success: boolean;
@@ -165,6 +167,7 @@ export async function confirmPayment(params: {
     metodo: params.metodo,
     use_points: params.use_points ?? false,
     promo_code: params.promo_code ?? null,
+    invoice_request: params.invoice_request ?? null,
   });
 
   if (!data?.data) {
