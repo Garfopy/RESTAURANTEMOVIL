@@ -183,7 +183,7 @@ export default function HostessDashboardScreen() {
     if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
-        Alert.alert('Permiso requerido', 'Necesitamos la camara para validar QRs de salida.');
+        Alert.alert('Permiso requerido', 'Necesitamos la cámara para validar QRs de salida.');
         return;
       }
     }
@@ -331,7 +331,7 @@ export default function HostessDashboardScreen() {
           <View style={styles.headerMain}>
             <View style={styles.headerCopy}>
               <Text style={styles.eyebrow}>Hostess</Text>
-              <Text style={styles.title}>Recepcion</Text>
+              <Text style={styles.title}>Recepción</Text>
               <Text style={styles.branchName} numberOfLines={1}>
                 {selectedBranch?.nombre ?? 'Selecciona sucursal'}
               </Text>
@@ -749,11 +749,11 @@ function formatTime(value: string): string {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F7F7FA',
+    backgroundColor: '#F4F6F8',
   },
   content: {
-    padding: 14,
-    gap: 12,
+    padding: 16,
+    gap: 14,
     paddingBottom: 30,
   },
   contentTablet: {
@@ -763,9 +763,13 @@ const styles = StyleSheet.create({
   },
   headerPanel: {
     borderRadius: 8,
-    padding: 16,
+    padding: 18,
     gap: 16,
-    ...Shadows.md,
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+    elevation: 8,
   },
   headerTop: {
     flexDirection: 'row',
@@ -876,16 +880,20 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   primaryAction: {
-    minHeight: 82,
+    minHeight: 84,
     borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E7E9EF',
-    padding: 13,
+    borderColor: '#E1E7EF',
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    ...Shadows.card,
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 3,
   },
   primaryIcon: {
     width: 50,
@@ -915,16 +923,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F4F7FB',
   },
   section: {
     borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E7E9EF',
-    padding: 13,
-    gap: 10,
-    ...Shadows.sm,
+    borderColor: '#E1E7EF',
+    padding: 14,
+    gap: 12,
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
   },
   sectionTablet: {
     padding: 16,
@@ -946,7 +958,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F4F5F7',
+    backgroundColor: '#F4F7FB',
   },
   releaseSummary: {
     flexDirection: 'row',
@@ -957,8 +969,8 @@ const styles = StyleSheet.create({
     minHeight: 64,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F8FAFC',
+    borderColor: '#E1E7EF',
+    backgroundColor: '#F7FAFC',
     padding: 9,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1011,7 +1023,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingTop: 10,
+    paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E7EB',
   },
@@ -1021,7 +1033,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F4F5F7',
+    backgroundColor: '#F4F7FB',
   },
   releaseOrderCopy: {
     flex: 1,
@@ -1129,7 +1141,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingTop: 10,
+    paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E7EB',
   },

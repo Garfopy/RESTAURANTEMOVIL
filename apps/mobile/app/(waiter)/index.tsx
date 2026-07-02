@@ -284,7 +284,7 @@ export default function WaiterHomeScreen() {
     const groups = new Map<string, { key: string; title: string; tables: WaiterTable[] }>();
 
     filteredTables.forEach((table) => {
-      const title = table.zona_nombre?.trim() || 'Sin area';
+      const title = table.zona_nombre?.trim() || 'Sin área';
       const key = table.zona_id ? `zone-${table.zona_id}` : `zone-${title}`;
       const group = groups.get(key) ?? { key, title, tables: [] };
       group.tables.push(table);
@@ -408,7 +408,7 @@ export default function WaiterHomeScreen() {
       group.title,
       `${group.tables.length} mesas · ${money(activeTotal)} activo`,
       group.tables,
-      'No hay mesas en esta area.',
+      'No hay mesas en esta área.',
       'map-outline'
     );
   }

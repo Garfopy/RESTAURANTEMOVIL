@@ -85,7 +85,7 @@ export default function WaiterOrdersScreen() {
         <View>
           <Text style={styles.kicker}>Mesero</Text>
           <Text style={styles.title}>Pedidos</Text>
-          <Text style={styles.subtitle}>{orders.length} activos - {ready} listos</Text>
+          <Text style={styles.subtitle}>{orders.length} activos · {ready} listos</Text>
         </View>
         <TouchableOpacity style={styles.iconButton} onPress={() => ordersQuery.refetch()} activeOpacity={0.82}>
           {ordersQuery.isRefetching ? <ActivityIndicator size="small" color="#111827" /> : <Ionicons name="refresh" size={20} color="#111827" />}
@@ -116,7 +116,7 @@ export default function WaiterOrdersScreen() {
         </View>
         <View style={styles.opsCopy}>
           <Text style={styles.opsTitle}>Comandas desde cliente</Text>
-          <Text style={styles.opsText}>{claimed} tomadas - {unassigned} sin asignar</Text>
+          <Text style={styles.opsText}>{claimed} tomadas · {unassigned} sin asignar</Text>
         </View>
       </View>
 
@@ -139,7 +139,7 @@ export default function WaiterOrdersScreen() {
               </View>
               <View style={styles.cardCopy}>
                 <Text style={styles.cardTitle}>{item.table_label}</Text>
-                <Text style={styles.cardText} numberOfLines={1}>{item.cliente_nombre || 'Cliente app'} - {item.items_count} productos</Text>
+                <Text style={styles.cardText} numberOfLines={1}>{item.cliente_nombre || 'Cliente app'} · {item.items_count} productos</Text>
                 <Text style={[styles.status, item.is_ready && styles.statusReady]}>{item.is_ready ? 'Listo para entregar' : 'En cocina'}</Text>
               </View>
               <Text style={styles.total}>${Number(item.total || 0).toFixed(2)}</Text>
@@ -239,15 +239,15 @@ function DetailMeta({ icon, label, value }: { icon: keyof typeof Ionicons.glyphM
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F5F6FA' },
-  header: { padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  safe: { flex: 1, backgroundColor: '#F4F6F8' },
+  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   kicker: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
-  title: { color: '#111827', fontSize: 36, fontWeight: '900' },
+  title: { color: '#111827', fontSize: 32, fontWeight: '900' },
   subtitle: { color: '#64748B', fontSize: 15, fontWeight: '700' },
-  iconButton: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  iconButton: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E1E7EF' },
   branchRow: { paddingHorizontal: 20, gap: 10, paddingBottom: 12 },
-  branchChip: { height: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#FFFFFF', justifyContent: 'center' },
-  branchChipActive: { backgroundColor: '#111827' },
+  branchChip: { height: 40, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#FFFFFF', justifyContent: 'center', borderWidth: 1, borderColor: '#E1E7EF' },
+  branchChipActive: { backgroundColor: '#111827', borderColor: '#111827' },
   branchText: { color: '#111827', fontWeight: '800' },
   branchTextActive: { color: '#FFFFFF' },
   opsPanel: {
@@ -256,18 +256,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E8EBF0',
+    borderColor: '#E1E7EF',
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 2,
   },
-  opsIcon: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
+  opsIcon: { width: 44, height: 44, borderRadius: 8, backgroundColor: '#F4F7FB', alignItems: 'center', justifyContent: 'center' },
   opsCopy: { flex: 1 },
   opsTitle: { color: '#111827', fontSize: 17, fontWeight: '900' },
   opsText: { color: '#64748B', fontWeight: '800', marginTop: 2 },
   listContent: { padding: 20, paddingTop: 8, paddingBottom: 108, gap: 12 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 8, padding: 14, gap: 14, borderWidth: 1, borderColor: '#E8EBF0' },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 8, padding: 14, gap: 14, borderWidth: 1, borderColor: '#E1E7EF', shadowColor: '#111827', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 1 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cardIcon: { width: 42, height: 42, borderRadius: 8, backgroundColor: '#FFFBEB', alignItems: 'center', justifyContent: 'center' },
   cardIconReady: { backgroundColor: '#ECFDF5' },
@@ -282,7 +287,7 @@ const styles = StyleSheet.create({
   tapHint: {
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F7FAFC',
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -316,7 +321,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 8,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F4F7FB',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -329,7 +334,7 @@ const styles = StyleSheet.create({
     width: '48%',
     minHeight: 78,
     borderRadius: 8,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F7FAFC',
     padding: 10,
     justifyContent: 'space-between',
   },
@@ -341,7 +346,7 @@ const styles = StyleSheet.create({
     minHeight: 62,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E8EBF0',
+    borderColor: '#E1E7EF',
     padding: 10,
     flexDirection: 'row',
     alignItems: 'center',

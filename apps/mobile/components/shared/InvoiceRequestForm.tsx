@@ -51,8 +51,7 @@ export function InvoiceRequestForm({
     <View style={styles.box}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>Facturacion</Text>
-          <Text style={styles.subtitle}>Solicitud para generar factura despues del pago.</Text>
+          <Text style={styles.title}>Requiere factura</Text>
         </View>
         <Switch value={required} onValueChange={onRequiredChange} disabled={disabled} />
       </View>
@@ -90,6 +89,7 @@ export function InvoiceRequestForm({
 
 const styles = StyleSheet.create({
   box: {
+    marginBottom: 12,
     padding: 14,
     borderRadius: 8,
     borderWidth: 1,
