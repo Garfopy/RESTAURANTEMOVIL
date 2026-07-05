@@ -31,6 +31,7 @@ class ProfileController
 
         $rules = [
             'nombre' => 'min:3|max:200',
+            'email' => 'email|max:200',
             'telefono' => 'max:30'
         ];
 
@@ -45,9 +46,21 @@ class ProfileController
         if (isset($input['nombre'])) {
             $updateData['nombre'] = $input['nombre'];
         }
+
+        if (array_key_exists('email', $input)) {
+            $email = strtolower(trim((string)$input['email']));
+            if ($email !== '' && User::existsByEmail($email, (int)$user->id)) {
+                Response::error('El correo electrónico ya está registrado', 409);
+            }
+            $updateData['email'] = $email !== '' ? $email : null;
+        }
         
         if (isset($input['telefono'])) {
-            $updateData['telefono'] = $input['telefono'];
+            $phone = preg_replace('/\D+/', '', (string)$input['telefono']);
+            if ($phone !== '' && User::existsByPhone($phone, (int)$user->id)) {
+                Response::error('El teléfono ya está registrado', 409);
+            }
+            $updateData['telefono'] = $phone;
         }
 
         if (empty($updateData)) {

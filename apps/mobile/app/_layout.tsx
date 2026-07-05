@@ -16,7 +16,7 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StripeProvider } from '@stripe/stripe-react-native';
-import { AppState, View } from 'react-native';
+import { AppState, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useUserStore } from '../store/user.store';
@@ -231,13 +231,20 @@ export default function RootLayout() {
               <AuthGuard>
                 <StatusBar style="auto" />
                 <View style={{ flex: 1 }}>
-                  <Stack screenOptions={{ headerShown: false }}>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      gestureEnabled: true,
+                      fullScreenGestureEnabled: true,
+                      animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
+                    }}
+                  >
                     <Stack.Screen name="(auth)" />
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="(waiter)" />
                     <Stack.Screen name="(hostess)" />
-                    <Stack.Screen name="branch-selector" options={{ presentation: 'modal' }} />
-                    <Stack.Screen name="table-scanner" options={{ presentation: 'modal' }} />
+                    <Stack.Screen name="branch-selector" options={{ presentation: 'modal', gestureEnabled: true }} />
+                    <Stack.Screen name="table-scanner" options={{ presentation: 'modal', gestureEnabled: true }} />
                     <Stack.Screen name="product/[id]" />
                     <Stack.Screen name="store/index" />
                     <Stack.Screen name="store/product/[id]" />
