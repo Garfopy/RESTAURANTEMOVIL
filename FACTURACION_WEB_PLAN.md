@@ -1,11 +1,28 @@
 # Plan Web Para Facturacion
 
-Este documento describe lo que debe implementarse en la web externa para operar la facturacion v1 ya expuesta por la app/API. En esta version no se timbra CFDI automaticamente; la web captura y da seguimiento a solicitudes.
+Este documento describe lo que debe implementarse en la web externa para operar la facturacion v1 ya expuesta por la app/API. La API ya puede capturar solicitudes y timbrarlas contra FacturAPI en modo test cuando `FACTURAPI_AUTO_STAMP=true`.
 
 ## 1. Preparacion
 
 1. Ejecutar la migracion `apps/api-php/migrations/043_create_invoice_requests.sql`.
-2. Verificar que `GET /branches/:id/config` responda con el bloque:
+2. Ejecutar la migracion `apps/api-php/migrations/044_add_facturapi_fields_to_invoice_requests.sql`.
+3. Configurar el backend con:
+
+```env
+FACTURAPI_SECRET_KEY=sk_test_...
+FACTURAPI_AUTO_STAMP=true
+FACTURAPI_PRODUCT_KEY=90101501
+FACTURAPI_UNIT_KEY=E48
+FACTURAPI_TAX_INCLUDED=true
+FACTURAPI_TAX_RATE=0.16
+```
+
+Notas:
+
+- Con una key `sk_test_...`, FacturAPI crea CFDI de prueba sin validez fiscal.
+- Si `FACTURAPI_AUTO_STAMP=true`, la solicitud creada desde checkout, cierre de mesa o cuenta separada intenta timbrarse automaticamente.
+- Si el timbrado falla, la solicitud queda en `en_proceso` con el error en `notas`, para no romper el pago ya realizado.
+4. Verificar que `GET /branches/:id/config` responda con el bloque:
 
 ```json
 {
@@ -158,6 +175,33 @@ Payload ejemplo para tomarla en proceso:
   "notas": "Contabilidad revisando datos fiscales"
 }
 ```
+
+## 6.1 Timbrar Con FacturAPI
+
+Endpoint para timbrado manual/reintento desde admin:
+
+```http
+POST /admin/invoice-requests/:id/facturapi-stamp
+```
+
+Payload opcional:
+
+```json
+{
+  "payment_form": "04",
+  "use": "G03",
+  "description": "Consumo en restaurante",
+  "tax_rate": 0.16,
+  "tax_included": true
+}
+```
+
+Respuesta:
+
+- Actualiza `estado` a `facturada`.
+- Guarda `cfdi_uuid`.
+- Descarga PDF/XML a `uploads/facturas`.
+- Guarda `pdf_url`, `xml_url`, `facturapi_invoice_id`, `facturapi_status` y `facturapi_livemode`.
 
 ## 7. UX Recomendada
 

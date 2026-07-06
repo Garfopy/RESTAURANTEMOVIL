@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Amare\Api\Models;
 
 use Amare\Api\Config\Database;
+use Amare\Api\Services\FacturapiService;
 
 class InvoiceRequest
 {
@@ -62,7 +63,28 @@ class InvoiceRequest
             ]
         );
 
-        return $id > 0 ? self::findById($id) : null;
+        if ($id <= 0) {
+            return null;
+        }
+
+        $created = self::findById($id);
+        if ($created && self::autoStampEnabled()) {
+            try {
+                return self::stampWithFacturapi($id);
+            } catch (\Throwable $exception) {
+                error_log('InvoiceRequest::autoStampWithFacturapi ERROR: ' . $exception->getMessage());
+                self::updateAdmin($id, [
+                    'estado' => 'en_proceso',
+                    'notas' => self::appendNote(
+                        $created['notas'] ?? null,
+                        'No se pudo timbrar automaticamente en FacturAPI: ' . $exception->getMessage()
+                    ),
+                ]);
+                return self::findById($id);
+            }
+        }
+
+        return $created;
     }
 
     public static function isRequired(?array $invoiceRequest): bool
@@ -181,6 +203,82 @@ class InvoiceRequest
         return self::findById($id);
     }
 
+    public static function stampWithFacturapi(int $id, array $options = []): ?array
+    {
+        $request = self::findById($id);
+        if (!$request) {
+            return null;
+        }
+
+        if (($request['estado'] ?? '') === 'facturada' && !empty($request['cfdi_uuid'])) {
+            return $request;
+        }
+
+        self::updateAdmin($id, [
+            'estado' => 'en_proceso',
+            'notas' => self::appendNote($request['notas'] ?? null, 'Timbrando en FacturAPI.'),
+        ]);
+
+        $service = new FacturapiService();
+        $invoice = $service->createInvoiceFromRequest($request, $options);
+        $facturapiInvoiceId = (string)($invoice['id'] ?? '');
+        if ($facturapiInvoiceId === '') {
+            throw new \RuntimeException('FacturAPI no regreso el ID de la factura.');
+        }
+
+        $uuid = (string)($invoice['uuid'] ?? '');
+        if ($uuid === '') {
+            throw new \RuntimeException('FacturAPI no regreso UUID CFDI.');
+        }
+
+        $pdfPath = self::storeFacturapiFile($id, $uuid, 'pdf', $service->downloadInvoice($facturapiInvoiceId, 'pdf'));
+        $xmlPath = self::storeFacturapiFile($id, $uuid, 'xml', $service->downloadInvoice($facturapiInvoiceId, 'xml'));
+        $baseUrl = rtrim((string)($_ENV['APP_URL'] ?? $_SERVER['APP_URL'] ?? getenv('APP_URL') ?: ''), '/');
+
+        $data = [
+            'estado' => 'facturada',
+            'cfdi_uuid' => $uuid,
+            'pdf_url' => $baseUrl . '/uploads/facturas/' . basename($pdfPath),
+            'xml_url' => $baseUrl . '/uploads/facturas/' . basename($xmlPath),
+            'notas' => self::appendNote($request['notas'] ?? null, 'Factura generada en FacturAPI (test=' . (empty($invoice['livemode']) ? 'si' : 'no') . ').'),
+            'facturapi_invoice_id' => $facturapiInvoiceId,
+            'facturapi_status' => (string)($invoice['status'] ?? ''),
+            'facturapi_livemode' => !empty($invoice['livemode']) ? 1 : 0,
+        ];
+
+        self::updateFacturapiData($id, $data);
+        return self::findById($id);
+    }
+
+    public static function updateFacturapiData(int $id, array $data): void
+    {
+        Database::rowCount(
+            'UPDATE facturacion_solicitudes
+                SET estado = :status,
+                    cfdi_uuid = :uuid,
+                    pdf_url = :pdf_url,
+                    xml_url = :xml_url,
+                    notas = :notes,
+                    facturapi_invoice_id = :facturapi_invoice_id,
+                    facturapi_status = :facturapi_status,
+                    facturapi_livemode = :facturapi_livemode,
+                    facturada_at = COALESCE(facturada_at, NOW()),
+                    updated_at = NOW()
+              WHERE id = :id',
+            [
+                ':id' => $id,
+                ':status' => (string)$data['estado'],
+                ':uuid' => (string)$data['cfdi_uuid'],
+                ':pdf_url' => (string)$data['pdf_url'],
+                ':xml_url' => (string)$data['xml_url'],
+                ':notes' => $data['notas'] ?? null,
+                ':facturapi_invoice_id' => (string)$data['facturapi_invoice_id'],
+                ':facturapi_status' => (string)$data['facturapi_status'],
+                ':facturapi_livemode' => (int)$data['facturapi_livemode'],
+            ]
+        );
+    }
+
     public static function normalize(array $row): array
     {
         return [
@@ -207,6 +305,9 @@ class InvoiceRequest
                 'uso_cfdi' => $row['uso_cfdi'] ?? '',
                 'email' => $row['receptor_email'] ?? '',
             ],
+            'facturapi_invoice_id' => $row['facturapi_invoice_id'] ?? null,
+            'facturapi_status' => $row['facturapi_status'] ?? null,
+            'facturapi_livemode' => isset($row['facturapi_livemode']) ? (bool)$row['facturapi_livemode'] : null,
             'cfdi_uuid' => $row['cfdi_uuid'] ?? null,
             'pdf_url' => $row['pdf_url'] ?? null,
             'xml_url' => $row['xml_url'] ?? null,
@@ -230,5 +331,35 @@ class InvoiceRequest
     {
         $text = trim((string)($value ?? ''));
         return $text !== '' ? $text : null;
+    }
+
+    private static function storeFacturapiFile(int $requestId, string $uuid, string $extension, string $contents): string
+    {
+        $directory = dirname(__DIR__, 2) . '/uploads/facturas';
+        if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
+            throw new \RuntimeException('No se pudo preparar la carpeta de facturas.');
+        }
+
+        $safeUuid = preg_replace('/[^a-zA-Z0-9-]/', '', $uuid) ?: ('request-' . $requestId);
+        $path = $directory . '/' . $requestId . '-' . $safeUuid . '.' . $extension;
+        if (file_put_contents($path, $contents) === false) {
+            throw new \RuntimeException('No se pudo guardar el archivo ' . strtoupper($extension) . ' de la factura.');
+        }
+
+        return $path;
+    }
+
+    private static function appendNote(?string $current, string $note): string
+    {
+        $current = trim((string)$current);
+        $timestamp = date('Y-m-d H:i:s');
+        $entry = '[' . $timestamp . '] ' . $note;
+        return $current !== '' ? $current . "\n" . $entry : $entry;
+    }
+
+    private static function autoStampEnabled(): bool
+    {
+        $value = $_ENV['FACTURAPI_AUTO_STAMP'] ?? $_SERVER['FACTURAPI_AUTO_STAMP'] ?? getenv('FACTURAPI_AUTO_STAMP') ?: 'false';
+        return in_array(strtolower((string)$value), ['1', 'true', 'yes', 'on'], true);
     }
 }

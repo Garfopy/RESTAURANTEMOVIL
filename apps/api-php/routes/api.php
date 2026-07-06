@@ -151,6 +151,7 @@ $routes = [
     // Admin - Invoice requests routes (panel web, requiere rol=admin)
     ['GET', '/admin/invoice-requests', ['Amare\Api\Controllers\InvoiceRequestController', 'adminIndex']],
     ['GET', '/admin/invoice-requests/:id', ['Amare\Api\Controllers\InvoiceRequestController', 'adminShow']],
+    ['POST', '/admin/invoice-requests/:id/facturapi-stamp', ['Amare\Api\Controllers\InvoiceRequestController', 'adminStampWithFacturapi']],
     ['PUT', '/admin/invoice-requests/:id', ['Amare\Api\Controllers\InvoiceRequestController', 'adminUpdate']],
 
     // Admin - Users routes (panel web, requiere rol=admin)

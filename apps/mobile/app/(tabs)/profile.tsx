@@ -28,9 +28,6 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
-  const hasEmail = Boolean(user?.email?.trim());
-  const hasPhone = Boolean(user?.telefono?.trim());
-  const accountValidationSteps = Number(hasEmail) + Number(hasPhone);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -194,13 +191,6 @@ export default function ProfileScreen() {
         <View style={styles.menuContainer}>
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
           <View style={styles.section}>
-            <MenuItem
-              icon={accountValidationSteps === 2 ? 'shield-checkmark' : 'shield-outline'}
-              label={`Validar cuenta · ${accountValidationSteps}/2`}
-              color={accountValidationSteps === 2 ? '#10B981' : '#F59E0B'}
-              onPress={() => router.push('/profile/account-validation' as any)}
-              showDivider
-            />
             <MenuItem
               icon="location"
               label="Mis direcciones"

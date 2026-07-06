@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS facturacion_solicitudes (
     receptor_codigo_postal VARCHAR(10) NOT NULL,
     uso_cfdi VARCHAR(10) NOT NULL,
     receptor_email VARCHAR(190) NOT NULL,
+    facturapi_invoice_id VARCHAR(80) NULL,
+    facturapi_status VARCHAR(40) NULL,
+    facturapi_livemode TINYINT(1) NULL,
     cfdi_uuid VARCHAR(80) NULL,
     pdf_url TEXT NULL,
     xml_url TEXT NULL,
@@ -47,6 +50,7 @@ CREATE TABLE IF NOT EXISTS facturacion_solicitudes (
     INDEX idx_facturacion_pedido (pedido_id),
     INDEX idx_facturacion_division_cuenta (division_cuenta_id),
     INDEX idx_facturacion_mobile_usuario (mobile_usuario_id),
+    INDEX idx_facturacion_facturapi_invoice (facturapi_invoice_id),
     INDEX idx_facturacion_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

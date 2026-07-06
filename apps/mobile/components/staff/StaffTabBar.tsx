@@ -37,7 +37,7 @@ export function StaffTabBar({
   }
 
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       <View style={[styles.bar, compact && styles.barCompact]}>
         {visibleRoutes.map((route: any) => {
           const routeIndex = state.routes.findIndex((item: any) => item.key === route.key);
@@ -68,7 +68,7 @@ export function StaffTabBar({
             >
               <Ionicons
                 name={focused ? item.activeIcon : item.icon}
-                size={focused ? 20 : 21}
+                size={focused ? 24 : 23}
                 color={focused ? '#FFFFFF' : '#64748B'}
               />
               <Text
@@ -95,17 +95,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
     backgroundColor: 'rgba(244,246,248,0.96)',
   },
   bar: {
-    minHeight: 60,
-    borderRadius: 8,
+    minHeight: 74,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E1E7EF',
-    padding: 6,
+    padding: 7,
     flexDirection: 'row',
     gap: 6,
     shadowColor: '#111827',
@@ -115,26 +115,26 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   barCompact: {
-    minHeight: 58,
-    padding: 5,
+    minHeight: 70,
+    padding: 6,
     gap: 5,
   },
   item: {
     flex: 1,
-    borderRadius: 8,
+    borderRadius: 14,
     minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
     paddingHorizontal: 8,
   },
   label: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '900',
   },
   labelCompact: {
-    fontSize: 11,
+    fontSize: 12,
   },
   labelActive: {
     color: '#FFFFFF',

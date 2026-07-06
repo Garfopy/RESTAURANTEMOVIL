@@ -61,4 +61,24 @@ class InvoiceRequestController
 
         Response::success(['invoice_request' => $request], 'Solicitud de factura actualizada');
     }
+
+    public function adminStampWithFacturapi(int $id): void
+    {
+        AuthMiddleware::requireAdmin();
+        $input = ValidationMiddleware::getAllInput();
+
+        try {
+            $request = InvoiceRequest::stampWithFacturapi($id, is_array($input) ? $input : []);
+        } catch (\InvalidArgumentException $exception) {
+            Response::validationError(['invoice_request' => [$exception->getMessage()]]);
+        } catch (\RuntimeException $exception) {
+            Response::error($exception->getMessage(), 409, 'FACTURAPI_ERROR');
+        }
+
+        if (!$request) {
+            Response::notFound('Solicitud de factura no encontrada');
+        }
+
+        Response::success(['invoice_request' => $request], 'Factura generada con FacturAPI');
+    }
 }
