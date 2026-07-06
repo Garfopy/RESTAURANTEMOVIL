@@ -8,6 +8,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\Promotion;
+use Amare\Api\Services\FirebaseMessagingService;
 
 class PromotionsController
 {
@@ -290,6 +291,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
     ], $adminId);
 
     $promotion = Promotion::findById($newId);
+    $this->notifyPromotionActivated($promotion);
 
     Response::success(
         ['promotion' => $promotion],
@@ -352,9 +354,16 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
             $input['platillo_id'] = !empty($input['platillo_id']) ? (int)$input['platillo_id'] : null;
         }
 
+        $wasActive = (int)($promotion['activo'] ?? 0) === 1;
+
         Promotion::update($id, $input, (int)$user->id);
 
         $updated = Promotion::findById($id);
+        $isActive = (int)($updated['activo'] ?? 0) === 1;
+
+        if (!$wasActive && $isActive) {
+            $this->notifyPromotionActivated($updated);
+        }
 
         Response::success(['promotion' => $updated], 'Promoción actualizada exitosamente');
     }
@@ -470,4 +479,35 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         'url' => $publicBaseUrl . '/' . $path
     ]);
 }
+
+    private function notifyPromotionActivated(?array $promotion): void
+    {
+        if (!$promotion || (int)($promotion['activo'] ?? 0) !== 1) {
+            return;
+        }
+
+        if (!empty($promotion['expires_at']) && strtotime((string)$promotion['expires_at']) <= time()) {
+            return;
+        }
+
+        $userId = (int)($promotion['usuario_id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $title = (string)($promotion['titulo'] ?? 'Tienes una nueva promocion');
+        $description = trim((string)($promotion['descripcion'] ?? ''));
+        $body = $description !== '' ? $description : 'Abre Amare para ver tu promocion.';
+
+        try {
+            (new FirebaseMessagingService())->sendToUser($userId, $title, $body, [
+                'type' => 'promotion_activated',
+                'promotion_id' => (int)$promotion['id'],
+                'deep_link' => (string)($promotion['deep_link'] ?? '/(tabs)/promotions'),
+                'code' => $promotion['code'] ?? null,
+            ]);
+        } catch (\Throwable $exception) {
+            error_log('PromotionsController::notifyPromotionActivated ERROR: ' . $exception->getMessage());
+        }
+    }
 }

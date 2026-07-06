@@ -1,0 +1,106 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Amare\Api\Models;
+
+use Amare\Api\Config\Database;
+
+class PushToken
+{
+    public static function upsert(int $userId, string $token, ?string $platform = null, ?string $deviceId = null): void
+    {
+        $token = trim($token);
+        if ($userId <= 0 || $token === '') {
+            throw new \InvalidArgumentException('Token push invalido.');
+        }
+
+        Database::rowCount(
+            'INSERT INTO mobile_push_tokens
+                (usuario_id, fcm_token, platform, device_id, enabled, last_seen_at)
+             VALUES
+                (:user_id, :token, :platform, :device_id, 1, NOW())
+             ON DUPLICATE KEY UPDATE
+                usuario_id = VALUES(usuario_id),
+                platform = VALUES(platform),
+                device_id = VALUES(device_id),
+                enabled = 1,
+                last_seen_at = NOW(),
+                updated_at = NOW()',
+            [
+                ':user_id' => $userId,
+                ':token' => $token,
+                ':platform' => self::nullableText($platform),
+                ':device_id' => self::nullableText($deviceId),
+            ]
+        );
+    }
+
+    public static function disable(int $userId, string $token): void
+    {
+        $token = trim($token);
+        if ($userId <= 0 || $token === '') {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_push_tokens
+                SET enabled = 0, updated_at = NOW()
+              WHERE usuario_id = :user_id AND fcm_token = :token',
+            [
+                ':user_id' => $userId,
+                ':token' => $token,
+            ]
+        );
+    }
+
+    public static function getEnabledTokensForUser(int $userId): array
+    {
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $rows = Database::query(
+            'SELECT fcm_token
+               FROM mobile_push_tokens
+              WHERE usuario_id = :user_id
+                AND enabled = 1
+              ORDER BY last_seen_at DESC, updated_at DESC',
+            [':user_id' => $userId]
+        );
+
+        return array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => (string)($row['fcm_token'] ?? ''),
+            $rows
+        ))));
+    }
+
+    public static function disableTokens(array $tokens): void
+    {
+        $tokens = array_values(array_unique(array_filter(array_map('strval', $tokens))));
+        if (empty($tokens)) {
+            return;
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($tokens as $index => $token) {
+            $key = ':token' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $token;
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_push_tokens
+                SET enabled = 0, updated_at = NOW()
+              WHERE fcm_token IN (' . implode(', ', $placeholders) . ')',
+            $params
+        );
+    }
+
+    private static function nullableText(?string $value): ?string
+    {
+        $value = trim((string)$value);
+        return $value !== '' ? $value : null;
+    }
+}

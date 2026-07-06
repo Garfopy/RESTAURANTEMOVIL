@@ -88,6 +88,8 @@ $routes = [
     ['POST', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'store']],
     ['PUT', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'update']],
     ['DELETE', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'destroy']],
+    ['POST', '/profile/push-token', ['Amare\Api\Controllers\PushTokenController', 'store']],
+    ['DELETE', '/profile/push-token', ['Amare\Api\Controllers\PushTokenController', 'destroy']],
     
     // Address routes
     ['GET', '/profile/addresses', ['Amare\Api\Controllers\AddressController', 'index']],

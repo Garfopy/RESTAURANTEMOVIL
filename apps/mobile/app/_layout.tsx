@@ -30,6 +30,8 @@ import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
+import { getNotificationDeepLink, registerPushNotifications, subscribeForegroundFirebaseMessages } from '../services/push-notifications.service';
+import * as Notifications from 'expo-notifications';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -167,6 +169,50 @@ function BranchConfigRuntime() {
   return null;
 }
 
+function PushNotificationRuntime() {
+  const router = useRouter();
+  const isAuthenticated = useUserStore((state) => state.isAuthenticated);
+  const userId = useUserStore((state) => state.user?.id ?? null);
+  const registeredForUserRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const unsubscribeForeground = subscribeForegroundFirebaseMessages();
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const deepLink = getNotificationDeepLink(response);
+      if (deepLink) {
+        router.push(deepLink as never);
+      }
+    });
+
+    return () => {
+      unsubscribeForeground();
+      subscription.remove();
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !userId || registeredForUserRef.current === userId) {
+      return;
+    }
+
+    registeredForUserRef.current = userId;
+    void registerPushNotifications().catch((error) => {
+      registeredForUserRef.current = null;
+      if (__DEV__) {
+        console.warn('[Push] No se pudo registrar el token:', error);
+      }
+    });
+  }, [isAuthenticated, userId]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      registeredForUserRef.current = null;
+    }
+  }, [isAuthenticated]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const { hydrateFromStorage, setUser, logout } = useUserStore();
   const hydrateTheme = useThemeStore((s) => s.hydrateTheme);
@@ -226,6 +272,7 @@ export default function RootLayout() {
           <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
             <ToastProvider>
               <BranchConfigRuntime />
+              <PushNotificationRuntime />
               <TableSessionRuntime />
               <GlobalSocialNotifications />
               <AuthGuard>
