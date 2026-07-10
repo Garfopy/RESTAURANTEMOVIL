@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  type AlertButton,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,7 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { TableScanResult } from '@amare/types';
 import { getBranchById } from '../services/branches.service';
-import { getTableSessionDiagnostic, scanTableQr } from '../services/table-session.service';
+import { getTableSessionDiagnostic, resetTableSessionForTesting, scanTableQr } from '../services/table-session.service';
 import { getApiError, getApiErrorCode } from '../services/api';
 import { useBranchStore } from '../store/branch.store';
 import { useCartStore } from '../store/cart.store';
@@ -110,6 +111,35 @@ export default function TableScannerScreen() {
     }
   }
 
+  async function handleResetTestingSession() {
+    setIsProcessing(true);
+    try {
+      const result = await resetTableSessionForTesting();
+      clearTableSession();
+      updateProfile({
+        current_restaurante_id: null,
+        mesa: null,
+        is_social_active: false,
+        modo_social: false,
+      });
+      void queryClient.invalidateQueries({ queryKey: ['table-session', 'diagnostic'] });
+
+      Alert.alert(
+        'Cuenta de prueba liberada',
+        result.affected_orders > 0
+          ? 'Ya puedes escanear otra mesa para continuar probando.'
+          : 'No habia una cuenta activa por liberar.',
+        [{ text: 'Escanear', onPress: resetScanLock }]
+      );
+    } catch (error) {
+      Alert.alert('No se pudo liberar', getApiError(error) || 'Intenta cerrar la cuenta manualmente.', [
+        { text: 'Intentar de nuevo', onPress: resetScanLock },
+      ]);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
   async function showTableSessionActiveAlert(error: unknown) {
     const fallbackMessage = getApiError(error) || 'Primero cierra tu cuenta actual antes de cambiar de mesa.';
     const diagnostic = await getTableSessionDiagnostic().catch(() => null);
@@ -126,7 +156,7 @@ export default function TableScannerScreen() {
         ].filter(Boolean)
       : [];
     const message = [diagnostic?.message || fallbackMessage, ...detailLines].join('\n\n');
-    const buttons = [
+    const buttons: AlertButton[] = [
       {
         text: 'Intentar de nuevo',
         onPress: resetScanLock,
@@ -140,6 +170,14 @@ export default function TableScannerScreen() {
           hasNavigatedRef.current = true;
           router.push({ pathname: '/order/[id]', params: { id: String(orderId) } } as never);
         },
+      });
+    }
+
+    if (__DEV__) {
+      buttons.push({
+        text: 'Liberar prueba',
+        style: 'destructive',
+        onPress: handleResetTestingSession,
       });
     }
 

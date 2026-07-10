@@ -3929,6 +3929,23 @@ class SocialController
         ));
     }
 
+    public function resetTableSessionForTesting(): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if (!$this->allowsTestingTableSessionReset()) {
+            Response::error('El reset de cuentas de prueba solo esta disponible fuera de produccion.', 403);
+        }
+
+        $result = $this->resetActiveTableVisitForUser((int)$user->id);
+
+        Response::success([
+            'reset' => true,
+            'affected_orders' => $result['affected_orders'],
+            'active_visit' => $result['active_visit'],
+        ], $result['affected_orders'] > 0 ? 'Cuenta de prueba liberada.' : 'No habia una cuenta activa por liberar.');
+    }
+
     private function assertCanUseTableSession(int $userId, int $restaurantId, int $tableId, string $tableLabel = ''): void
     {
         $diagnostic = $this->buildTableSessionDiagnostic($userId, $restaurantId, $tableId, $tableLabel);
@@ -4271,6 +4288,203 @@ class SocialController
         }
 
         return empty($conditions) ? '1 = 0' : '(' . implode(' OR ', $conditions) . ')';
+    }
+
+    private function allowsTestingTableSessionReset(): bool
+    {
+        $env = strtolower(trim((string)($_ENV['APP_ENV'] ?? $_SERVER['APP_ENV'] ?? getenv('APP_ENV') ?: 'production')));
+        $debugValue = $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG') ?: false;
+        $debug = filter_var($debugValue, FILTER_VALIDATE_BOOLEAN);
+
+        return $env !== 'production' || $debug === true;
+    }
+
+    private function resetActiveTableVisitForUser(int $userId): array
+    {
+        $activeVisit = $this->findActiveTableVisitForUser($userId);
+        if ($activeVisit === null) {
+            $this->clearTestingTableSessionForUser($userId);
+            return [
+                'affected_orders' => 0,
+                'active_visit' => null,
+            ];
+        }
+
+        $activeVisitDetails = $this->describeActiveTableVisit($activeVisit, $userId);
+        $columns = $this->getTableColumns('rest_pedidos');
+        $targetOrderIds = $this->activeVisitOrderIdsForTestingReset($activeVisit, $userId, $columns);
+        if (empty($targetOrderIds)) {
+            $this->clearTestingTableSessionForUser($userId);
+            return [
+                'affected_orders' => 0,
+                'active_visit' => $activeVisitDetails,
+            ];
+        }
+
+        $set = [];
+        $params = [
+            ':user_id' => $userId,
+            ':tester_id' => $userId,
+        ];
+        $placeholders = [];
+
+        foreach (array_values(array_unique($targetOrderIds)) as $index => $orderId) {
+            $placeholder = ':order_id_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $orderId;
+        }
+
+        if (in_array('cuenta_abierta', $columns, true)) {
+            $set[] = 'cuenta_abierta = 0';
+        }
+        if (in_array('salida_validado_at', $columns, true)) {
+            $set[] = 'salida_validado_at = COALESCE(salida_validado_at, NOW())';
+        }
+        if (in_array('salida_validado_por', $columns, true)) {
+            $set[] = 'salida_validado_por = COALESCE(salida_validado_por, :tester_id)';
+        }
+        if (in_array('cerrado_at', $columns, true)) {
+            $set[] = 'cerrado_at = COALESCE(cerrado_at, NOW())';
+        }
+        if (in_array('estado', $columns, true)) {
+            $settledMarkers = [];
+            foreach (['pagado_at', 'cerrado_at', 'salida_qr_generado_at'] as $column) {
+                if (in_array($column, $columns, true)) {
+                    $settledMarkers[] = "{$column} IS NOT NULL";
+                }
+            }
+            $set[] = empty($settledMarkers)
+                ? "estado = 'cancelado'"
+                : "estado = CASE WHEN (" . implode(' OR ', $settledMarkers) . ") THEN 'entregado' ELSE 'cancelado' END";
+        }
+        if (in_array('actualizado_at', $columns, true)) {
+            $set[] = 'actualizado_at = NOW()';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+
+        $affected = 0;
+        if (!empty($set)) {
+            $affected = Database::rowCount(
+                'UPDATE rest_pedidos
+                    SET ' . implode(', ', $set) . '
+                  WHERE id IN (' . implode(', ', $placeholders) . ')
+                    AND mobile_usuario_id = :user_id',
+                $params
+            );
+        }
+
+        if (!empty($activeVisitDetails['mesa_id'])) {
+            $this->setDiagnosticTableOccupied((int)$activeVisitDetails['mesa_id'], false);
+        }
+        $this->clearTestingTableSessionForUser($userId);
+
+        return [
+            'affected_orders' => $affected,
+            'active_visit' => $activeVisitDetails,
+        ];
+    }
+
+    private function activeVisitOrderIdsForTestingReset(array $activeVisit, int $userId, array $columns): array
+    {
+        $activeOrderId = isset($activeVisit['id']) ? (int)$activeVisit['id'] : 0;
+        $consumptionId = trim((string)($activeVisit['consumo_id'] ?? ''));
+
+        if ($consumptionId === '' || !in_array('consumo_id', $columns, true)) {
+            return $activeOrderId > 0 ? [$activeOrderId] : [];
+        }
+
+        $where = [
+            'mobile_usuario_id = :user_id',
+            "tipo_pedido = 'eat_in'",
+            'consumo_id = :consumo_id',
+        ];
+        $params = [
+            ':user_id' => $userId,
+            ':consumo_id' => $consumptionId,
+        ];
+
+        if (in_array('salida_validado_at', $columns, true)) {
+            $where[] = 'salida_validado_at IS NULL';
+        }
+
+        $rows = Database::query(
+            'SELECT id
+               FROM rest_pedidos
+              WHERE ' . implode(' AND ', $where),
+            $params
+        );
+
+        $ids = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $rows);
+        $ids = array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+
+        return !empty($ids) ? $ids : ($activeOrderId > 0 ? [$activeOrderId] : []);
+    }
+
+    private function clearTestingTableSessionForUser(int $userId): void
+    {
+        if ($userId <= 0 || !$this->tableExists('mobile_usuarios')) {
+            return;
+        }
+
+        $columns = $this->getTableColumns('mobile_usuarios');
+        $set = [];
+
+        if (in_array('current_restaurante_id', $columns, true)) {
+            $set[] = 'current_restaurante_id = NULL';
+        }
+        if (in_array('mesa', $columns, true)) {
+            $set[] = 'mesa = NULL';
+        }
+        if (in_array('is_social_active', $columns, true)) {
+            $set[] = 'is_social_active = 0';
+        }
+        if (in_array('updated_at', $columns, true)) {
+            $set[] = 'updated_at = NOW()';
+        }
+
+        if (empty($set)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_usuarios SET ' . implode(', ', $set) . ' WHERE id = :user_id',
+            [':user_id' => $userId]
+        );
+    }
+
+    private function setDiagnosticTableOccupied(int $tableId, bool $occupied): void
+    {
+        if ($tableId <= 0 || !$this->tableExists('rest_mesas')) {
+            return;
+        }
+
+        $columns = $this->getTableColumns('rest_mesas');
+        $set = [];
+        $params = [':id' => $tableId];
+
+        if (in_array('ocupada', $columns, true)) {
+            $set[] = 'ocupada = :ocupada';
+            $params[':ocupada'] = $occupied ? 1 : 0;
+        }
+        if (in_array('disponible', $columns, true)) {
+            $set[] = 'disponible = :disponible';
+            $params[':disponible'] = $occupied ? 0 : 1;
+        }
+        if (in_array('estado', $columns, true)) {
+            $set[] = 'estado = :estado';
+            $params[':estado'] = $occupied ? 'ocupada' : 'disponible';
+        }
+
+        if (empty($set)) {
+            return;
+        }
+
+        Database::rowCount(
+            'UPDATE rest_mesas SET ' . implode(', ', $set) . ' WHERE id = :id',
+            $params
+        );
     }
 
     private function fetchSocialProfile(int $userId): ?array

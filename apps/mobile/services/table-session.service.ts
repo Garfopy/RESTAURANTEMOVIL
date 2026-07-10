@@ -97,3 +97,18 @@ export async function getTableSessionDiagnostic(params?: {
 
   return data.data;
 }
+
+export async function resetTableSessionForTesting(): Promise<{
+  reset: boolean;
+  affected_orders: number;
+}> {
+  const { data } = await apiClient.post<ApiEnvelope<{ reset: boolean; affected_orders: number }>>(
+    '/restaurants/tables/session-reset-test',
+    {},
+    {
+      _suppressConsoleError: true,
+    } as any
+  );
+
+  return data.data;
+}
