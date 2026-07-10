@@ -13,6 +13,8 @@ $routes = [
     ['POST', '/auth/google', ['Amare\Api\Controllers\AuthController', 'google']],
     ['GET', '/auth/me', ['Amare\Api\Controllers\AuthController', 'me']],
     ['PUT', '/auth/update-password', ['Amare\Api\Controllers\AuthController', 'updatePassword']],
+    ['POST', '/auth/password-reset/request', ['Amare\Api\Controllers\AuthController', 'requestPasswordReset']],
+    ['POST', '/auth/password-reset/confirm', ['Amare\Api\Controllers\AuthController', 'confirmPasswordReset']],
     
     // Branches routes
     ['GET', '/branches', ['Amare\Api\Controllers\BranchController', 'index']],

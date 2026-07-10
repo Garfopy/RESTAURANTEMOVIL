@@ -3934,7 +3934,7 @@ class SocialController
         $user = AuthMiddleware::authenticate();
 
         if (!$this->allowsTestingTableSessionReset()) {
-            Response::error('El reset de cuentas de prueba solo esta disponible fuera de produccion.', 403);
+            Response::error('El reset de cuentas de prueba no esta habilitado en esta API. Activa AMARE_ALLOW_TEST_SESSION_RESET=true solo en ambientes de prueba.', 403);
         }
 
         $result = $this->resetActiveTableVisitForUser((int)$user->id);
@@ -4295,8 +4295,13 @@ class SocialController
         $env = strtolower(trim((string)($_ENV['APP_ENV'] ?? $_SERVER['APP_ENV'] ?? getenv('APP_ENV') ?: 'production')));
         $debugValue = $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG') ?: false;
         $debug = filter_var($debugValue, FILTER_VALIDATE_BOOLEAN);
+        $explicitAllowValue = $_ENV['AMARE_ALLOW_TEST_SESSION_RESET']
+            ?? $_SERVER['AMARE_ALLOW_TEST_SESSION_RESET']
+            ?? getenv('AMARE_ALLOW_TEST_SESSION_RESET')
+            ?: false;
+        $explicitAllow = filter_var($explicitAllowValue, FILTER_VALIDATE_BOOLEAN);
 
-        return $env !== 'production' || $debug === true;
+        return $env !== 'production' || $debug === true || $explicitAllow === true;
     }
 
     private function resetActiveTableVisitForUser(int $userId): array

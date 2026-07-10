@@ -186,10 +186,19 @@ export default function EmailLoginScreen() {
             <View style={styles.passwordBlock}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>Contraseña</Text>
-                <View style={styles.secureLabel}>
-                  <Ionicons name="lock-closed-outline" size={12} color={AuthColors.muted} />
-                  <Text style={styles.forgotPassword}>Acceso seguro</Text>
-                </View>
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push({
+                      pathname: '/(auth)/forgot-password',
+                      params: email.trim() ? { identifier: email.trim() } : undefined,
+                    } as never)
+                  }
+                  accessibilityRole="link"
+                  accessibilityLabel="Olvidaste tu contrasena"
+                  testID="forgot-password-link"
+                >
+                  <Text style={styles.forgotPassword}>¿Olvidaste tu contraseña?</Text>
+                </TouchableOpacity>
               </View>
               <FormField
                 {...fieldTheme}
@@ -335,7 +344,6 @@ const styles = StyleSheet.create({
     color: AuthColors.muted,
     fontWeight: '600',
   },
-  secureLabel: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   fieldLabel: {
     color: AuthColors.text,
   },

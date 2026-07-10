@@ -15,7 +15,7 @@ interface FormFieldProps {
   keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad' | 'decimal-pad';
   secureTextEntry?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  autoComplete?: 'off' | 'email' | 'password' | 'username' | 'name';
+  autoComplete?: 'off' | 'email' | 'password' | 'username' | 'name' | 'one-time-code' | 'new-password';
   editable?: boolean;
   onToggleSecure?: () => void;
   icon?: string;

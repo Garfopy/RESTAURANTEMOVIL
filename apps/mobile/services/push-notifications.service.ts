@@ -1,8 +1,10 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import messaging, { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
+import type { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { apiClient } from './api';
+
+declare const require: (name: string) => any;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -14,10 +16,38 @@ Notifications.setNotificationHandler({
   }),
 });
 
-messaging().setBackgroundMessageHandler(async () => undefined);
+type FirebaseMessagingModule = typeof import('@react-native-firebase/messaging');
+type FirebaseMessaging = FirebaseMessagingModule['default'];
+
+let firebaseMessaging: FirebaseMessaging | null | undefined;
+
+function getFirebaseMessaging(): FirebaseMessaging | null {
+  if (firebaseMessaging !== undefined) {
+    return firebaseMessaging;
+  }
+
+  try {
+    const firebaseModule = require('@react-native-firebase/messaging') as FirebaseMessagingModule;
+    firebaseMessaging = firebaseModule.default;
+  } catch (error) {
+    firebaseMessaging = null;
+    if (__DEV__) {
+      console.warn('[Push] Firebase nativo no esta disponible en este build:', error);
+    }
+  }
+
+  return firebaseMessaging;
+}
+
+getFirebaseMessaging()?.().setBackgroundMessageHandler(async () => undefined);
 
 export async function registerPushNotifications(): Promise<string | null> {
   if (Platform.OS === 'web') {
+    return null;
+  }
+
+  const messaging = getFirebaseMessaging();
+  if (!messaging) {
     return null;
   }
 
@@ -61,6 +91,11 @@ export async function registerPushNotifications(): Promise<string | null> {
 }
 
 export function subscribeForegroundFirebaseMessages() {
+  const messaging = getFirebaseMessaging();
+  if (!messaging) {
+    return () => undefined;
+  }
+
   return messaging().onMessage(async (remoteMessage: FirebaseMessagingTypes.RemoteMessage) => {
     const title = remoteMessage.notification?.title;
     const body = remoteMessage.notification?.body;

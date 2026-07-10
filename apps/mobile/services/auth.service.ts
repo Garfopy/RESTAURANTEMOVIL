@@ -30,6 +30,15 @@ type MeResponse =
     }
   | AuthUserPayload;
 
+type PasswordResetResponse = {
+  success?: boolean;
+  message?: string;
+  data?: {
+    expires_in_minutes?: number;
+    reset_code?: string;
+  } | null;
+};
+
 function hasAuthEnvelope(response: AuthResponse): response is Extract<AuthResponse, { data?: unknown }> {
   return typeof response === 'object' && response !== null && 'data' in response;
 }
@@ -122,6 +131,32 @@ export async function getMe(): Promise<MobileUser> {
   }
 
   return normalizeUser(user);
+}
+
+export async function requestPasswordReset(identifier: string): Promise<{
+  expiresInMinutes: number;
+  resetCode?: string;
+}> {
+  const { data } = await apiClient.post<PasswordResetResponse>('/auth/password-reset/request', {
+    identifier,
+  });
+
+  return {
+    expiresInMinutes: Number(data.data?.expires_in_minutes ?? 15),
+    resetCode: data.data?.reset_code,
+  };
+}
+
+export async function confirmPasswordReset(payload: {
+  identifier: string;
+  code: string;
+  newPassword: string;
+}): Promise<void> {
+  await apiClient.post('/auth/password-reset/confirm', {
+    identifier: payload.identifier,
+    code: payload.code,
+    new_password: payload.newPassword,
+  });
 }
 
 export async function logout(): Promise<void> {

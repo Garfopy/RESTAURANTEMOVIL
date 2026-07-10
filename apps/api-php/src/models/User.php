@@ -79,6 +79,12 @@ class User
         return Database::queryOne($sql, [':id' => $id]);
     }
 
+    public static function findByIdWithPassword(int $id): ?array
+    {
+        $sql = "SELECT * FROM mobile_usuarios WHERE id = :id LIMIT 1";
+        return Database::queryOne($sql, [':id' => $id]);
+    }
+
     public static function findAuthenticated(int $id, ?string $authSource = null): ?array
     {
         if ($authSource === 'staff') {
@@ -219,6 +225,71 @@ class User
         ]) > 0;
     }
 
+    public static function storePasswordResetCode(int $id, string $code, int $ttlMinutes = 15): bool
+    {
+        if (
+            !self::columnExists('mobile_usuarios', 'password_reset_code_hash') ||
+            !self::columnExists('mobile_usuarios', 'password_reset_expires_at') ||
+            !self::columnExists('mobile_usuarios', 'password_reset_requested_at')
+        ) {
+            return false;
+        }
+
+        $expiresAt = date('Y-m-d H:i:s', time() + (max(1, $ttlMinutes) * 60));
+        $sql = "UPDATE mobile_usuarios
+                   SET password_reset_code_hash = :code_hash,
+                       password_reset_expires_at = :expires_at,
+                       password_reset_requested_at = NOW(),
+                       updated_at = NOW()
+                 WHERE id = :id";
+
+        return Database::rowCount($sql, [
+            ':code_hash' => password_hash($code, PASSWORD_DEFAULT),
+            ':expires_at' => $expiresAt,
+            ':id' => $id
+        ]) > 0;
+    }
+
+    public static function clearPasswordResetCode(int $id): bool
+    {
+        if (!self::columnExists('mobile_usuarios', 'password_reset_code_hash')) {
+            return false;
+        }
+
+        $set = [
+            'password_reset_code_hash = NULL',
+        ];
+
+        if (self::columnExists('mobile_usuarios', 'password_reset_expires_at')) {
+            $set[] = 'password_reset_expires_at = NULL';
+        }
+        if (self::columnExists('mobile_usuarios', 'password_reset_requested_at')) {
+            $set[] = 'password_reset_requested_at = NULL';
+        }
+        if (self::columnExists('mobile_usuarios', 'updated_at')) {
+            $set[] = 'updated_at = NOW()';
+        }
+
+        $sql = 'UPDATE mobile_usuarios SET ' . implode(', ', $set) . ' WHERE id = :id';
+        return Database::rowCount($sql, [':id' => $id]) > 0;
+    }
+
+    public static function hasValidPasswordResetCode(array $user, string $code): bool
+    {
+        $hash = (string)($user['password_reset_code_hash'] ?? '');
+        $expiresAt = (string)($user['password_reset_expires_at'] ?? '');
+
+        if ($hash === '' || $expiresAt === '') {
+            return false;
+        }
+
+        if (strtotime($expiresAt) === false || strtotime($expiresAt) < time()) {
+            return false;
+        }
+
+        return password_verify($code, $hash);
+    }
+
     public static function updateGoogleId(int $id, string $googleId): bool
     {
         $sql = "UPDATE mobile_usuarios SET google_id = :google_id, updated_at = NOW() WHERE id = :id";
@@ -322,5 +393,22 @@ class User
     {
         $exists = Database::query("SHOW TABLES LIKE '{$tableName}'");
         return !empty($exists);
+    }
+
+    private static function columnExists(string $tableName, string $columnName): bool
+    {
+        $row = Database::queryOne(
+            'SELECT COUNT(*) AS total
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = :table_name
+                AND COLUMN_NAME = :column_name',
+            [
+                ':table_name' => $tableName,
+                ':column_name' => $columnName,
+            ]
+        );
+
+        return (int)($row['total'] ?? 0) > 0;
     }
 }

@@ -279,7 +279,7 @@ class AuthController
             Response::validationError($errors);
         }
 
-        $userData = User::findById($user->id);
+        $userData = User::findByIdWithPassword((int)$user->id);
 
         if (!$userData || !isset($userData['password_hash']) || !User::verifyPassword($input['current_password'], $userData['password_hash'])) {
             Response::error('Contraseña actual inválida', 400);
@@ -290,5 +290,119 @@ class AuthController
         }
 
         Response::success(null, 'Contraseña actualizada exitosamente');
+    }
+
+    public function requestPasswordReset(): void
+    {
+        $input = ValidationMiddleware::getAllInput();
+        $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? $input['phone'] ?? ''));
+
+        if ($identifier === '') {
+            Response::validationError(['identifier' => ['Correo o telefono es requerido']]);
+        }
+
+        $user = $this->findMobileUserByIdentifier($identifier);
+        $debugPayload = [];
+
+        if ($user) {
+            $code = (string)random_int(100000, 999999);
+            if (!User::storePasswordResetCode((int)$user['id'], $code, 15)) {
+                Response::serverError('No se pudo preparar la recuperacion. Ejecuta la migracion 047.');
+            }
+
+            $email = strtolower(trim((string)($user['email'] ?? '')));
+            if ($email !== '') {
+                $this->sendPasswordResetEmail($email, (string)($user['nombre'] ?? 'Amare'), $code);
+            }
+
+            if ($this->isDebugMode()) {
+                $debugPayload['reset_code'] = $code;
+            }
+        }
+
+        Response::success(array_merge([
+            'expires_in_minutes' => 15,
+        ], $debugPayload), 'Si encontramos una cuenta, te enviaremos un codigo para restablecer tu contrasena.');
+    }
+
+    public function confirmPasswordReset(): void
+    {
+        $input = ValidationMiddleware::getAllInput();
+        $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? $input['phone'] ?? ''));
+        $code = preg_replace('/\D+/', '', (string)($input['code'] ?? $input['reset_code'] ?? ''));
+        $newPassword = (string)($input['new_password'] ?? $input['password'] ?? '');
+
+        $errors = [];
+        if ($identifier === '') {
+            $errors['identifier'] = ['Correo o telefono es requerido'];
+        }
+        if (strlen($code) !== 6) {
+            $errors['code'] = ['Ingresa el codigo de 6 digitos'];
+        }
+        if (strlen($newPassword) < 6) {
+            $errors['new_password'] = ['La nueva contrasena debe tener al menos 6 caracteres'];
+        }
+
+        if (!empty($errors)) {
+            Response::validationError($errors);
+        }
+
+        $user = $this->findMobileUserByIdentifier($identifier);
+        if (!$user || !User::hasValidPasswordResetCode($user, $code)) {
+            Response::error('Codigo invalido o expirado', 400, 'PASSWORD_RESET_INVALID');
+        }
+
+        if (!User::updatePassword((int)$user['id'], $newPassword)) {
+            Response::serverError('No se pudo actualizar la contrasena');
+        }
+
+        User::clearPasswordResetCode((int)$user['id']);
+
+        Response::success(null, 'Contrasena actualizada exitosamente');
+    }
+
+    private function findMobileUserByIdentifier(string $identifier): ?array
+    {
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            return null;
+        }
+
+        if (str_contains($identifier, '@')) {
+            return User::findByEmail(strtolower($identifier));
+        }
+
+        return self::findUserByPhoneCandidates(self::normalizePhone($identifier));
+    }
+
+    private function sendPasswordResetEmail(string $email, string $name, string $code): void
+    {
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        $from = trim((string)($_ENV['MAIL_FROM'] ?? $_ENV['APP_MAIL_FROM'] ?? 'no-reply@amarerestaurant.club'));
+        $safeName = trim($name) !== '' ? trim($name) : 'Amare';
+        $subject = 'Codigo para restablecer tu contrasena';
+        $body = "Hola {$safeName},\n\n"
+            . "Tu codigo para restablecer la contrasena de Amare es: {$code}\n\n"
+            . "Este codigo expira en 15 minutos. Si no lo solicitaste, puedes ignorar este mensaje.\n";
+        $headers = [
+            'From: Amare <' . $from . '>',
+            'Content-Type: text/plain; charset=UTF-8',
+        ];
+
+        try {
+            @mail($email, $subject, $body, implode("\r\n", $headers));
+        } catch (\Throwable $exception) {
+            error_log('AuthController::sendPasswordResetEmail ERROR: ' . $exception->getMessage());
+        }
+    }
+
+    private function isDebugMode(): bool
+    {
+        $env = strtolower(trim((string)($_ENV['APP_ENV'] ?? $_SERVER['APP_ENV'] ?? getenv('APP_ENV') ?: 'production')));
+        $debugValue = $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG') ?: false;
+        return $env !== 'production' || filter_var($debugValue, FILTER_VALIDATE_BOOLEAN);
     }
 }
