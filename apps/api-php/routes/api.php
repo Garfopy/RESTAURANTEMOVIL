@@ -14,6 +14,7 @@ $routes = [
     ['GET', '/auth/me', ['Amare\Api\Controllers\AuthController', 'me']],
     ['PUT', '/auth/update-password', ['Amare\Api\Controllers\AuthController', 'updatePassword']],
     ['POST', '/auth/password-reset/request', ['Amare\Api\Controllers\AuthController', 'requestPasswordReset']],
+    ['POST', '/auth/password-reset/verify', ['Amare\Api\Controllers\AuthController', 'verifyPasswordResetCode']],
     ['POST', '/auth/password-reset/confirm', ['Amare\Api\Controllers\AuthController', 'confirmPasswordReset']],
     
     // Branches routes

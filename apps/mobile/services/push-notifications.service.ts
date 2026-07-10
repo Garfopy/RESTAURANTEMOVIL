@@ -32,7 +32,7 @@ function getFirebaseMessaging(): FirebaseMessaging | null {
   } catch (error) {
     firebaseMessaging = null;
     if (__DEV__) {
-      console.warn('[Push] Firebase nativo no esta disponible en este build:', error);
+      console.warn('[Push] Firebase nativo no está disponible en este build:', error);
     }
   }
 

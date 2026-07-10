@@ -25,7 +25,7 @@ import Animated, {
   withTiming,
   runOnJS,
 } from 'react-native-reanimated';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -152,6 +152,8 @@ type SocialFormState = {
   instagram: string;
   tiktok: string;
 };
+
+type SocialRequiredField = 'photo' | 'name' | 'age' | 'sexuality' | 'gender' | 'description';
 
 type SocialFilterState = {
   edadMin: string;
@@ -301,6 +303,17 @@ const DEFAULT_INTEREST_OPTIONS = [
   'Tecnología',
 ];
 
+const SOCIAL_REQUIRED_FIELD_LABELS: Record<SocialRequiredField, string> = {
+  photo: 'foto',
+  name: 'nombre',
+  age: 'edad',
+  sexuality: 'sexualidad',
+  gender: 'género',
+  description: 'descripción',
+};
+
+const SOCIAL_FIELD_SCROLL_OFFSET = 18;
+
 const EMPTY_FORM: SocialFormState = {
   nombre: '',
   edad: '',
@@ -374,6 +387,16 @@ function isProfileReady(profile: {
       profile.genero &&
       profile.descripcion?.trim()
   );
+}
+
+function formatRequiredFieldList(fields: SocialRequiredField[]): string {
+  const labels = fields.map((field) => SOCIAL_REQUIRED_FIELD_LABELS[field]);
+
+  if (labels.length === 0) return '';
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} y ${labels[1]}`;
+
+  return `${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]}`;
 }
 
 function resolvePhotoUrl(path?: string | null): string | null {
@@ -627,7 +650,7 @@ function getSexualityDescription(value?: string | null): string | null {
 export default function SocialProfileScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { activateSocial } = useLocalSearchParams<{ activateSocial?: string }>();
+  const { activateSocial, view } = useLocalSearchParams<{ activateSocial?: string; view?: string }>();
   const { width, height } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
   const user = useUserStore((state) => state.user);
@@ -639,6 +662,8 @@ export default function SocialProfileScreen() {
   const [form, setForm] = useState<SocialFormState>(EMPTY_FORM);
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [profileEditorMode, setProfileEditorMode] = useState<'full' | 'missing'>('full');
+  const [editorMissingFields, setEditorMissingFields] = useState<SocialRequiredField[]>([]);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [mesaModalVisible, setMesaModalVisible] = useState(false);
   const [consentModalVisible, setConsentModalVisible] = useState(false);
@@ -708,6 +733,9 @@ export default function SocialProfileScreen() {
   const translateY = useSharedValue(0);
   const rotate = useSharedValue(0);
   const detailPhotoScrollRef = useRef<ScrollView | null>(null);
+  const profileEditorScrollRef = useRef<ScrollView | null>(null);
+  const profileFieldOffsetsRef = useRef<Partial<Record<SocialRequiredField, number>>>({});
+  const pendingProfileScrollFieldRef = useRef<SocialRequiredField | null>(null);
   const giftRequestKeyRef = useRef<string | null>(null);
   const socialScanActivationHandledRef = useRef(false);
   const staleSocialActivationHandledRef = useRef(false);
@@ -723,6 +751,70 @@ export default function SocialProfileScreen() {
   );
 
   const SWIPE_THRESHOLD = width * 0.35;
+
+  function getMissingProfileFields(options: { includeName?: boolean } = {}): SocialRequiredField[] {
+    const edad = Number(form.edad);
+    const missing: SocialRequiredField[] = [];
+
+    if (socialPhotos.length === 0) missing.push('photo');
+    if (options.includeName && !form.nombre.trim()) missing.push('name');
+    if (!Number.isFinite(edad) || edad <= 0) missing.push('age');
+    if (!form.sexualidad) missing.push('sexuality');
+    if (!form.genero) missing.push('gender');
+    if (!form.biografia.trim()) missing.push('description');
+
+    return missing;
+  }
+
+  function recordProfileFieldOffset(field: SocialRequiredField, y: number) {
+    profileFieldOffsetsRef.current[field] = y;
+
+    if (pendingProfileScrollFieldRef.current === field) {
+      pendingProfileScrollFieldRef.current = null;
+      scrollToProfileField(field);
+    }
+  }
+
+  function scrollToProfileField(field?: SocialRequiredField | null) {
+    if (!field) return;
+
+    const y = profileFieldOffsetsRef.current[field];
+    if (typeof y !== 'number') {
+      pendingProfileScrollFieldRef.current = field;
+      return;
+    }
+
+    profileEditorScrollRef.current?.scrollTo({
+      y: Math.max(0, y - SOCIAL_FIELD_SCROLL_OFFSET),
+      animated: true,
+    });
+  }
+
+  function focusFirstMissingProfileField(fields: SocialRequiredField[]) {
+    const firstField = fields[0];
+    if (!firstField) return;
+
+    pendingProfileScrollFieldRef.current = firstField;
+    setTimeout(() => scrollToProfileField(firstField), 260);
+  }
+
+  function openSocialProfileEditor(mode: 'full' | 'missing' = 'full', fields?: SocialRequiredField[]) {
+    const missingFields = fields ?? getMissingProfileFields({ includeName: mode === 'missing' });
+
+    profileFieldOffsetsRef.current = {};
+    setProfileEditorMode(mode);
+    setEditorMissingFields(mode === 'missing' ? missingFields : []);
+    setModalVisible(true);
+
+    if (mode === 'missing') {
+      focusFirstMissingProfileField(missingFields);
+    }
+  }
+
+  function closeSocialProfileEditor() {
+    pendingProfileScrollFieldRef.current = null;
+    setModalVisible(false);
+  }
 
   const safeCurrentIndex = diners.length > 0 ? moduloIndex(currentIndex, diners.length) : 0;
   const currentDinerBase = diners[safeCurrentIndex] ?? null;
@@ -757,7 +849,9 @@ export default function SocialProfileScreen() {
       : `${topReceivedLike.nombre} te dio me gusta`
     : '';
   const receivedLikeSubtitle = receivedLikes.length > 1 ? 'Toca para ver todos los perfiles' : 'Toca para ver el perfil';
-  const canDiscover = Boolean(modoSocial && selectedBranch?.id);
+  const activeSocialRestaurantId = tableSession?.restauranteId ?? selectedBranch?.id ?? null;
+  const activeSocialBranchName = selectedBranch?.nombre ?? tableSession?.branch?.nombre ?? null;
+  const canDiscover = Boolean(modoSocial && activeSocialRestaurantId);
   const canUseSocialActions = canDiscover;
 
   useEffect(() => {
@@ -796,11 +890,15 @@ export default function SocialProfileScreen() {
     };
   }, [giftsVisible, selectedGift?.id, selectedGift?.precio, useGiftRewardsPoints]);
 
-  useEffect(() => {
-    if (!canDiscover && socialView === 'discover') {
-      setSocialView('matches');
-    }
-  }, [canDiscover, socialView]);
+  useFocusEffect(
+    React.useCallback(() => {
+      const requestedView = Array.isArray(view) ? view[0] : view;
+
+      if (requestedView === 'discover') {
+        setSocialView('discover');
+      }
+    }, [view])
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -1117,7 +1215,7 @@ export default function SocialProfileScreen() {
     let mounted = true;
 
     async function loadActiveDiners() {
-      if (!modoSocial || !selectedBranch?.id) {
+      if (!modoSocial || !activeSocialRestaurantId) {
         setDiners([]);
         setCurrentIndex(0);
         return;
@@ -1143,12 +1241,12 @@ export default function SocialProfileScreen() {
         let response;
         try {
           response = await apiClient.get<{ success?: boolean; data?: DinerApiItem[] }>(
-            `/restaurants/${selectedBranch.id}/active-diners`,
+            `/restaurants/${activeSocialRestaurantId}/active-diners`,
             { params: requestParams }
           );
         } catch (error) {
           response = await apiClient.get<{ success?: boolean; data?: DinerApiItem[] }>(
-            `/restaurants/${selectedBranch.id}/active-users`,
+            `/restaurants/${activeSocialRestaurantId}/active-users`,
             { params: requestParams }
           );
         }
@@ -1181,7 +1279,7 @@ export default function SocialProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, [filters, modoSocial, selectedBranch?.id]);
+  }, [activeSocialRestaurantId, filters, modoSocial]);
 
   useEffect(() => {
     let mounted = true;
@@ -1840,7 +1938,7 @@ export default function SocialProfileScreen() {
     }
 
     Alert.alert('Agregar foto', 'Usa una foto clara donde se vea tu rostro o cuerpo para evitar confusiones.', [
-      { text: 'Camara', onPress: () => openPicker(true) },
+      { text: 'Cámara', onPress: () => openPicker(true) },
       { text: 'Galería', onPress: () => openPicker(false) },
       { text: 'Cancelar', style: 'cancel' },
     ]);
@@ -2042,10 +2140,15 @@ export default function SocialProfileScreen() {
     }
 
     if (nextValue && !hasCompleteProfile) {
+      const missingFields = getMissingProfileFields();
+      const missingList = formatRequiredFieldList(missingFields);
+
       Alert.alert(
         'Completa tu perfil',
-        'Necesitas foto, edad, género, sexualidad y descripción para aparecer a otros comensales.',
-        [{ text: 'Editar perfil', onPress: () => setModalVisible(true) }, { text: 'Cerrar', style: 'cancel' }]
+        missingList
+          ? `Te falta completar ${missingList} para aparecer a otros comensales.`
+          : 'Revisa tu perfil social para aparecer a otros comensales.',
+        [{ text: 'Editar perfil', onPress: () => openSocialProfileEditor('missing', missingFields) }, { text: 'Cerrar', style: 'cancel' }]
       );
       return;
     }
@@ -2091,6 +2194,9 @@ export default function SocialProfileScreen() {
       setMesaModalVisible(false);
       setPendingActivationAfterBranch(false);
       setModoSocial(nextValue);
+      if (nextValue) {
+        setSocialView('discover');
+      }
       setRequiresSocialConsent(Boolean(result.requires_social_consent));
       updateProfile({
         is_social_active: nextValue,
@@ -2101,16 +2207,21 @@ export default function SocialProfileScreen() {
         social_consent_version: result.social_consent_version ?? user?.social_consent_version ?? null,
         requires_social_consent: Boolean(result.requires_social_consent),
       });
+
+      if (!nextValue) {
+        router.replace('/(tabs)' as never);
+      }
     } catch (error) {
       const message = getApiError(error);
       const normalizedMessage = message.toLowerCase();
 
       if (normalizedMessage.includes('debes completar tu perfil social')) {
+        const missingFields = getMissingProfileFields();
         setHasCompleteProfile(false);
         setModoSocial(false);
         setMesaModalVisible(false);
         setPendingActivationAfterBranch(false);
-        setModalVisible(true);
+        openSocialProfileEditor('missing', missingFields);
         return;
       }
 
@@ -2143,19 +2254,16 @@ export default function SocialProfileScreen() {
 
   async function handleSaveProfile() {
     const edad = Number(form.edad);
+    const missingFields = getMissingProfileFields({ includeName: true });
 
-    if (!Number.isFinite(edad) || edad <= 0) {
-      Alert.alert('Edad inválida', 'Ingresa una edad válida.');
-      return;
-    }
-
-    if (!form.nombre.trim()) {
-      Alert.alert('Nombre requerido', 'Ingresa el nombre que quieres mostrar en tu perfil social.');
-      return;
-    }
-
-    if (!form.genero || !form.sexualidad || !form.biografia.trim()) {
-      Alert.alert('Perfil incompleto', 'Género, sexualidad y descripción son obligatorios.');
+    if (missingFields.length > 0) {
+      setProfileEditorMode('missing');
+      setEditorMissingFields(missingFields);
+      Alert.alert(
+        'Perfil incompleto',
+        `Te falta completar ${formatRequiredFieldList(missingFields)}.`,
+        [{ text: 'OK', onPress: () => focusFirstMissingProfileField(missingFields) }]
+      );
       return;
     }
 
@@ -2807,7 +2915,7 @@ export default function SocialProfileScreen() {
           <Text style={styles.centerStateText}>
             Cuando más personas activen su modo social en {selectedBranch.nombre}, aparecerán aquí.
           </Text>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => setModalVisible(true)}>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => openSocialProfileEditor('full')}>
             <Ionicons name="create-outline" size={18} color={Colors.primary} />
             <Text style={styles.secondaryButtonText}>Editar mi perfil social</Text>
           </TouchableOpacity>
@@ -3077,6 +3185,10 @@ export default function SocialProfileScreen() {
     );
   }
 
+  const showOnlyMissingProfileFields = profileEditorMode === 'missing' && editorMissingFields.length > 0;
+  const shouldShowProfileField = (field: SocialRequiredField) =>
+    !showOnlyMissingProfileFields || editorMissingFields.includes(field);
+
   return (
     <SafeAreaView style={styles.safe}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -3092,7 +3204,7 @@ export default function SocialProfileScreen() {
               Comensales
             </Text>
             <Text style={styles.headerSubtitle} numberOfLines={1}>
-              {selectedBranch?.nombre ? `En ${selectedBranch.nombre}` : 'Activa tu modo social para descubrir gente'}
+              {activeSocialBranchName ? `En ${activeSocialBranchName}` : 'Activa tu modo social para descubrir gente'}
             </Text>
           </View>
 
@@ -3113,7 +3225,7 @@ export default function SocialProfileScreen() {
               ) : null}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.iconButton} onPress={() => setModalVisible(true)} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.iconButton} onPress={() => openSocialProfileEditor('full')} activeOpacity={0.8}>
               <Ionicons name="settings-outline" size={22} color={Colors.text} />
             </TouchableOpacity>
           </View>
@@ -3261,7 +3373,18 @@ export default function SocialProfileScreen() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => setModalVisible(true)} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                if (hasCompleteProfile) {
+                  openSocialProfileEditor('full');
+                  return;
+                }
+
+                openSocialProfileEditor('missing');
+              }}
+              activeOpacity={0.8}
+            >
               <Ionicons name="create-outline" size={18} color={Colors.primary} />
               <Text style={styles.secondaryButtonText}>
                 {hasCompleteProfile ? 'Editar mi perfil social' : 'Completar mi perfil'}
@@ -3271,145 +3394,183 @@ export default function SocialProfileScreen() {
         )}
       </View>
 
-      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={closeSocialProfileEditor}>
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setModalVisible(false)} />
+          <Pressable style={styles.modalBackdrop} onPress={closeSocialProfileEditor} />
 
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
 
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Perfil social</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton} activeOpacity={0.8}>
+              <TouchableOpacity onPress={closeSocialProfileEditor} style={styles.closeButton} activeOpacity={0.8}>
                 <Ionicons name="close" size={24} color={Colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             <ScrollView
+              ref={profileEditorScrollRef}
               contentContainerStyle={styles.modalContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={styles.profileGalleryBlock}>
-                <View style={styles.galleryHeader}>
-                  <View>
-                    <Text style={styles.galleryTitle}>Fotos</Text>
-                    <Text style={styles.helperText}>La primera foto será tu portada social.</Text>
-                  </View>
-                  <Text style={styles.galleryCount}>{socialPhotos.length}/6</Text>
+              {showOnlyMissingProfileFields ? (
+                <View style={styles.missingOnlyNotice}>
+                  <Ionicons name="sparkles-outline" size={18} color={Colors.primary} />
+                  <Text style={styles.missingOnlyText}>
+                    Sólo te mostramos lo que falta para activar tu perfil social.
+                  </Text>
                 </View>
+              ) : null}
 
-                <View style={styles.photoGrid}>
-                  {socialPhotos.map((photo, index) => (
-                    <View key={`${photo}-${index}`} style={styles.galleryPhotoSlot}>
-                      <Image source={{ uri: photo }} style={styles.galleryPhotoImage} contentFit="cover" cachePolicy="disk" />
+              {shouldShowProfileField('photo') ? (
+                <View
+                  style={styles.profileGalleryBlock}
+                  onLayout={(event) => recordProfileFieldOffset('photo', event.nativeEvent.layout.y)}
+                >
+                  <View style={styles.galleryHeader}>
+                    <View>
+                      <Text style={styles.galleryTitle}>Fotos</Text>
+                      <Text style={styles.helperText}>La primera foto será tu portada social.</Text>
+                    </View>
+                    <Text style={styles.galleryCount}>{socialPhotos.length}/6</Text>
+                  </View>
 
-                      {index === 0 ? (
-                        <View style={styles.primaryBadge}>
-                          <Text style={styles.primaryBadgeText}>Principal</Text>
-                        </View>
-                      ) : (
+                  <View style={styles.photoGrid}>
+                    {socialPhotos.map((photo, index) => (
+                      <View key={`${photo}-${index}`} style={styles.galleryPhotoSlot}>
+                        <Image source={{ uri: photo }} style={styles.galleryPhotoImage} contentFit="cover" cachePolicy="disk" />
+
+                        {index === 0 ? (
+                          <View style={styles.primaryBadge}>
+                            <Text style={styles.primaryBadgeText}>Principal</Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.makePrimaryButton}
+                            activeOpacity={0.82}
+                            onPress={() => handleSetPrimaryPhoto(photo)}
+                            disabled={uploading}
+                          >
+                            <Ionicons name="star-outline" size={15} color={Colors.white} />
+                          </TouchableOpacity>
+                        )}
+
                         <TouchableOpacity
-                          style={styles.makePrimaryButton}
+                          style={styles.deletePhotoButton}
                           activeOpacity={0.82}
-                          onPress={() => handleSetPrimaryPhoto(photo)}
+                          onPress={() => handleDeletePhoto(photo)}
                           disabled={uploading}
                         >
-                          <Ionicons name="star-outline" size={15} color={Colors.white} />
+                          <Ionicons name="trash-outline" size={15} color={Colors.white} />
                         </TouchableOpacity>
-                      )}
+                      </View>
+                    ))}
 
+                    {socialPhotos.length < 6 ? (
                       <TouchableOpacity
-                        style={styles.deletePhotoButton}
-                        activeOpacity={0.82}
-                        onPress={() => handleDeletePhoto(photo)}
+                        activeOpacity={0.86}
+                        onPress={handlePickImage}
                         disabled={uploading}
+                        style={[styles.galleryPhotoSlot, styles.addPhotoSlot]}
                       >
-                        <Ionicons name="trash-outline" size={15} color={Colors.white} />
+                        {uploading ? (
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        ) : (
+                          <>
+                            <Ionicons name="add" size={28} color={Colors.primary} />
+                            <Text style={styles.addPhotoText}>Agregar</Text>
+                          </>
+                        )}
                       </TouchableOpacity>
-                    </View>
-                  ))}
+                    ) : null}
 
-                  {socialPhotos.length < 6 ? (
-                    <TouchableOpacity
-                      activeOpacity={0.86}
-                      onPress={handlePickImage}
-                      disabled={uploading}
-                      style={[styles.galleryPhotoSlot, styles.addPhotoSlot]}
-                    >
-                      {uploading ? (
-                        <ActivityIndicator size="small" color={Colors.primary} />
-                      ) : (
-                        <>
-                          <Ionicons name="add" size={28} color={Colors.primary} />
-                          <Text style={styles.addPhotoText}>Agregar</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  ) : null}
-
-                  {Array.from({ length: Math.max(0, 6 - socialPhotos.length - (socialPhotos.length < 6 ? 1 : 0)) }).map(
-                    (_, index) => (
-                      <View key={`empty-${index}`} style={[styles.galleryPhotoSlot, styles.emptyPhotoSlot]} />
-                    )
-                  )}
+                    {Array.from({ length: Math.max(0, 6 - socialPhotos.length - (socialPhotos.length < 6 ? 1 : 0)) }).map(
+                      (_, index) => (
+                        <View key={`empty-${index}`} style={[styles.galleryPhotoSlot, styles.emptyPhotoSlot]} />
+                      )
+                    )}
+                  </View>
                 </View>
-              </View>
+              ) : null}
 
-              <InputField
-                label="Nombre"
-                value={form.nombre}
-                onChangeText={(value) => updateField('nombre', value.slice(0, 80))}
-                placeholder="Cómo quieres aparecer"
-                autoCapitalize="words"
-                maxLength={80}
-              />
+              {shouldShowProfileField('name') ? (
+                <View onLayout={(event) => recordProfileFieldOffset('name', event.nativeEvent.layout.y)}>
+                  <InputField
+                    label="Nombre"
+                    value={form.nombre}
+                    onChangeText={(value) => updateField('nombre', value.slice(0, 80))}
+                    placeholder="Cómo quieres aparecer"
+                    autoCapitalize="words"
+                    maxLength={80}
+                  />
+                </View>
+              ) : null}
 
-              <InputField
-                label="Edad"
-                value={form.edad}
-                onChangeText={(value) => updateField('edad', value)}
-                keyboardType="number-pad"
-                placeholder="Tu edad"
-                maxLength={3}
-              />
+              {shouldShowProfileField('age') ? (
+                <View onLayout={(event) => recordProfileFieldOffset('age', event.nativeEvent.layout.y)}>
+                  <InputField
+                    label="Edad"
+                    value={form.edad}
+                    onChangeText={(value) => updateField('edad', value)}
+                    keyboardType="number-pad"
+                    placeholder="Tu edad"
+                    maxLength={3}
+                  />
+                </View>
+              ) : null}
 
-              <ChoiceField
-                label="Sexualidad"
-                value={form.sexualidad}
-                placeholder="Selecciona tu sexualidad"
-                options={SEXUALITY_OPTIONS}
-                onSelect={(value) => updateField('sexualidad', value)}
-              />
+              {shouldShowProfileField('sexuality') ? (
+                <View onLayout={(event) => recordProfileFieldOffset('sexuality', event.nativeEvent.layout.y)}>
+                  <ChoiceField
+                    label="Sexualidad"
+                    value={form.sexualidad}
+                    placeholder="Selecciona tu sexualidad"
+                    options={SEXUALITY_OPTIONS}
+                    onSelect={(value) => updateField('sexualidad', value)}
+                  />
+                </View>
+              ) : null}
 
-              <ChoiceField
-                label="Género"
-                value={form.genero}
-                placeholder="Selecciona tu género"
-                options={GENDER_OPTIONS}
-                onSelect={(value) => updateField('genero', value)}
-              />
+              {shouldShowProfileField('gender') ? (
+                <View onLayout={(event) => recordProfileFieldOffset('gender', event.nativeEvent.layout.y)}>
+                  <ChoiceField
+                    label="Género"
+                    value={form.genero}
+                    placeholder="Selecciona tu género"
+                    options={GENDER_OPTIONS}
+                    onSelect={(value) => updateField('genero', value)}
+                  />
+                </View>
+              ) : null}
 
-              <ChoiceField
-                label="Qué buscas"
-                value={form.queBusca}
-                placeholder="Cuéntale a otros qué buscas"
-                options={LOOKING_FOR_OPTIONS}
-                onSelect={(value) => updateField('queBusca', value)}
-              />
+              {!showOnlyMissingProfileFields ? (
+                <ChoiceField
+                  label="Qué buscas"
+                  value={form.queBusca}
+                  placeholder="Cuéntale a otros qué buscas"
+                  options={LOOKING_FOR_OPTIONS}
+                  onSelect={(value) => updateField('queBusca', value)}
+                />
+              ) : null}
 
-              <InputField
-                label="Descripción"
-                value={form.biografia}
-                onChangeText={(value) => updateField('biografia', value)}
-                placeholder="Describe tu vibra, tu plan favorito o lo que te gusta platicar."
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-                style={styles.textAreaInput}
-              />
+              {shouldShowProfileField('description') ? (
+                <View onLayout={(event) => recordProfileFieldOffset('description', event.nativeEvent.layout.y)}>
+                  <InputField
+                    label="Descripción"
+                    value={form.biografia}
+                    onChangeText={(value) => updateField('biografia', value)}
+                    placeholder="Describe tu vibra, tu plan favorito o lo que te gusta platicar."
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                    style={styles.textAreaInput}
+                  />
+                </View>
+              ) : null}
 
-              <View style={styles.fieldBlock}>
+              {!showOnlyMissingProfileFields ? (
+                <View style={styles.fieldBlock}>
                 <Text style={styles.fieldLabel}>Intereses</Text>
                 <Text style={styles.helperText}>Opcional. Toca los temas que mejor te representen.</Text>
                 <View style={styles.interestWrap}>
@@ -3435,24 +3596,30 @@ export default function SocialProfileScreen() {
                   })}
                 </View>
               </View>
+              ) : null}
 
-              <InputField
-                label="Instagram"
-                value={form.instagram}
-                onChangeText={(value) => updateField('instagram', value)}
-                placeholder="@usuario"
-                autoCapitalize="none"
-              />
+              {!showOnlyMissingProfileFields ? (
+                <InputField
+                  label="Instagram"
+                  value={form.instagram}
+                  onChangeText={(value) => updateField('instagram', value)}
+                  placeholder="@usuario"
+                  autoCapitalize="none"
+                />
+              ) : null}
 
-              <InputField
-                label="TikTok"
-                value={form.tiktok}
-                onChangeText={(value) => updateField('tiktok', value)}
-                placeholder="@usuario"
-                autoCapitalize="none"
-              />
+              {!showOnlyMissingProfileFields ? (
+                <InputField
+                  label="TikTok"
+                  value={form.tiktok}
+                  onChangeText={(value) => updateField('tiktok', value)}
+                  placeholder="@usuario"
+                  autoCapitalize="none"
+                />
+              ) : null}
 
-              <View style={styles.socialPrivacyPanel}>
+              {!showOnlyMissingProfileFields ? (
+                <View style={styles.socialPrivacyPanel}>
                 <View style={styles.socialPrivacyHeader}>
                   <View style={styles.socialPrivacyIcon}>
                     <Ionicons name="shield-checkmark-outline" size={19} color={Colors.primary} />
@@ -3487,6 +3654,7 @@ export default function SocialProfileScreen() {
                   <Text style={styles.socialDeleteButtonText}>Eliminar perfil social</Text>
                 </TouchableOpacity>
               </View>
+              ) : null}
             </ScrollView>
 
             <TouchableOpacity
@@ -5793,6 +5961,25 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     paddingBottom: 12,
+  },
+  missingOnlyNotice: {
+    marginBottom: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#F9FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  missingOnlyText: {
+    flex: 1,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   consentContent: {
     paddingBottom: 8,

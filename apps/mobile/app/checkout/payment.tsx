@@ -290,7 +290,7 @@ export default function PaymentScreen() {
   async function applyCoupon(): Promise<PromotionQuote | null> {
     const code = couponCode.trim();
     if (!code) {
-      Alert.alert('Codigo requerido', 'Escribe el codigo de la promocion.');
+      Alert.alert('Código requerido', 'Escribe el código de la promoción.');
       return null;
     }
 
@@ -298,7 +298,7 @@ export default function PaymentScreen() {
     try {
       const promoItems = await resolvePromoItemsPayload();
       if (promoItems.length === 0) {
-        Alert.alert('Sin productos', 'No se detectaron productos para validar este cupon.');
+        Alert.alert('Sin productos', 'No se detectaron productos para validar este cupón.');
         return null;
       }
 
@@ -308,7 +308,7 @@ export default function PaymentScreen() {
       return quote;
     } catch (error) {
       setCouponQuote(null);
-      Alert.alert('Cupon no valido', getApiError(error) || 'Este codigo no es valido para tu carrito.');
+      Alert.alert('Cupón no válido', getApiError(error) || 'Este código no es válido para tu carrito.');
       return null;
     } finally {
       setCouponLoading(false);
@@ -324,13 +324,13 @@ export default function PaymentScreen() {
     setLoading(true);
     try {
       if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
-        throw new Error('No se detecto la sucursal del pedido. Regresa al carrito e intenta de nuevo.');
+        throw new Error('No se detectó la sucursal del pedido. Regresa al carrito e intenta de nuevo.');
       }
 
       if (couponCode.trim() !== '' && !couponQuote) {
         const quote = await applyCoupon();
         if (!quote) return;
-        Alert.alert('Cupon aplicado', 'Revisa el nuevo total y vuelve a tocar Pagar.');
+        Alert.alert('Cupón aplicado', 'Revisa el nuevo total y vuelve a tocar Pagar.');
         return;
       }
 
@@ -537,12 +537,12 @@ export default function PaymentScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Metodo de Pago</Text>
+        <Text style={styles.headerTitle}>Método de Pago</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.sectionLabel}>Selecciona como quieres pagar</Text>
+        <Text style={styles.sectionLabel}>Selecciona cómo quieres pagar</Text>
 
         <View style={[styles.methodsContainer, count === 1 && styles.methodsContainerCentered]}>
           {enabledMethods.map((method) => {
@@ -604,8 +604,8 @@ export default function PaymentScreen() {
                 <Ionicons name="pricetag-outline" size={18} color={Colors.primary} />
               </View>
               <View style={styles.couponCopy}>
-                <Text style={styles.couponTitle}>Cupon de promocion</Text>
-                <Text style={styles.couponSubtitle}>Aplica solo si el producto de la promo esta en tu pedido.</Text>
+                <Text style={styles.couponTitle}>Cupón de promoción</Text>
+                <Text style={styles.couponSubtitle}>Aplica solo si el producto de la promo está en tu pedido.</Text>
               </View>
             </View>
 
@@ -743,7 +743,7 @@ export default function PaymentScreen() {
             </View>
             {couponDiscount > 0 ? (
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Cupon</Text>
+                <Text style={styles.totalLabel}>Cupón</Text>
                 <Text style={styles.totalDiscountValue}>-${couponDiscount.toFixed(2)}</Text>
               </View>
             ) : null}

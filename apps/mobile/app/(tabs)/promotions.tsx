@@ -73,7 +73,7 @@ export default function PromotionsScreen() {
   const copyCode = async (code?: string | null) => {
     if (!code) return;
     await Clipboard.setStringAsync(code);
-    Alert.alert('Codigo copiado', code);
+    Alert.alert('Código copiado', code);
   };
 
   // Renderizador de esqueleto en lo que carga la petición
@@ -160,7 +160,7 @@ export default function PromotionsScreen() {
             <Ionicons name="pricetag-outline" size={34} color={Colors.textMuted} />
           </View>
           <Text style={styles.emptyTitle}>Sin promociones activas</Text>
-          <Text style={styles.emptyText}>Vuelve pronto para ver las ofertas del dia.</Text>
+          <Text style={styles.emptyText}>Vuelve pronto para ver las ofertas del día.</Text>
         </View>
       )}
 
@@ -193,7 +193,7 @@ export default function PromotionsScreen() {
               {selectedPromo?.code ? (
                 <View style={styles.codeBox}>
                   <View>
-                    <Text style={styles.codeLabel}>Codigo</Text>
+                    <Text style={styles.codeLabel}>Código</Text>
                     <Text style={styles.codeText}>{selectedPromo.code}</Text>
                   </View>
                   <TouchableOpacity style={styles.copyButton} onPress={() => void copyCode(selectedPromo.code)}>

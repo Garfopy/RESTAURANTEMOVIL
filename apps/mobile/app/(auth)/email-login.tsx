@@ -194,7 +194,7 @@ export default function EmailLoginScreen() {
                     } as never)
                   }
                   accessibilityRole="link"
-                  accessibilityLabel="Olvidaste tu contrasena"
+                  accessibilityLabel="Olvidaste tu contraseña"
                   testID="forgot-password-link"
                 >
                   <Text style={styles.forgotPassword}>¿Olvidaste tu contraseña?</Text>

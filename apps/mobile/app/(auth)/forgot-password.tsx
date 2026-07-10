@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
-import { confirmPasswordReset, requestPasswordReset } from '../../services/auth.service';
+import { confirmPasswordReset, requestPasswordReset, verifyPasswordResetCode } from '../../services/auth.service';
 import { getApiError } from '../../services/api';
 import { validateLoginIdentifier, validatePassword } from '../../services/error.service';
 import { useToast } from '../../context/ToastContext';
@@ -36,7 +36,7 @@ const AuthColors = {
   errorBorder: '#B85C63',
 };
 
-type Step = 'request' | 'reset' | 'done';
+type Step = 'request' | 'code' | 'password' | 'done';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -86,14 +86,14 @@ export default function ForgotPasswordScreen() {
   function handleCodeChange(value: string) {
     const next = value.replace(/\D/g, '').slice(0, 6);
     setCode(next);
-    setCodeError(next.length > 0 && next.length !== 6 ? 'Ingresa los 6 digitos' : null);
+    setCodeError(next.length > 0 && next.length !== 6 ? 'Ingresa los 6 dígitos' : null);
   }
 
   async function handleRequestCode() {
     const error = validateLoginIdentifier(identifier);
     setIdentifierError(error);
     if (error) {
-      toast.error('Revisa tu correo o telefono');
+      toast.error('Revisa tu correo o teléfono');
       return;
     }
 
@@ -102,19 +102,43 @@ export default function ForgotPasswordScreen() {
       const result = await requestPasswordReset(identifier.trim());
       setExpiresIn(result.expiresInMinutes);
       setDebugCode(result.resetCode ?? null);
-      setStep('reset');
-      toast.success('Codigo enviado');
+      setStep('code');
+      toast.success('Código enviado');
     } catch (error) {
-      toast.error(getApiError(error) || 'No pudimos solicitar el codigo');
+      toast.error(getApiError(error) || 'No pudimos solicitar el código');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyCode() {
+    const nextCodeError = code.length === 6 ? null : 'Ingresa los 6 dígitos';
+    setCodeError(nextCodeError);
+
+    if (nextCodeError) {
+      toast.error('Revisa el código');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await verifyPasswordResetCode({
+        identifier: identifier.trim(),
+        code,
+      });
+      setStep('password');
+      toast.success('Código verificado');
+    } catch (error) {
+      toast.error(getApiError(error) || 'El código no es válido');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleConfirmReset() {
-    const nextCodeError = code.length === 6 ? null : 'Ingresa los 6 digitos';
+    const nextCodeError = code.length === 6 ? null : 'Ingresa los 6 dígitos';
     const nextPasswordError = validatePassword(newPassword);
-    const nextConfirmError = confirmPassword === newPassword ? null : 'Las contrasenas no coinciden';
+    const nextConfirmError = confirmPassword === newPassword ? null : 'Las contraseñas no coinciden';
 
     setCodeError(nextCodeError);
     setPasswordError(nextPasswordError);
@@ -133,9 +157,9 @@ export default function ForgotPasswordScreen() {
         newPassword,
       });
       setStep('done');
-      toast.success('Contrasena actualizada');
+      toast.success('Contraseña actualizada');
     } catch (error) {
-      toast.error(getApiError(error) || 'No pudimos actualizar tu contrasena');
+      toast.error(getApiError(error) || 'No pudimos actualizar tu contraseña');
     } finally {
       setLoading(false);
     }
@@ -174,8 +198,10 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.title}>{step === 'done' ? 'Listo.' : 'Recupera tu acceso.'}</Text>
               <Text style={styles.subtitle}>
                 {step === 'done'
-                  ? 'Tu nueva contrasena quedo guardada.'
-                  : 'Te enviaremos un codigo temporal para crear una nueva contrasena.'}
+                  ? 'Tu nueva contraseña quedó guardada.'
+                  : step === 'password'
+                    ? 'Código verificado. Ahora crea una contraseña nueva.'
+                    : 'Te enviaremos un código temporal para confirmar que eres tú.'}
               </Text>
             </Animated.View>
 
@@ -192,8 +218,8 @@ export default function ForgotPasswordScreen() {
                 <View style={styles.form}>
                   <View style={styles.formHeader}>
                     <View>
-                      <Text style={styles.formTitle}>Enviar codigo</Text>
-                      <Text style={styles.formHint}>Usa el correo o telefono de tu cuenta</Text>
+                      <Text style={styles.formTitle}>Enviar código</Text>
+                      <Text style={styles.formHint}>Usa el correo o teléfono de tu cuenta</Text>
                     </View>
                     <View style={styles.secureBadge}>
                       <Ionicons name="mail-outline" size={16} color={AuthColors.accent} />
@@ -202,7 +228,7 @@ export default function ForgotPasswordScreen() {
 
                   <FormField
                     {...fieldTheme}
-                    label="Correo o telefono"
+                    label="Correo o teléfono"
                     value={identifier}
                     onChangeText={handleIdentifierChange}
                     onBlur={() => setIdentifierError(identifier.trim() ? validateLoginIdentifier(identifier) : null)}
@@ -215,7 +241,7 @@ export default function ForgotPasswordScreen() {
                   />
 
                   <Button
-                    label="Enviar codigo"
+                    label="Enviar código"
                     onPress={handleRequestCode}
                     loading={loading}
                     fullWidth
@@ -226,12 +252,12 @@ export default function ForgotPasswordScreen() {
                 </View>
               ) : null}
 
-              {step === 'reset' ? (
+              {step === 'code' ? (
                 <View style={styles.form}>
                   <View style={styles.formHeader}>
                     <View>
-                      <Text style={styles.formTitle}>Nueva contrasena</Text>
-                      <Text style={styles.formHint}>El codigo expira en {expiresIn} minutos</Text>
+                      <Text style={styles.formTitle}>Validar código</Text>
+                      <Text style={styles.formHint}>El código expira en {expiresIn} minutos</Text>
                     </View>
                     <TouchableOpacity onPress={handleRequestCode} disabled={loading} accessibilityRole="button">
                       <Text style={styles.inlineAction}>Reenviar</Text>
@@ -241,13 +267,13 @@ export default function ForgotPasswordScreen() {
                   {debugCode ? (
                     <View style={styles.debugBox}>
                       <Ionicons name="construct-outline" size={16} color={AuthColors.accent} />
-                      <Text style={styles.debugText}>Codigo de prueba: {debugCode}</Text>
+                      <Text style={styles.debugText}>Código de prueba: {debugCode}</Text>
                     </View>
                   ) : null}
 
                   <FormField
                     {...fieldTheme}
-                    label="Codigo"
+                    label="Código"
                     value={code}
                     onChangeText={handleCodeChange}
                     placeholder="000000"
@@ -258,9 +284,34 @@ export default function ForgotPasswordScreen() {
                     testID="reset-code-input"
                   />
 
+                  <Button
+                    label="Validar código"
+                    onPress={handleVerifyCode}
+                    loading={loading}
+                    fullWidth
+                    size="lg"
+                    style={styles.primaryButton}
+                    textStyle={styles.primaryButtonText}
+                  />
+                </View>
+              ) : null}
+
+              {step === 'password' ? (
+                <View style={styles.form}>
+                  <View style={styles.formHeader}>
+                    <View>
+                      <Text style={styles.formTitle}>Nueva contraseña</Text>
+                      <Text style={styles.formHint}>Usa al menos 8 caracteres</Text>
+                    </View>
+                    <View style={styles.verifiedBadge}>
+                      <Ionicons name="checkmark-circle" size={18} color={AuthColors.accent} />
+                      <Text style={styles.verifiedText}>Verificado</Text>
+                    </View>
+                  </View>
+
                   <FormField
                     {...fieldTheme}
-                    label="Nueva contrasena"
+                    label="Nueva contraseña"
                     value={newPassword}
                     onChangeText={(value) => {
                       setNewPassword(value);
@@ -269,7 +320,7 @@ export default function ForgotPasswordScreen() {
                     placeholder="********"
                     error={passwordError}
                     secureTextEntry={!showPassword}
-                    autoComplete="password"
+                    autoComplete="new-password"
                     icon="lock-closed-outline"
                     onToggleSecure={() => setShowPassword((value) => !value)}
                     testID="new-password-input"
@@ -277,22 +328,22 @@ export default function ForgotPasswordScreen() {
 
                   <FormField
                     {...fieldTheme}
-                    label="Confirmar contrasena"
+                    label="Confirmar contraseña"
                     value={confirmPassword}
                     onChangeText={(value) => {
                       setConfirmPassword(value);
-                      setConfirmError(value && value !== newPassword ? 'Las contrasenas no coinciden' : null);
+                      setConfirmError(value && value !== newPassword ? 'Las contraseñas no coinciden' : null);
                     }}
                     placeholder="********"
                     error={confirmError}
                     secureTextEntry={!showPassword}
-                    autoComplete="password"
+                    autoComplete="new-password"
                     icon="lock-closed-outline"
                     testID="confirm-password-input"
                   />
 
                   <Button
-                    label="Cambiar contrasena"
+                    label="Cambiar contraseña"
                     onPress={handleConfirmReset}
                     loading={loading}
                     fullWidth
@@ -308,10 +359,10 @@ export default function ForgotPasswordScreen() {
                   <View style={styles.doneIcon}>
                     <Ionicons name="checkmark" size={34} color={AuthColors.buttonText} />
                   </View>
-                  <Text style={styles.doneTitle}>Ya puedes iniciar sesion</Text>
-                  <Text style={styles.doneText}>Usa tu nueva contrasena para entrar a Amare.</Text>
+                  <Text style={styles.doneTitle}>Ya puedes iniciar sesión</Text>
+                  <Text style={styles.doneText}>Usa tu nueva contraseña para entrar a Amare.</Text>
                   <Button
-                    label="Ir a iniciar sesion"
+                    label="Ir a iniciar sesión"
                     onPress={() => router.replace('/(auth)/email-login')}
                     fullWidth
                     size="lg"
@@ -357,6 +408,8 @@ const styles = StyleSheet.create({
   primaryButton: { marginTop: 8, backgroundColor: AuthColors.accent, height: 56, borderRadius: 18 },
   primaryButtonText: { color: AuthColors.buttonText, fontSize: 16, fontWeight: '800' },
   inlineAction: { color: AuthColors.accent, fontSize: 13, fontWeight: '800' },
+  verifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: 'rgba(233,221,200,0.08)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.13)' },
+  verifiedText: { color: AuthColors.accent, fontSize: 12, fontWeight: '800' },
   debugBox: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, padding: 12, backgroundColor: 'rgba(233,221,200,0.08)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.13)' },
   debugText: { color: AuthColors.accent, fontSize: 13, fontWeight: '800' },
   doneState: { alignItems: 'center', gap: 14, paddingVertical: 10 },

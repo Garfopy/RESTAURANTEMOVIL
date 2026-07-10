@@ -325,6 +325,34 @@ class AuthController
         ], $debugPayload), 'Si encontramos una cuenta, te enviaremos un codigo para restablecer tu contrasena.');
     }
 
+    public function verifyPasswordResetCode(): void
+    {
+        $input = ValidationMiddleware::getAllInput();
+        $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? $input['phone'] ?? ''));
+        $code = preg_replace('/\D+/', '', (string)($input['code'] ?? $input['reset_code'] ?? ''));
+
+        $errors = [];
+        if ($identifier === '') {
+            $errors['identifier'] = ['Correo o telefono es requerido'];
+        }
+        if (strlen($code) !== 6) {
+            $errors['code'] = ['Ingresa el codigo de 6 digitos'];
+        }
+
+        if (!empty($errors)) {
+            Response::validationError($errors);
+        }
+
+        $user = $this->findMobileUserByIdentifier($identifier);
+        if (!$user || !User::hasValidPasswordResetCode($user, $code)) {
+            Response::error('Codigo invalido o expirado', 400, 'PASSWORD_RESET_INVALID');
+        }
+
+        Response::success([
+            'verified' => true,
+        ], 'Codigo verificado');
+    }
+
     public function confirmPasswordReset(): void
     {
         $input = ValidationMiddleware::getAllInput();
@@ -383,13 +411,51 @@ class AuthController
 
         $from = trim((string)($_ENV['MAIL_FROM'] ?? $_ENV['APP_MAIL_FROM'] ?? 'no-reply@amarerestaurant.club'));
         $safeName = trim($name) !== '' ? trim($name) : 'Amare';
+        $safeNameHtml = htmlspecialchars($safeName, ENT_QUOTES, 'UTF-8');
+        $safeCodeHtml = htmlspecialchars($code, ENT_QUOTES, 'UTF-8');
         $subject = 'Codigo para restablecer tu contrasena';
-        $body = "Hola {$safeName},\n\n"
-            . "Tu codigo para restablecer la contrasena de Amare es: {$code}\n\n"
-            . "Este codigo expira en 15 minutos. Si no lo solicitaste, puedes ignorar este mensaje.\n";
+        $body = '<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codigo de recuperacion Amare</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4efe7;font-family:Arial,Helvetica,sans-serif;color:#24272d;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4efe7;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #eadfce;">
+            <tr>
+              <td style="background:#191a2e;padding:28px 30px;text-align:center;">
+                <div style="font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#cdbfa8;font-weight:700;">Amare</div>
+                <h1 style="margin:12px 0 0;color:#f7f1e7;font-size:24px;line-height:30px;font-weight:800;">Recupera tu acceso</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:30px;">
+                <p style="margin:0 0 14px;font-size:16px;line-height:24px;">Hola ' . $safeNameHtml . ',</p>
+                <p style="margin:0 0 22px;font-size:15px;line-height:23px;color:#5b5449;">Usa este codigo para restablecer la contrasena de tu cuenta Amare.</p>
+                <div style="background:#f2ebdd;border:1px solid #dfcfb7;border-radius:18px;padding:22px;text-align:center;margin:0 0 22px;">
+                  <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#7a6c58;font-weight:700;margin-bottom:8px;">Codigo de verificacion</div>
+                  <div style="font-size:34px;letter-spacing:8px;color:#24272d;font-weight:900;font-family:Arial,Helvetica,sans-serif;">' . $safeCodeHtml . '</div>
+                </div>
+                <p style="margin:0 0 18px;font-size:14px;line-height:22px;color:#6f6659;">Este codigo expira en <strong>15 minutos</strong>. Si no solicitaste este cambio, puedes ignorar este correo.</p>
+                <div style="border-top:1px solid #eee5d9;padding-top:18px;margin-top:22px;">
+                  <p style="margin:0;font-size:12px;line-height:18px;color:#948878;">Por seguridad, nunca compartas este codigo con otra persona.</p>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>';
         $headers = [
             'From: Amare <' . $from . '>',
-            'Content-Type: text/plain; charset=UTF-8',
+            'MIME-Version: 1.0',
+            'Content-Type: text/html; charset=UTF-8',
         ];
 
         try {

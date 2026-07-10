@@ -147,6 +147,16 @@ export async function requestPasswordReset(identifier: string): Promise<{
   };
 }
 
+export async function verifyPasswordResetCode(payload: {
+  identifier: string;
+  code: string;
+}): Promise<void> {
+  await apiClient.post('/auth/password-reset/verify', {
+    identifier: payload.identifier,
+    code: payload.code,
+  });
+}
+
 export async function confirmPasswordReset(payload: {
   identifier: string;
   code: string;

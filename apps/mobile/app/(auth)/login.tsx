@@ -14,8 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { DEFAULT_RESTAURANT_LOGO_PATH } from '../../constants/branding';
-import { formatImageUrl } from '../../services/api';
 
 const BENEFITS = [
   { icon: 'sparkles-outline' as const, label: 'Experiencias' },
@@ -23,10 +21,11 @@ const BENEFITS = [
   { icon: 'gift-outline' as const, label: 'Momentos' },
 ];
 
+const LOGIN_LOGO = require('../../assets/amare_logo_login.png');
+
 export default function LoginScreen() {
   const router = useRouter();
   const { height } = useWindowDimensions();
-  const logoUri = formatImageUrl(DEFAULT_RESTAURANT_LOGO_PATH);
   const hero = useRef(new Animated.Value(0)).current;
   const actions = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
@@ -88,11 +87,7 @@ export default function LoginScreen() {
 
             <View style={[styles.logoHalo, compact && styles.logoHaloCompact]}>
               <LinearGradient colors={['rgba(242,235,221,0.16)', 'rgba(242,235,221,0.03)']} style={styles.logoHaloInner}>
-                {logoUri ? (
-                  <Image source={{ uri: logoUri }} style={styles.logoImage} resizeMode="contain" />
-                ) : (
-                  <Ionicons name="restaurant" size={72} color="#F2EBDD" />
-                )}
+                <Image source={LOGIN_LOGO} style={styles.logoImage} resizeMode="contain" />
               </LinearGradient>
             </View>
 
@@ -134,7 +129,7 @@ export default function LoginScreen() {
               <Text style={styles.secondaryLabel}>Crear una cuenta</Text>
             </TouchableOpacity>
 
-            <Text style={styles.legal}>Al continuar aceptas nuestros terminos y aviso de privacidad.</Text>
+            <Text style={styles.legal}>Al continuar aceptas nuestros términos y aviso de privacidad.</Text>
           </Animated.View>
         </View>
       </SafeAreaView>

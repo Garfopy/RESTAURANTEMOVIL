@@ -178,7 +178,7 @@ export default function HomeScreen() {
         refetchAllDishes(),
       ]);
     } catch {
-      toast.warning('No pudimos actualizar el menu. Conservamos la ultima version disponible.');
+      toast.warning('No pudimos actualizar el menú. Conservamos la última versión disponible.');
     } finally {
       setRefreshingHome(false);
     }
@@ -431,7 +431,7 @@ export default function HomeScreen() {
 
       else if (nearbyBranch.kind === 'near') {
         syncDetectedBranchIfSafe(nearbyBranch.branch);
-        setDetectedBranchMessage(`Estas cerca de ${nearbyBranch.branch.nombre}. Puedes escanear tu mesa despues.`);
+        setDetectedBranchMessage(`Estás cerca de ${nearbyBranch.branch.nombre}. Puedes escanear tu mesa después.`);
         nextAvailableTypes = ['eat_in'];
       } else if (nearbyBranch.kind === 'far') {
         nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
@@ -717,7 +717,7 @@ export default function HomeScreen() {
 
   const firstName = user?.nombre?.split(' ')[0] ?? '';
   const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'Buenos dias' : currentHour < 19 ? 'Buenas tardes' : 'Buenas noches';
+  const greeting = currentHour < 12 ? 'Buenos días' : currentHour < 19 ? 'Buenas tardes' : 'Buenas noches';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -805,7 +805,7 @@ export default function HomeScreen() {
             <View style={styles.heroFooter}>
               <View style={styles.heroFeature}>
                 <Ionicons name="sparkles-outline" size={14} color="#D7C6A8" />
-                <Text style={styles.heroFeatureText}>Seleccion especial</Text>
+                <Text style={styles.heroFeatureText}>Selección especial</Text>
               </View>
               <View style={styles.heroDivider} />
               <View style={styles.heroFeature}>
@@ -825,7 +825,7 @@ export default function HomeScreen() {
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionKicker}>DESCUBRE</Text>
-            <Text style={styles.sectionTitle}>Explorar menu</Text>
+            <Text style={styles.sectionTitle}>Explorar menú</Text>
           </View>
           <View style={styles.sectionIcon}><Ionicons name="grid-outline" size={17} color={Colors.primary} /></View>
         </View>
@@ -1050,7 +1050,7 @@ export default function HomeScreen() {
 
                 <TouchableOpacity style={styles.modalBackButton} onPress={() => setSelectingPickupBranch(false)}>
                   <Ionicons name="arrow-back" size={16} color={Colors.primary} />
-                  <Text style={styles.modalBackText}>Cambiar metodo</Text>
+                  <Text style={styles.modalBackText}>Cambiar método</Text>
                 </TouchableOpacity>
               </View>
             ) : (

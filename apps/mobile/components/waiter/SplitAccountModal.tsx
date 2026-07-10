@@ -480,7 +480,7 @@ export function SplitAccountModal({
       onSplitChanged(result.split);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (invoiceRequest) {
-        Alert.alert('Solicitud de factura recibida', 'La solicitud quedo registrada para esta cuenta.');
+        Alert.alert('Solicitud de factura recibida', 'La solicitud quedó registrada para esta cuenta.');
       }
       onPreviewTicket({
         account: { ...current, estado: 'pagada', metodo_pago: paymentMethod },

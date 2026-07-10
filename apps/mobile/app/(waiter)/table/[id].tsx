@@ -549,7 +549,7 @@ export default function WaiterTableScreen() {
       setTicketTipAmount(selectedTipAmount);
       setTicketCloseAction('goBack');
       if (invoiceRequest) {
-        Alert.alert('Solicitud de factura recibida', 'La solicitud quedo registrada para esta cuenta.');
+        Alert.alert('Solicitud de factura recibida', 'La solicitud quedó registrada para esta cuenta.');
       }
       showTicketAfterModalTransition();
     } catch (error) {
@@ -865,7 +865,7 @@ export default function WaiterTableScreen() {
             <Text style={styles.emptyText}>
               {activeSplit
                 ? 'La mesa tiene cuentas separadas activas. Termina esa division antes de agregar alimentos.'
-                : 'Agrega alimentos desde el menu para preparar una comanda.'}
+                : 'Agrega alimentos desde el menú para preparar una comanda.'}
             </Text>
           )}
         </View>

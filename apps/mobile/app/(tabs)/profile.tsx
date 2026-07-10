@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -28,6 +30,59 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
+  const swipeTranslateX = React.useRef(new Animated.Value(0)).current;
+  const returningHomeRef = React.useRef(false);
+  const returnHomePanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          gestureState.dx > 14 && Math.abs(gestureState.dy) < 18,
+        onPanResponderMove: (_, gestureState) => {
+          if (returningHomeRef.current) return;
+
+          const nextOffset = Math.min(Math.max(gestureState.dx * 0.58, 0), 76);
+          swipeTranslateX.setValue(nextOffset);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (returningHomeRef.current) return;
+
+          const isReturnGesture =
+            gestureState.dx > 72 &&
+            Math.abs(gestureState.dy) < 70 &&
+            (gestureState.vx > 0.12 || gestureState.dx > 120);
+
+          if (isReturnGesture) {
+            returningHomeRef.current = true;
+            Animated.timing(swipeTranslateX, {
+              toValue: 92,
+              duration: 70,
+              useNativeDriver: true,
+            }).start(() => {
+              swipeTranslateX.setValue(0);
+              returningHomeRef.current = false;
+              router.replace('/(tabs)' as never);
+            });
+            return;
+          }
+
+          Animated.timing(swipeTranslateX, {
+            toValue: 0,
+            duration: 110,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          if (returningHomeRef.current) return;
+
+          Animated.timing(swipeTranslateX, {
+            toValue: 0,
+            duration: 110,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [router, swipeTranslateX]
+  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -125,6 +180,10 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <Animated.View
+        style={[styles.swipeSurface, { transform: [{ translateX: swipeTranslateX }] }]}
+        {...returnHomePanResponder.panHandlers}
+      >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Perfil</Text>
       </View>
@@ -243,6 +302,7 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -277,6 +337,9 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: Colors.background || '#F9FAFB',
+  },
+  swipeSurface: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 24,

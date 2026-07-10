@@ -355,7 +355,7 @@ export default function OrderTypeScreen() {
 
   async function handleContinue() {
     if (!tipoPedido) {
-      Alert.alert('Seleccion requerida', 'Vuelve al inicio y elige como quieres recibir tu pedido.');
+      Alert.alert('Selección requerida', 'Vuelve al inicio y elige cómo quieres recibir tu pedido.');
       return;
     }
 
@@ -405,7 +405,7 @@ export default function OrderTypeScreen() {
     }
 
     if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
-      Alert.alert('Error', 'No se detecto la sucursal del pedido. Vuelve al menu y selecciona una sucursal antes de pagar.');
+      Alert.alert('Error', 'No se detectó la sucursal del pedido. Vuelve al menú y selecciona una sucursal antes de pagar.');
       return;
     }
 
@@ -529,9 +529,9 @@ export default function OrderTypeScreen() {
 
     return {
       icon: 'options-outline' as const,
-      title: 'Metodo pendiente',
-      subtitle: 'Selecciona el metodo desde el inicio',
-      detail: 'Vuelve al menu para elegir como recibir tu pedido.',
+      title: 'Método pendiente',
+      subtitle: 'Selecciona el método desde el inicio',
+      detail: 'Vuelve al menú para elegir cómo recibir tu pedido.',
     };
   }
 

@@ -270,7 +270,7 @@ export function GlobalSocialNotifications() {
       ) {
         presentCoveredAccountActions({
           title: 'Cuenta cubierta',
-          body: 'Tu cuenta ya quedo cubierta. Puedes seguir pidiendo o generar tu QR de salida.',
+          body: 'Tu cuenta ya quedó cubierta. Puedes seguir pidiendo o generar tu QR de salida.',
           onKeepOrdering: () => undefined,
           onGenerateQr: () => {
             void openExitPassFromOrder(result.covered_order_id as number, result.cover?.covered_mesa ?? '');

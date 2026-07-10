@@ -20,9 +20,9 @@ const FIELD_META: Array<{
   keyboardType?: 'default' | 'email-address' | 'number-pad';
 }> = [
   { key: 'rfc', label: 'RFC', placeholder: 'XAXX010101000' },
-  { key: 'nombre_fiscal', label: 'Razon social / nombre fiscal', placeholder: 'Nombre fiscal' },
-  { key: 'regimen_fiscal', label: 'Regimen fiscal', placeholder: '612' },
-  { key: 'codigo_postal', label: 'Codigo postal fiscal', placeholder: '00000', keyboardType: 'number-pad' },
+  { key: 'nombre_fiscal', label: 'Razón social / nombre fiscal', placeholder: 'Nombre fiscal' },
+  { key: 'regimen_fiscal', label: 'Régimen fiscal', placeholder: '612' },
+  { key: 'codigo_postal', label: 'Código postal fiscal', placeholder: '00000', keyboardType: 'number-pad' },
   { key: 'uso_cfdi', label: 'Uso CFDI', placeholder: 'G03' },
   { key: 'email', label: 'Email', placeholder: 'correo@dominio.com', keyboardType: 'email-address' },
 ];
@@ -77,7 +77,7 @@ export function InvoiceRequestForm({
           <View style={styles.saveRow}>
             <View style={styles.saveCopy}>
               <Text style={styles.saveTitle}>Guardar estos datos</Text>
-              <Text style={styles.saveSubtitle}>Se precargaran en tus proximos pagos.</Text>
+              <Text style={styles.saveSubtitle}>Se precargarán en tus próximos pagos.</Text>
             </View>
             <Switch value={saveToProfile} onValueChange={onSaveToProfileChange} disabled={disabled} />
           </View>

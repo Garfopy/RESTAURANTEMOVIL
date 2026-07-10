@@ -630,7 +630,7 @@ export default function WaiterHomeScreen() {
           <View style={styles.groupSwitch}>
             {([
               ['status', 'Estado', 'list-outline'],
-              ['zone', 'Area', 'map-outline'],
+              ['zone', 'Área', 'map-outline'],
             ] as Array<[typeof tableGrouping, string, StatusIcon]>).map(([value, label, icon]) => {
               const active = tableGrouping === value;
               return (

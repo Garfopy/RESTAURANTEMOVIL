@@ -220,7 +220,7 @@ export default function ProductScreen() {
           <Text style={styles.notFoundText}>
             Este platillo no pertenece a la sucursal seleccionada.
           </Text>
-          <Button label="Volver al menu" onPress={goBack} fullWidth />
+          <Button label="Volver al menú" onPress={goBack} fullWidth />
         </View>
       </SafeAreaView>
     );

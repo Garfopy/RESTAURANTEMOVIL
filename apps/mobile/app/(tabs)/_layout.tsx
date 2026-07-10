@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useRef } from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Animated,
@@ -84,6 +84,7 @@ const TabIcon = memo(
 );
 
 export default function TabsLayout() {
+  const router = useRouter();
   const theme = useThemeColors();
   const user = useUserStore((state) => state.user);
   const insets = useSafeAreaInsets();
@@ -158,8 +159,19 @@ export default function TabsLayout() {
       ))}
       <Tabs.Screen
         name="social"
+        listeners={{
+          tabPress: (event) => {
+            if (!socialActive) return;
+
+            event.preventDefault();
+            router.push({
+              pathname: '/(tabs)/social',
+              params: { view: 'discover' },
+            } as never);
+          },
+        }}
         options={{
-          href: socialActive ? undefined : null,
+          href: socialActive ? '/(tabs)/social?view=discover' : null,
           tabBarStyle: { display: 'none' },
           tabBarIcon: ({ focused, color }) => (
             <TabIcon

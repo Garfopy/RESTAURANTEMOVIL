@@ -29,7 +29,6 @@ import {
   validateName,
   validateOptionalEmail,
   validatePassword,
-  validatePhone,
 } from '../../services/error.service';
 
 const AuthColors = {
@@ -58,11 +57,11 @@ type CountryCodeOption = {
 const COUNTRY_CODES: CountryCodeOption[] = [
   { iso: 'MX', name: 'México', dialCode: '52', flag: '🇲🇽', example: '55 1234 5678' },
   { iso: 'US', name: 'Estados Unidos', dialCode: '1', flag: '🇺🇸', example: '201 555 0123' },
-  { iso: 'CA', name: 'Canada', dialCode: '1', flag: '🇨🇦', example: '416 555 0123' },
+  { iso: 'CA', name: 'Canadá', dialCode: '1', flag: '🇨🇦', example: '416 555 0123' },
   { iso: 'CO', name: 'Colombia', dialCode: '57', flag: '🇨🇴', example: '300 123 4567' },
   { iso: 'AR', name: 'Argentina', dialCode: '54', flag: '🇦🇷', example: '11 2345 6789' },
   { iso: 'CL', name: 'Chile', dialCode: '56', flag: '🇨🇱', example: '9 1234 5678' },
-  { iso: 'PE', name: 'Peru', dialCode: '51', flag: '🇵🇪', example: '912 345 678' },
+  { iso: 'PE', name: 'Perú', dialCode: '51', flag: '🇵🇪', example: '912 345 678' },
   { iso: 'BR', name: 'Brasil', dialCode: '55', flag: '🇧🇷', example: '11 91234 5678' },
   { iso: 'ES', name: 'España', dialCode: '34', flag: '🇪🇸', example: '612 345 678' },
   { iso: 'GT', name: 'Guatemala', dialCode: '502', flag: '🇬🇹', example: '5123 4567' },
@@ -73,6 +72,17 @@ const DEFAULT_COUNTRY = COUNTRY_CODES[0];
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, '');
+}
+
+function validateLocalPhone10(value: string): string | null {
+  const digits = digitsOnly(value);
+  if (!digits) {
+    return 'Teléfono es requerido';
+  }
+  if (digits.length !== 10) {
+    return 'Teléfono debe tener exactamente 10 dígitos';
+  }
+  return null;
 }
 
 export default function RegisterScreen() {
@@ -127,10 +137,9 @@ export default function RegisterScreen() {
   };
 
   const handleTelefonoChange = (value: string) => {
-    const next = digitsOnly(value).slice(0, 14);
+    const next = digitsOnly(value).slice(0, 10);
     setTelefono(next);
-    const fullPhone = `${selectedCountry.dialCode}${next}`;
-    setTelefonoError(next ? validatePhone(fullPhone) : null);
+    setTelefonoError(next ? validateLocalPhone10(next) : null);
   };
 
   const handlePasswordChange = (value: string) => {
@@ -141,8 +150,7 @@ export default function RegisterScreen() {
   function handleCountrySelect(country: CountryCodeOption) {
     setSelectedCountry(country);
     setCountryModalVisible(false);
-    const fullPhone = `${country.dialCode}${digitsOnly(telefono)}`;
-    setTelefonoError(telefono.trim() ? validatePhone(fullPhone) : null);
+    setTelefonoError(telefono.trim() ? validateLocalPhone10(telefono) : null);
   }
 
   async function detectCountryFromLocation() {
@@ -178,7 +186,7 @@ export default function RegisterScreen() {
     const localPhone = digitsOnly(telefono);
     const fullPhone = `${selectedCountry.dialCode}${localPhone}`;
     const nombreErr = validateName(nombre);
-    const telefonoErr = validatePhone(fullPhone);
+    const telefonoErr = validateLocalPhone10(localPhone);
     const emailErr = validateOptionalEmail(email);
     const passwordErr = validatePassword(password);
 
@@ -290,7 +298,7 @@ export default function RegisterScreen() {
                 <TextInput
                   value={telefono}
                   onChangeText={handleTelefonoChange}
-                  onBlur={() => setTelefonoError(telefono.trim() ? validatePhone(`${selectedCountry.dialCode}${digitsOnly(telefono)}`) : 'Teléfono es requerido')}
+                  onBlur={() => setTelefonoError(validateLocalPhone10(telefono))}
                   placeholder={selectedCountry.example}
                   placeholderTextColor={AuthColors.muted}
                   keyboardType="phone-pad"

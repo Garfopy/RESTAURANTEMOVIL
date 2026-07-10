@@ -43,12 +43,12 @@ export function normalizeFiscalData(input?: Partial<FiscalData> | null): FiscalD
 
 export function validateFiscalData(data: FiscalData): string | null {
   const rfc = data.rfc.trim().toUpperCase();
-  if (!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc)) return 'Ingresa un RFC valido.';
-  if (!data.nombre_fiscal.trim()) return 'Ingresa la razon social o nombre fiscal.';
-  if (!data.regimen_fiscal.trim()) return 'Ingresa el regimen fiscal.';
-  if (!/^\d{5}$/.test(data.codigo_postal.trim())) return 'Ingresa un codigo postal fiscal de 5 digitos.';
+  if (!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc)) return 'Ingresa un RFC válido.';
+  if (!data.nombre_fiscal.trim()) return 'Ingresa la razón social o nombre fiscal.';
+  if (!data.regimen_fiscal.trim()) return 'Ingresa el régimen fiscal.';
+  if (!/^\d{5}$/.test(data.codigo_postal.trim())) return 'Ingresa un código postal fiscal de 5 dígitos.';
   if (!data.uso_cfdi.trim()) return 'Ingresa el uso CFDI.';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim())) return 'Ingresa un email valido.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim())) return 'Ingresa un email válido.';
   return null;
 }
 

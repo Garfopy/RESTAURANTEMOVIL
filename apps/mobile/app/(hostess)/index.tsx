@@ -212,7 +212,7 @@ export default function HostessDashboardScreen() {
         [{ text: 'Escanear otro', onPress: handleStartScanner }, { text: 'Listo' }]
       );
     } catch (error) {
-      Alert.alert('QR invalido', getApiError(error) || 'No pudimos validar este pase de salida.', [
+      Alert.alert('QR inválido', getApiError(error) || 'No pudimos validar este pase de salida.', [
         { text: 'Intentar de nuevo', onPress: unlockScanner },
       ]);
     } finally {
@@ -257,8 +257,8 @@ export default function HostessDashboardScreen() {
             <Ionicons name="close" size={22} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.scannerHeaderCopy}>
-            <Text style={styles.scannerKicker}>Validacion de salida</Text>
-            <Text style={styles.scannerTitle}>Escaner QR</Text>
+            <Text style={styles.scannerKicker}>Validación de salida</Text>
+            <Text style={styles.scannerTitle}>Escáner QR</Text>
           </View>
           <View style={styles.scannerIconButtonGhost}>
             <Ionicons name="scan-outline" size={22} color="#D1D5DB" />
@@ -380,7 +380,7 @@ export default function HostessDashboardScreen() {
             </View>
           ) : null}
           {!loadingReleaseOrders && releaseOrders.length === 0 ? (
-            <EmptyState icon="bag-check-outline" title="Sin pedidos activos" text="Pickup y delivery apareceran aqui cuando esten en curso." />
+            <EmptyState icon="bag-check-outline" title="Sin pedidos activos" text="Pickup y delivery aparecerán aquí cuando estén en curso." />
           ) : null}
           {releaseOrders.map((order) => (
             <ReleaseOrderRow
@@ -443,7 +443,7 @@ export default function HostessDashboardScreen() {
 
         <View style={[styles.section, isTablet && styles.sectionTablet]}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Ultima salida</Text>
+            <Text style={styles.sectionTitle}>Última salida</Text>
             <Ionicons name={lastPass ? 'checkmark-circle' : 'remove-circle-outline'} size={18} color={lastPass ? Colors.success : Colors.textMuted} />
           </View>
           {lastPass ? (
@@ -462,7 +462,7 @@ export default function HostessDashboardScreen() {
               </View>
             </View>
           ) : (
-            <EmptyState icon="sparkles-outline" title="Sin salidas validadas" text="El ultimo pase escaneado aparecera aqui." />
+            <EmptyState icon="sparkles-outline" title="Sin salidas validadas" text="El último pase escaneado aparecerá aquí." />
           )}
         </View>
       </ScrollView>
@@ -604,7 +604,7 @@ function ReservationModal({
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <View>
-              <Text style={styles.modalKicker}>Reservacion</Text>
+              <Text style={styles.modalKicker}>Reservación</Text>
               <Text style={styles.modalTitle} numberOfLines={1}>{reservation?.nombre ?? ''}</Text>
             </View>
             <TouchableOpacity style={styles.modalClose} onPress={onClose}>
@@ -619,7 +619,7 @@ function ReservationModal({
                 <DetailItem icon="calendar-outline" label="Fecha" value={formatDateTime(reservation)} />
                 <DetailItem icon="people-outline" label="Personas" value={String(reservation.personas)} />
                 <DetailItem icon="restaurant-outline" label="Mesa" value={reservation.mesa_label ?? 'Sin mesa'} />
-                <DetailItem icon="call-outline" label="Telefono" value={reservation.telefono || 'Sin telefono'} />
+                <DetailItem icon="call-outline" label="Teléfono" value={reservation.telefono || 'Sin teléfono'} />
                 <DetailItem icon="mail-outline" label="Email" value={reservation.email || 'Sin email'} />
                 <DetailItem icon="globe-outline" label="Origen" value={reservation.origen || 'Sistema'} />
               </View>
