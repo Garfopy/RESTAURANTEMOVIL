@@ -26,15 +26,13 @@ class Promotion
     private static function selectColumns(string $alias = ''): string
     {
         $prefix = $alias !== '' ? $alias . '.' : '';
+        $productIdExpression = self::productIdExpression($alias);
         $fields = [
             "{$prefix}id",
             "{$prefix}usuario_id",
+            "{$productIdExpression} AS platillo_id",
+            "(SELECT rp.restaurante_id FROM rest_platillos rp WHERE rp.id = {$productIdExpression} LIMIT 1) AS restaurante_id",
         ];
-
-        if (self::columnExists('platillo_id')) {
-            $fields[] = "{$prefix}platillo_id";
-            $fields[] = "(SELECT rp.restaurante_id FROM rest_platillos rp WHERE rp.id = {$prefix}platillo_id LIMIT 1) AS restaurante_id";
-        }
 
         return implode(', ', array_merge($fields, [
             "{$prefix}titulo",
@@ -46,6 +44,24 @@ class Promotion
             "{$prefix}expires_at",
             "{$prefix}created_at",
         ]));
+    }
+
+    private static function productIdExpression(string $alias = ''): string
+    {
+        $prefix = $alias !== '' ? $alias . '.' : '';
+        $fallback = "CASE
+            WHEN {$prefix}deep_link REGEXP '/(product|producto|platillo)/[0-9]+'
+                THEN CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX({$prefix}deep_link, '?', 1), '#', 1), '/', -1) AS UNSIGNED)
+            WHEN {$prefix}code = 'AMARE-66-0701'
+                THEN 28
+            ELSE NULL
+        END";
+
+        if (self::columnExists('platillo_id')) {
+            return "COALESCE({$prefix}platillo_id, {$fallback})";
+        }
+
+        return $fallback;
     }
 
     /**
@@ -395,7 +411,14 @@ class Promotion
 
         if (preg_match('/(?:A\s+SOLO|SOLO)\s*\$?\s*(\d+(?:[.,]\d+)?)/', $text, $matches) === 1) {
             $promoPrice = (float)str_replace(',', '.', $matches[1]);
-            return round(max(0, $eligibleSubtotal - $promoPrice), 2);
+            $quantity = self::sumQuantities($items);
+            return round(max(0, $eligibleSubtotal - ($promoPrice * max(1, $quantity))), 2);
+        }
+
+        if (preg_match('/\bAMARE-(\d{1,4})(?:-|$)/', $text, $matches) === 1) {
+            $promoPrice = (float)$matches[1];
+            $quantity = self::sumQuantities($items);
+            return round(max(0, $eligibleSubtotal - ($promoPrice * max(1, $quantity))), 2);
         }
 
         if (str_contains($text, 'GRATIS') || str_contains($text, 'REGALO')) {
@@ -411,6 +434,15 @@ class Promotion
         }
 
         return 0.0;
+    }
+
+    private static function sumQuantities(array $items): int
+    {
+        return array_reduce(
+            $items,
+            static fn(int $sum, array $item): int => $sum + max(0, (int)($item['quantity'] ?? 0)),
+            0
+        );
     }
 
     public static function codeExists(string $code, ?int $excludeId = null): bool

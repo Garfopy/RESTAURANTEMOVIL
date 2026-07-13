@@ -27,7 +27,9 @@ import { Colors, Spacing, Typography, Shadows } from '../../theme';
 interface Promocion {
   id: string | number;
   platillo_id?: number | string | null;
+  product_id?: number | string | null;
   restaurante_id?: number | string | null;
+  restaurant_id?: number | string | null;
   titulo: string;
   descripcion?: string;
   imagen?: string;
@@ -89,18 +91,21 @@ export default function PromotionsScreen() {
   };
 
   const handleProductPress = (promo?: Promocion | null) => {
-    const productId = Number(promo?.platillo_id ?? 0);
-    const restaurantId = Number(promo?.restaurante_id ?? selectedBranchId ?? userBranchId ?? 0);
+    const productId = getPromoProductId(promo);
+    const restaurantId = getPromoRestaurantId(promo, selectedBranchId ?? userBranchId ?? null);
 
-    if (productId > 0 && restaurantId > 0) {
+    if (productId > 0) {
       router.push({
         pathname: '/product/[id]',
-        params: { id: String(productId), restauranteId: String(restaurantId) },
+        params: {
+          id: String(productId),
+          ...(restaurantId > 0 ? { restauranteId: String(restaurantId) } : {}),
+        },
       } as never);
       return;
     }
 
-    handlePromoPress(getPromoDeepLink(promo));
+    Alert.alert('Producto no disponible', 'Esta promocion no tiene un producto asociado.');
   };
 
   const copyCode = async (code?: string | null) => {
@@ -266,8 +271,35 @@ function getPromoDeepLink(promo?: Promocion | null): string | undefined {
   return promo?.deep_link || promo?.deepLink || undefined;
 }
 
+function getPromoProductId(promo?: Promocion | null): number {
+  const explicitId = Number(promo?.platillo_id ?? promo?.product_id ?? 0);
+  if (explicitId > 0) return explicitId;
+
+  const deepLink = getPromoDeepLink(promo);
+  if (!deepLink) return 0;
+
+  const pathMatch = deepLink.match(/\/(?:product|producto|platillo)\/(\d+)/i);
+  if (pathMatch?.[1]) return Number(pathMatch[1]);
+
+  const queryMatch = deepLink.match(/[?&](?:product_id|platillo_id|id)=(\d+)/i);
+  return queryMatch?.[1] ? Number(queryMatch[1]) : 0;
+}
+
+function getPromoRestaurantId(promo?: Promocion | null, fallback?: number | null): number {
+  const explicitId = Number(promo?.restaurante_id ?? promo?.restaurant_id ?? 0);
+  if (explicitId > 0) return explicitId;
+
+  const deepLink = getPromoDeepLink(promo);
+  if (deepLink) {
+    const queryMatch = deepLink.match(/[?&](?:restauranteId|restaurante_id|restaurant_id|branch_id)=(\d+)/i);
+    if (queryMatch?.[1]) return Number(queryMatch[1]);
+  }
+
+  return Number(fallback ?? 0);
+}
+
 function getProductActionAvailable(promo?: Promocion | null): boolean {
-  return Number(promo?.platillo_id ?? 0) > 0 || Boolean(getPromoDeepLink(promo));
+  return getPromoProductId(promo) > 0;
 }
 
 function formatPromoDate(value: string): string {
