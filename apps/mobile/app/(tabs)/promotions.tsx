@@ -13,16 +13,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { apiClient, formatImageUrl } from '../../services/api';
+import { normalizeAppDeepLink } from '../../services/deep-links.service';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import type { BannerItem } from '../../components/shared/BannerCarousel';
+import { useBranchStore } from '../../store/branch.store';
+import { useUserStore } from '../../store/user.store';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 
 interface Promocion {
   id: string | number;
+  platillo_id?: number | string | null;
+  restaurante_id?: number | string | null;
   titulo: string;
   descripcion?: string;
   imagen?: string;
@@ -34,7 +39,10 @@ interface Promocion {
 
 export default function PromotionsScreen() {
   const router = useRouter();
+  const { code } = useLocalSearchParams<{ code?: string }>();
   const [selectedPromo, setSelectedPromo] = React.useState<Promocion | null>(null);
+  const selectedBranchId = useBranchStore((state) => state.seleccionada?.id ?? null);
+  const userBranchId = useUserStore((state) => state.user?.current_restaurante_id ?? null);
 
   const { data: promos, isLoading, refetch, isFetching } = useQuery<Promocion[]>({
     queryKey: ['promotions'],
@@ -60,14 +68,39 @@ export default function PromotionsScreen() {
     })
     .filter((item): item is BannerItem => item !== null);
 
+  React.useEffect(() => {
+    if (!promos?.length || typeof code !== 'string' || !code.trim()) return;
+
+    const matchingPromo = promos.find((promo) => promo.code?.toLowerCase() === code.trim().toLowerCase());
+    if (matchingPromo) {
+      setSelectedPromo(matchingPromo);
+    }
+  }, [code, promos]);
+
   const handlePromoPress = (deepLink?: string) => {
-    if (!deepLink) return;
+    const route = normalizeAppDeepLink(deepLink);
+    if (!route) return;
     try {
       // Redirección dinámica basada en la API
-      router.push(deepLink as any);
+      router.push(route as any);
     } catch (error) {
       console.warn('Ruta de deepLink inválida o no configurada:', deepLink);
     }
+  };
+
+  const handleProductPress = (promo?: Promocion | null) => {
+    const productId = Number(promo?.platillo_id ?? 0);
+    const restaurantId = Number(promo?.restaurante_id ?? selectedBranchId ?? userBranchId ?? 0);
+
+    if (productId > 0 && restaurantId > 0) {
+      router.push({
+        pathname: '/product/[id]',
+        params: { id: String(productId), restauranteId: String(restaurantId) },
+      } as never);
+      return;
+    }
+
+    handlePromoPress(getPromoDeepLink(promo));
   };
 
   const copyCode = async (code?: string | null) => {
@@ -108,7 +141,7 @@ export default function PromotionsScreen() {
             bannerItems.length > 0 ? (
               <View style={styles.carouselContainer}>
                 <Text style={styles.sectionTitle}>Destacados de la semana</Text>
-                <BannerCarousel items={bannerItems} />
+                <BannerCarousel items={bannerItems} onPress={(item) => handlePromoPress(item.deepLink)} />
               </View>
             ) : null
           }
@@ -208,13 +241,13 @@ export default function PromotionsScreen() {
               ) : null}
 
               <View style={styles.modalActions}>
-                {getPromoDeepLink(selectedPromo ?? undefined) ? (
+                {getProductActionAvailable(selectedPromo) ? (
                   <TouchableOpacity
                     style={styles.primaryAction}
                     onPress={() => {
-                      const deepLink = getPromoDeepLink(selectedPromo ?? undefined);
+                      const promo = selectedPromo;
                       setSelectedPromo(null);
-                      handlePromoPress(deepLink);
+                      handleProductPress(promo);
                     }}
                   >
                     <Text style={styles.primaryActionText}>Ver producto</Text>
@@ -231,6 +264,10 @@ export default function PromotionsScreen() {
 
 function getPromoDeepLink(promo?: Promocion | null): string | undefined {
   return promo?.deep_link || promo?.deepLink || undefined;
+}
+
+function getProductActionAvailable(promo?: Promocion | null): boolean {
+  return Number(promo?.platillo_id ?? 0) > 0 || Boolean(getPromoDeepLink(promo));
 }
 
 function formatPromoDate(value: string): string {

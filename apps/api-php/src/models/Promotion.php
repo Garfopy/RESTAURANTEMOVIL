@@ -33,6 +33,7 @@ class Promotion
 
         if (self::columnExists('platillo_id')) {
             $fields[] = "{$prefix}platillo_id";
+            $fields[] = "(SELECT rp.restaurante_id FROM rest_platillos rp WHERE rp.id = {$prefix}platillo_id LIMIT 1) AS restaurante_id";
         }
 
         return implode(', ', array_merge($fields, [

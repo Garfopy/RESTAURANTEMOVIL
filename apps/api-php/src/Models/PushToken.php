@@ -15,6 +15,11 @@ class PushToken
             throw new \InvalidArgumentException('Token push invalido.');
         }
 
+        $platform = self::nullableText($platform);
+        $deviceId = self::nullableText($deviceId);
+
+        self::disableStaleTokens($userId, $token, $platform, $deviceId);
+
         Database::rowCount(
             'INSERT INTO mobile_push_tokens
                 (usuario_id, fcm_token, platform, device_id, enabled, last_seen_at)
@@ -30,8 +35,8 @@ class PushToken
             [
                 ':user_id' => $userId,
                 ':token' => $token,
-                ':platform' => self::nullableText($platform),
-                ':device_id' => self::nullableText($deviceId),
+                ':platform' => $platform,
+                ':device_id' => $deviceId,
             ]
         );
     }
@@ -102,5 +107,32 @@ class PushToken
     {
         $value = trim((string)$value);
         return $value !== '' ? $value : null;
+    }
+
+    private static function disableStaleTokens(int $userId, string $token, ?string $platform, ?string $deviceId): void
+    {
+        $where = ['usuario_id = :user_id', 'fcm_token <> :token', 'enabled = 1'];
+        $params = [
+            ':user_id' => $userId,
+            ':token' => $token,
+        ];
+
+        if ($platform !== null) {
+            $where[] = 'platform = :platform';
+            $params[':platform'] = $platform;
+        } elseif ($deviceId !== null) {
+            $where[] = 'device_id = :device_id';
+            $params[':device_id'] = $deviceId;
+        } else {
+            $where[] = 'platform IS NULL';
+            $where[] = 'device_id IS NULL';
+        }
+
+        Database::rowCount(
+            'UPDATE mobile_push_tokens
+                SET enabled = 0, updated_at = NOW()
+              WHERE ' . implode(' AND ', $where),
+            $params
+        );
     }
 }

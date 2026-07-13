@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import type { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { apiClient } from './api';
+import { normalizeAppDeepLink } from './deep-links.service';
 
 declare const require: (name: string) => any;
 
@@ -126,5 +127,14 @@ export function getNotificationDeepLink(response: Notifications.NotificationResp
   const data = response.notification.request.content.data ?? {};
   const deepLink = data.deep_link ?? data.deepLink;
 
-  return typeof deepLink === 'string' && deepLink.trim() !== '' ? deepLink : null;
+  if (typeof deepLink === 'string') {
+    return normalizeAppDeepLink(deepLink);
+  }
+
+  const code = data.code ?? data.codigo;
+  if (typeof code === 'string' && code.trim() !== '') {
+    return `/promotions?code=${encodeURIComponent(code.trim())}`;
+  }
+
+  return null;
 }
