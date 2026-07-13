@@ -8,6 +8,8 @@ export interface Promotion {
   id: number;
   usuario_id: number;
   platillo_id?: number | null;
+  discount_type?: PromotionDiscountType | null;
+  discount_value?: number | null;
   titulo: string;
   descripcion?: string | null;
   imagen?: string | null;
@@ -20,6 +22,8 @@ export interface Promotion {
   usuario_nombre?: string;
   usuario_email?: string;
 }
+
+export type PromotionDiscountType = 'percent' | 'amount' | 'fixed_price' | 'free_item' | 'bogo';
 
 export interface PromotionQuote {
   promotion: Promotion;
@@ -63,6 +67,8 @@ export interface CreatePromotionPayload {
   imagen?: string;
   deep_link?: string;
   code?: string;
+  discount_type?: PromotionDiscountType | null;
+  discount_value?: number | null;
   activo?: number;
   expires_at?: string;
 }

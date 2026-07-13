@@ -210,6 +210,11 @@ class PromotionsController
         ]);
     }
 
+    $discountInput = $this->normalizeDiscountInput($input) + [
+        'discount_type' => null,
+        'discount_value' => null,
+    ];
+
     // Obtener ID del admin autenticado
     $adminId = (int)($user->id ?? $user->sub ?? 0);
 
@@ -282,6 +287,8 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         'code'        => !empty($input['code'])
                             ? strtoupper(trim($input['code']))
                             : null,
+        'discount_type' => $discountInput['discount_type'],
+        'discount_value' => $discountInput['discount_value'],
         'activo'      => isset($input['activo'])
                             ? (int)$input['activo']
                             : 1,
@@ -352,6 +359,10 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         }
         if (array_key_exists('platillo_id', $input)) {
             $input['platillo_id'] = !empty($input['platillo_id']) ? (int)$input['platillo_id'] : null;
+        }
+        $discountInput = $this->normalizeDiscountInput($input, $promotion['discount_type'] ?? null);
+        if (!empty($discountInput)) {
+            $input = array_merge($input, $discountInput);
         }
 
         $wasActive = (int)($promotion['activo'] ?? 0) === 1;
@@ -509,5 +520,54 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         } catch (\Throwable $exception) {
             error_log('PromotionsController::notifyPromotionActivated ERROR: ' . $exception->getMessage());
         }
+    }
+
+    private function normalizeDiscountInput(array $input, ?string $existingType = null): array
+    {
+        $hasType = array_key_exists('discount_type', $input);
+        $hasValue = array_key_exists('discount_value', $input);
+
+        if (!$hasType && !$hasValue) {
+            return [];
+        }
+
+        $rawType = $hasType ? trim((string)($input['discount_type'] ?? '')) : trim((string)($existingType ?? ''));
+        if ($rawType === '' || strtolower($rawType) === 'none' || strtolower($rawType) === 'null') {
+            return [
+                'discount_type' => null,
+                'discount_value' => null,
+            ];
+        }
+
+        $type = strtolower($rawType);
+        $allowed = ['percent', 'amount', 'fixed_price', 'free_item', 'bogo'];
+        if (!in_array($type, $allowed, true)) {
+            Response::validationError([
+                'discount_type' => ['Tipo de descuento invalido.']
+            ]);
+        }
+
+        $value = null;
+        if ($hasValue && $input['discount_value'] !== '' && $input['discount_value'] !== null) {
+            $value = round((float)$input['discount_value'], 2);
+        }
+
+        if (in_array($type, ['percent', 'amount', 'fixed_price'], true)) {
+            if ($value === null || $value <= 0) {
+                Response::validationError([
+                    'discount_value' => ['El valor del descuento debe ser mayor a 0.']
+                ]);
+            }
+            if ($type === 'percent' && $value > 100) {
+                Response::validationError([
+                    'discount_value' => ['El porcentaje no puede ser mayor a 100.']
+                ]);
+            }
+        }
+
+        return [
+            'discount_type' => $type,
+            'discount_value' => $value,
+        ];
     }
 }
