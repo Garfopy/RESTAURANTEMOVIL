@@ -47,13 +47,23 @@ function hasMeEnvelope(response: MeResponse): response is Extract<MeResponse, { 
   return typeof response === 'object' && response !== null && 'data' in response;
 }
 
-function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
+export function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
+  const requiresGoogleOnboarding = Boolean(
+    user?.requires_onboarding ??
+      (user?.google_id && (!user?.telefono || !user?.fecha_nacimiento || !user?.terms_accepted_at))
+  );
+
   return {
     id: Number(user?.id ?? user?.user_id ?? 0),
     nombre: user?.nombre ?? '',
     email: user?.email ?? '',
     rol: user?.rol ?? 'user',
     telefono: user?.telefono ?? null,
+    fecha_nacimiento: user?.fecha_nacimiento ?? null,
+    onboarding_completed_at: user?.onboarding_completed_at ?? null,
+    terms_accepted_at: user?.terms_accepted_at ?? null,
+    marketing_opt_in: user?.marketing_opt_in ?? false,
+    requires_onboarding: requiresGoogleOnboarding,
     foto_url: user?.foto_url ?? null,
     social_photos: user?.social_photos ?? [],
     google_id: user?.google_id ?? null,
@@ -103,9 +113,11 @@ export async function loginWithEmail(payload: EmailLoginPayload): Promise<Sesion
 }
 
 export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<Sesion> {
-  const { data } = await apiClient.post<AuthResponse>('/auth/login', {
-    email: payload.id_token,
-    password: 'google_oauth',
+  const { data } = await apiClient.post<AuthResponse>('/auth/google', {
+    token: payload.id_token,
+    id_token: payload.id_token,
+    device_info: payload.device_info,
+    platform: payload.platform,
   });
   return parseSesion(data);
 }
@@ -131,6 +143,37 @@ export async function getMe(): Promise<MobileUser> {
   }
 
   return normalizeUser(user);
+}
+
+type ProfileUpdatePayload = {
+  telefono?: string;
+  fecha_nacimiento?: string;
+  terms_accepted?: boolean;
+  marketing_opt_in?: boolean;
+};
+
+type ProfileResponse =
+  | {
+      success?: boolean;
+      data?: {
+        profile?: AuthUserPayload;
+      };
+    }
+  | {
+      profile?: AuthUserPayload;
+    };
+
+export async function completeProfile(payload: ProfileUpdatePayload): Promise<MobileUser> {
+  const { data } = await apiClient.put<ProfileResponse>('/profile', payload);
+  const profile = 'data' in data && data.data?.profile
+    ? data.data.profile
+    : (data as { profile?: AuthUserPayload }).profile;
+
+  if (!profile) {
+    throw new Error('No se pudo actualizar el perfil.');
+  }
+
+  return normalizeUser({ ...profile, requires_onboarding: false });
 }
 
 export async function requestPasswordReset(identifier: string): Promise<{

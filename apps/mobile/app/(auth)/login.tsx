@@ -43,7 +43,7 @@ export default function LoginScreen() {
     ).start();
   }, [actions, glow, hero]);
 
-  function navigate(path: '/(auth)/email-login' | '/(auth)/register') {
+  function navigate(path: '/(auth)/email-login' | '/(auth)/register' | '/(auth)/google-auth') {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(path);
   }
@@ -117,6 +117,14 @@ export default function LoginScreen() {
               },
             ]}
           >
+            <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
+              <View style={styles.googleIcon}>
+                <Ionicons name="logo-google" size={19} color="#24272D" />
+              </View>
+              <Text style={styles.googleLabel}>Continuar con Google</Text>
+              <Ionicons name="arrow-forward" size={19} color="#24272D" />
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
               <View style={styles.primaryIcon}>
                 <Ionicons name="mail-outline" size={19} color="#24272D" />
@@ -163,6 +171,9 @@ const styles = StyleSheet.create({
   benefitIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(233,221,200,0.08)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.12)' },
   benefitText: { color: '#BDB4A5', fontSize: 10, fontWeight: '700' },
   actionsCard: { borderRadius: 26, padding: 10, backgroundColor: 'rgba(255,255,255,0.055)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' },
+  googleButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12, marginBottom: 9 },
+  googleIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(36,39,45,0.06)' },
+  googleLabel: { flex: 1, color: '#24272D', fontSize: 15, fontWeight: '900' },
   primaryButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#E9DDC8', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12 },
   primaryIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(36,39,45,0.08)' },
   primaryLabel: { flex: 1, color: '#24272D', fontSize: 15, fontWeight: '900' },

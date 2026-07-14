@@ -215,6 +215,7 @@ class AuthController
 
                 if ($user) {
                     User::updateGoogleId($user['id'], $googleId);
+                    $user = User::findById((int)$user['id']);
                 } else {
                     $userId = User::create([
                         'nombre' => $nombre,
@@ -234,6 +235,7 @@ class AuthController
             ]);
 
             unset($user['password_hash']);
+            $user['requires_onboarding'] = $this->requiresGoogleOnboarding($user);
 
             Response::success([
                 'user' => $user,
@@ -470,5 +472,15 @@ class AuthController
         $env = strtolower(trim((string)($_ENV['APP_ENV'] ?? $_SERVER['APP_ENV'] ?? getenv('APP_ENV') ?: 'production')));
         $debugValue = $_ENV['APP_DEBUG'] ?? $_SERVER['APP_DEBUG'] ?? getenv('APP_DEBUG') ?: false;
         return $env !== 'production' || filter_var($debugValue, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function requiresGoogleOnboarding(array $user): bool
+    {
+        return trim((string)($user['google_id'] ?? '')) !== ''
+            && (
+                trim((string)($user['telefono'] ?? '')) === ''
+                || trim((string)($user['fecha_nacimiento'] ?? '')) === ''
+                || trim((string)($user['terms_accepted_at'] ?? '')) === ''
+            );
     }
 }

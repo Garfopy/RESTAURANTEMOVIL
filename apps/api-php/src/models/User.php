@@ -72,7 +72,8 @@ class User
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT id, nombre, email, rol, telefono, foto_url, google_id, activo, created_at, updated_at,
+        $sql = "SELECT id, nombre, email, rol, telefono, fecha_nacimiento, onboarding_completed_at,
+                       terms_accepted_at, marketing_opt_in, foto_url, google_id, activo, created_at, updated_at,
                        edad, genero, sexualidad, descripcion AS biografia, intereses AS gustos,
                        que_busca, redes_sociales, is_social_active, current_restaurante_id, mesa
                 FROM mobile_usuarios WHERE id = :id LIMIT 1";
@@ -344,6 +345,11 @@ class User
             'email' => $staff['email'] ?? '',
             'rol' => $appRole,
             'telefono' => $staff['telefono'] ?? null,
+            'fecha_nacimiento' => null,
+            'onboarding_completed_at' => null,
+            'terms_accepted_at' => null,
+            'marketing_opt_in' => false,
+            'requires_onboarding' => false,
             'foto_url' => $staff['foto_url'] ?? null,
             'password_hash' => $staff['password_hash'] ?? null,
             'activo' => (bool)($staff['activo'] ?? true),

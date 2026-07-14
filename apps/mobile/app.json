@@ -88,6 +88,12 @@
           }
         }
       ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.859009059542-3c3159vd6maibhhgpjng9t63q5rjmsl1"
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {
@@ -95,10 +101,11 @@
     },
     "extra": {
       "router": {},
+      "googleWebClientId": "859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com",
       "eas": {
-        "projectId": "73bfa667-e98e-4da2-a789-78585e3599d6"
+        "projectId": "db96a1b2-b362-4950-98a7-287432fb19c7"
       }
     },
-    "owner": "impactosdigitales"
+    "owner": "impactos-digitales"
   }
 }

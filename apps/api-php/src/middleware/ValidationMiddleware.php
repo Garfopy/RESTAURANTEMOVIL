@@ -8,6 +8,9 @@ use Amare\Api\Helpers\Response;
 
 class ValidationMiddleware
 {
+    private static $cachedInput = null;
+    private static $inputDebug = [];
+
     public static function validate(array $rules, array $data): array
     {
         $errors = [];
@@ -73,14 +76,7 @@ class ValidationMiddleware
 
     public static function validateRequest(array $rules): void
     {
-        $method = $_SERVER['REQUEST_METHOD'];
-        $data = [];
-
-        if ($method === 'GET') {
-            $data = $_GET;
-        } elseif ($method === 'POST' || $method === 'PUT' || $method === 'DELETE') {
-            $data = array_merge($_POST, (array)json_decode(file_get_contents('php://input'), true));
-        }
+        $data = self::getAllInput();
 
         $errors = self::validate($rules, $data);
 
@@ -91,36 +87,44 @@ class ValidationMiddleware
 
     public static function getInput(string $key, mixed $default = null): mixed
     {
-        $method = $_SERVER['REQUEST_METHOD'];
-        
-        if ($method === 'GET') {
-            return $_GET[$key] ?? $default;
-        }
-        
-        if ($method === 'POST' || $method === 'PUT' || $method === 'DELETE') {
-            $input = json_decode(file_get_contents('php://input'), true);
-            return $input[$key] ?? $_POST[$key] ?? $default;
-        }
-
-        return $default;
+        $input = self::getAllInput();
+        return $input[$key] ?? $default;
     }
 
     public static function getAllInput(): array
     {
+        if (self::$cachedInput !== null) {
+            return self::$cachedInput;
+        }
+
         $method = $_SERVER['REQUEST_METHOD'];
 
         if ($method === 'GET') {
-            return $_GET;
+            self::$cachedInput = $_GET;
+            self::$inputDebug = [
+                'method' => $method,
+                'source' => 'query',
+                'content_type' => $_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '',
+                'query_keys' => array_keys($_GET),
+                'parsed_keys' => array_keys(self::$cachedInput),
+            ];
+            return self::$cachedInput;
         }
 
         $input = $_POST;
 
-        // Solo intentar leer JSON si no es multipart/form-data
-        $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+        // Algunos servidores/proxies no conservan CONTENT_TYPE en PUT.
+        // Si el body parece JSON, se intenta decodificar siempre que no sea multipart.
+        $contentType = $_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '';
+        $isMultipart = stripos($contentType, 'multipart/form-data') !== false;
+        $rawBody = file_get_contents('php://input');
+        $trimmedBody = trim((string)$rawBody);
+        $looksLikeJson = $trimmedBody !== '' && in_array($trimmedBody[0], ['{', '['], true);
+        $jsonError = null;
 
-        if (strpos($contentType, 'application/json') !== false) {
-
-            $json = json_decode(file_get_contents('php://input'), true);
+        if (!$isMultipart && ($looksLikeJson || stripos($contentType, 'application/json') !== false)) {
+            $json = json_decode($trimmedBody, true);
+            $jsonError = json_last_error_msg();
 
             if (is_array($json)) {
                 $input = array_merge($input, $json);
@@ -132,6 +136,29 @@ class ValidationMiddleware
             $input['_files'] = $_FILES;
         }
 
-        return $input;
+        self::$cachedInput = $input;
+        self::$inputDebug = [
+            'method' => $method,
+            'source' => $looksLikeJson ? 'json_body' : 'post_or_empty',
+            'content_type' => $contentType,
+            'is_multipart' => $isMultipart,
+            'raw_body_length' => strlen((string)$rawBody),
+            'raw_body_preview' => substr($trimmedBody, 0, 500),
+            'looks_like_json' => $looksLikeJson,
+            'json_error' => $jsonError,
+            'post_keys' => array_keys($_POST),
+            'file_keys' => array_keys($_FILES),
+            'parsed_keys' => array_keys(self::$cachedInput),
+        ];
+        return self::$cachedInput;
+    }
+
+    public static function getInputDebugInfo(): array
+    {
+        if (self::$cachedInput === null) {
+            self::getAllInput();
+        }
+
+        return self::$inputDebug;
     }
 }

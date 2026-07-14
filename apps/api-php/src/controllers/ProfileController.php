@@ -30,7 +30,9 @@ class ProfileController
         $input = ValidationMiddleware::getAllInput();
 
         $rules = [
-            'nombre' => 'min:3|max:200'
+            'nombre' => 'min:3|max:200',
+            'telefono' => 'max:20',
+            'fecha_nacimiento' => 'max:10'
         ];
 
         $errors = ValidationMiddleware::validate($rules, $input);
@@ -45,8 +47,70 @@ class ProfileController
             $updateData['nombre'] = $input['nombre'];
         }
 
+        if (isset($input['telefono'])) {
+            $phone = preg_replace('/\D+/', '', (string)$input['telefono']);
+            if (strlen($phone) === 10) {
+                $phone = '52' . $phone;
+            }
+            if (strlen($phone) < 10 || strlen($phone) > 15) {
+                Response::validationError(['telefono' => ['El telefono debe tener entre 10 y 15 digitos']]);
+            }
+            if (User::existsByPhone($phone, (int)$user->id)) {
+                Response::error('El telefono ya esta registrado', 409);
+            }
+            $updateData['telefono'] = $phone;
+        }
+
+        if (isset($input['fecha_nacimiento'])) {
+            $birthday = trim((string)$input['fecha_nacimiento']);
+            if (!$this->isValidBirthDate($birthday)) {
+                Response::validationError(['fecha_nacimiento' => ['Debes ser mayor de edad para crear una cuenta']]);
+            }
+            $updateData['fecha_nacimiento'] = $birthday;
+        }
+
+        if (array_key_exists('marketing_opt_in', $input)) {
+            $updateData['marketing_opt_in'] = filter_var($input['marketing_opt_in'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        }
+
+        if (filter_var($input['terms_accepted'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $updateData['terms_accepted_at'] = date('Y-m-d H:i:s');
+        }
+
+        if (
+            isset($updateData['telefono']) &&
+            isset($updateData['fecha_nacimiento']) &&
+            isset($updateData['terms_accepted_at'])
+        ) {
+            $updateData['onboarding_completed_at'] = date('Y-m-d H:i:s');
+        }
+
         if (empty($updateData)) {
-            Response::error('No se proporcionaron datos para actualizar', 400);
+            $debug = ValidationMiddleware::getInputDebugInfo();
+            $inputKeys = array_keys($input);
+            $summary = sprintf(
+                'No se proporcionaron datos para actualizar. input_keys=[%s], body_bytes=%s, content_type=%s',
+                implode(',', $inputKeys),
+                (string)($debug['raw_body_length'] ?? 'n/a'),
+                (string)($debug['content_type'] ?? '')
+            );
+
+            Response::json([
+                'success' => false,
+                'message' => $summary,
+                'code' => 'PROFILE_UPDATE_EMPTY_INPUT',
+                'debug' => [
+                    'allowed_fields' => [
+                        'nombre',
+                        'telefono',
+                        'fecha_nacimiento',
+                        'marketing_opt_in',
+                        'terms_accepted',
+                    ],
+                    'received_input_keys' => $inputKeys,
+                    'input_debug' => $debug,
+                ],
+            ], 400);
         }
 
         if (!User::update($user->id, $updateData)) {
@@ -56,6 +120,25 @@ class ProfileController
         $updatedUser = User::findById($user->id);
         
         Response::success(['profile' => $updatedUser], 'Perfil actualizado exitosamente');
+    }
+
+    private function isValidBirthDate(string $value): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return false;
+        }
+
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+        if (!checkdate($month, $day, $year)) {
+            return false;
+        }
+
+        $timestamp = strtotime($value . ' 00:00:00');
+        if ($timestamp === false || $timestamp > time()) {
+            return false;
+        }
+
+        return $timestamp <= strtotime('-18 years') && $timestamp >= strtotime('-120 years');
     }
 
     public function orders(): void

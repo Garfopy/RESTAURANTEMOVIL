@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 
 // @react-native-google-signin requiere build nativo — no disponible en Expo Go
 let GoogleSignin: any = null;
@@ -18,7 +19,10 @@ import { loginWithGoogle } from '../../services/auth.service';
 import { Colors, Typography } from '../../theme';
 
 // Configura el Web Client ID en app.json o env
-const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
+const WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ??
+  (Constants.expoConfig?.extra?.googleWebClientId as string | undefined) ??
+  '';
 
 export default function GoogleAuthScreen() {
   const router = useRouter();
@@ -26,7 +30,20 @@ export default function GoogleAuthScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    GoogleSignin.configure({ webClientId: WEB_CLIENT_ID });
+    if (!GoogleSignin) {
+      setError('Google Sign-In requiere una build nativa o dev client. No funciona dentro de Expo Go.');
+      return;
+    }
+
+    if (!WEB_CLIENT_ID) {
+      setError('Falta configurar EXPO_PUBLIC_GOOGLE_CLIENT_ID para iniciar sesion con Google.');
+      return;
+    }
+
+    GoogleSignin.configure({
+      webClientId: WEB_CLIENT_ID,
+      offlineAccess: false,
+    });
     signIn();
   }, []);
 
@@ -34,10 +51,13 @@ export default function GoogleAuthScreen() {
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken;
+      const idToken = userInfo.data?.idToken ?? userInfo.idToken;
       if (!idToken) throw new Error('No se obtuvo el ID token de Google');
 
-      const sesion = await loginWithGoogle({ id_token: idToken });
+      const sesion = await loginWithGoogle({
+        id_token: idToken,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      });
       await login(sesion);
       // AuthGuard en _layout.tsx redirigirá a (tabs) automáticamente
     } catch (err: unknown) {

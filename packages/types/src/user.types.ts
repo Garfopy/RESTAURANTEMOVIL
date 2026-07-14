@@ -4,6 +4,11 @@ export interface MobileUser {
   email: string;
   rol?: 'user' | 'admin' | 'mesero' | string | null;
   telefono: string | null;
+  fecha_nacimiento?: string | null;
+  onboarding_completed_at?: string | null;
+  terms_accepted_at?: string | null;
+  marketing_opt_in?: boolean | number | null;
+  requires_onboarding?: boolean | null;
   foto_url: string | null;
   social_photos?: string[];
   google_id: string | null;

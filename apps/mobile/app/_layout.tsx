@@ -30,7 +30,7 @@ import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
-import { getNotificationDeepLink, registerPushNotifications, subscribeForegroundFirebaseMessages } from '../services/push-notifications.service';
+import { getNotificationDeepLink, isPushRegistrationEnabled, registerPushNotifications, subscribeForegroundFirebaseMessages } from '../services/push-notifications.service';
 import * as Notifications from 'expo-notifications';
 
 SplashScreen.preventAutoHideAsync();
@@ -55,20 +55,30 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const { isAuthenticated, isLoading, user } = useUserStore();
   const inAuth = segments[0] === '(auth)';
+  const inCompleteProfile = inAuth && segments[1] === 'complete-profile';
   const inWaiter = segments[0] === '(waiter)';
   const inHostess = segments[0] === '(hostess)';
   const isWaiter = user?.rol === 'mesero';
   const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
     String(user?.rol ?? '').toLowerCase()
   );
+  const needsOnboarding = Boolean(
+    isAuthenticated &&
+      !isWaiter &&
+      !isHostess &&
+      user?.google_id &&
+      (user.requires_onboarding || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
+  );
   const redirectTo =
     !isLoading && !isAuthenticated && !inAuth
       ? '/(auth)/login'
-      : !isLoading && isAuthenticated && isWaiter && !inWaiter
+      : !isLoading && needsOnboarding && !inCompleteProfile
+        ? '/(auth)/complete-profile'
+        : !isLoading && isAuthenticated && isWaiter && !inWaiter
         ? '/(waiter)'
         : !isLoading && isAuthenticated && isHostess && !inHostess
           ? '/(hostess)'
-          : !isLoading && isAuthenticated && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)
+          : !isLoading && isAuthenticated && !needsOnboarding && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)
             ? '/(tabs)'
             : null;
 
@@ -176,6 +186,10 @@ function PushNotificationRuntime() {
   const registeredForUserRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!isPushRegistrationEnabled()) {
+      return;
+    }
+
     const unsubscribeForeground = subscribeForegroundFirebaseMessages();
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       const deepLink = getNotificationDeepLink(response);
@@ -191,7 +205,7 @@ function PushNotificationRuntime() {
   }, [router]);
 
   useEffect(() => {
-    if (!isAuthenticated || !userId || registeredForUserRef.current === userId) {
+    if (!isPushRegistrationEnabled() || !isAuthenticated || !userId || registeredForUserRef.current === userId) {
       return;
     }
 
