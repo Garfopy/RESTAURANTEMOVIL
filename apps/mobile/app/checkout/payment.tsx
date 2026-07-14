@@ -32,6 +32,7 @@ import { validatePromoCode, type PromotionQuote } from '../../services/promotion
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
+import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { InvoiceRequestForm } from '../../components/shared/InvoiceRequestForm';
 import { Colors, Shadows, Spacing, Typography } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
@@ -139,7 +140,9 @@ export default function PaymentScreen() {
     ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
     : ['card', 'cash', 'amare'];
 
-  const enabledMethods = ALL_PAYMENT_METHODS.filter((method) => enabledMethodIds.includes(method.id));
+  const enabledMethods = ALL_PAYMENT_METHODS.filter(
+    (method) => enabledMethodIds.includes(method.id) && (method.id !== 'card' || STRIPE_IS_CONFIGURED)
+  );
 
   useEffect(() => {
     if (!resolvedRestaurantId) return;
@@ -380,9 +383,15 @@ export default function PaymentScreen() {
       }
 
       if (selectedMethod === 'card') {
+        if (!STRIPE_IS_CONFIGURED) {
+          throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
+        }
         const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
         const order = existingOrderId ? null : await createOrderBackend('card', paymentIntent.intentId);
         const targetOrderId = existingOrderId ?? order!.id;
+        if (!paymentIntent.clientSecret) {
+          throw new Error('No se recibio el cliente de pago de Stripe. Intenta de nuevo.');
+        }
         const { error } = await stripeConfirm(paymentIntent.clientSecret, {
           paymentMethodType: 'Card',
         });
@@ -578,7 +587,7 @@ export default function PaymentScreen() {
           })}
         </View>
 
-        {selectedMethod === 'card' ? (
+        {selectedMethod === 'card' && STRIPE_IS_CONFIGURED ? (
           <View style={styles.stripeContainer}>
             <Text style={styles.sectionLabel}>Datos de la tarjeta</Text>
             <CardField

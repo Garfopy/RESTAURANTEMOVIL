@@ -32,6 +32,7 @@ import { useUserStore } from '../../store/user.store';
 import { Colors, Shadows } from '../../theme';
 
 type Filter = 'activas' | 'todas' | 'completadas';
+const HOSTESS_ROLES = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona', 'portero', 'recepcion', 'admin', 'admin_restaurante'];
 
 export default function HostessDashboardScreen() {
   const { width } = useWindowDimensions();
@@ -53,9 +54,11 @@ export default function HostessDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [completingId, setCompletingId] = useState<number | null>(null);
   const [completingOrderId, setCompletingOrderId] = useState<number | null>(null);
+  const mountedRef = useRef(true);
   const scanLockedRef = useRef(false);
   const logout = useUserStore((state) => state.logout);
   const user = useUserStore((state) => state.user);
+  const isHostessRole = HOSTESS_ROLES.includes(String(user?.rol ?? '').toLowerCase());
 
   const selectedBranch = useMemo(
     () => branches.find((branch) => Number(branch.id) === Number(selectedBranchId)) ?? null,
@@ -111,42 +114,74 @@ export default function HostessDashboardScreen() {
   const cameraStatusColor = permission?.granted ? Colors.success : Colors.warning;
 
   const loadBranches = useCallback(async () => {
+    if (!isHostessRole) return;
+
     try {
       const list = await getHostessBranches();
+      if (!mountedRef.current) return;
       setBranches(list);
       setSelectedBranchId((current) => current ?? list[0]?.id ?? null);
     } catch (error) {
-      Alert.alert('No pudimos cargar sucursales', getApiError(error));
+      if (mountedRef.current && isHostessRole) {
+        Alert.alert('No pudimos cargar sucursales', getApiError(error));
+      }
     }
-  }, []);
+  }, [isHostessRole]);
 
   const loadReservations = useCallback(async (branchId: number) => {
+    if (!isHostessRole) return;
     setLoadingReservations(true);
     try {
       const list = await getHostessReservations(branchId);
+      if (!mountedRef.current) return;
       setReservations(list);
     } catch (error) {
-      Alert.alert('No pudimos cargar reservaciones', getApiError(error));
+      if (mountedRef.current && isHostessRole) {
+        Alert.alert('No pudimos cargar reservaciones', getApiError(error));
+      }
     } finally {
-      setLoadingReservations(false);
+      if (mountedRef.current) {
+        setLoadingReservations(false);
+      }
     }
-  }, []);
+  }, [isHostessRole]);
 
   const loadReleaseOrders = useCallback(async (branchId: number) => {
+    if (!isHostessRole) return;
     setLoadingReleaseOrders(true);
     try {
       const list = await getHostessReleaseOrders(branchId);
+      if (!mountedRef.current) return;
       setReleaseOrders(list);
     } catch (error) {
-      Alert.alert('No pudimos cargar pedidos', getApiError(error));
+      if (mountedRef.current && isHostessRole) {
+        Alert.alert('No pudimos cargar pedidos', getApiError(error));
+      }
     } finally {
-      setLoadingReleaseOrders(false);
+      if (mountedRef.current) {
+        setLoadingReleaseOrders(false);
+      }
     }
+  }, [isHostessRole]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
+    if (!isHostessRole) {
+      setBranches([]);
+      setSelectedBranchId(null);
+      setReservations([]);
+      setReleaseOrders([]);
+      return;
+    }
+
     void loadBranches();
-  }, [loadBranches]);
+  }, [isHostessRole, loadBranches]);
 
   useEffect(() => {
     if (selectedBranchId) {
@@ -247,6 +282,10 @@ export default function HostessDashboardScreen() {
     } finally {
       setCompletingOrderId(null);
     }
+  }
+
+  if (!isHostessRole) {
+    return null;
   }
 
   if (scannerVisible) {

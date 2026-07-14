@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 3.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -12,7 +12,8 @@
       "distribution": "internal",
       "environment": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante"
+        "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
+        "EXPO_PUBLIC_STRIPE_KEY": "pk_test_51NaOtaKdBvJTakspItZCcHDSfJKjTO1f58jcqAloxwXgahIGLWhi9VGOBKtQt8U5lTbQSLvYjq5zh2jdJ6sd63gg00yBuNfixW"
       },
       "android": {
         "buildType": "apk"
@@ -25,7 +26,8 @@
       "autoIncrement": true,
       "environment": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante"
+        "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
+        "EXPO_PUBLIC_STRIPE_KEY": "pk_test_51NaOtaKdBvJTakspItZCcHDSfJKjTO1f58jcqAloxwXgahIGLWhi9VGOBKtQt8U5lTbQSLvYjq5zh2jdJ6sd63gg00yBuNfixW"
       }
     }
   },

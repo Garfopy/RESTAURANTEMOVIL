@@ -967,6 +967,15 @@ class Order
                 $params[':payment_intent_id'] = $paymentIntentId;
             }
         }
+        if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+            $fields[] = 'cuenta_abierta = 0';
+        }
+        if (self::columnExists('rest_pedidos', 'pagado_at')) {
+            $fields[] = 'pagado_at = COALESCE(pagado_at, NOW())';
+        }
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
 
         $placeholders = [];
         foreach ($targetOrderIds as $index => $targetId) {
@@ -1030,6 +1039,9 @@ class Order
 
         if (self::columnExists('rest_pedidos', 'pagado_at')) {
             $fields[] = 'pagado_at = NOW()';
+        }
+        if (self::columnExists('rest_pedidos', 'cuenta_abierta')) {
+            $fields[] = 'cuenta_abierta = 0';
         }
         if (self::columnExists('rest_pedidos', 'updated_at')) {
             $fields[] = 'updated_at = NOW()';
@@ -1477,15 +1489,24 @@ class Order
             return null;
         }
 
-        $items = self::getOrderItems($orderId);
+        $targetOrderIds = self::getPaymentTargetOrderIds($orderId);
+        if (empty($targetOrderIds)) {
+            $targetOrderIds = [$orderId];
+        }
+
         $quoteItems = [];
-        foreach ($items as $item) {
-            $quoteItems[] = [
-                'product_id' => (int)($item['platillo_id'] ?? 0),
-                'quantity' => (int)($item['cantidad'] ?? 0),
-                'unit_price' => (float)($item['precio_unit'] ?? 0),
-                'origen' => $item['origen'] ?? 'menu',
-            ];
+        $itemsByOrder = [];
+        foreach ($targetOrderIds as $targetId) {
+            $items = self::getOrderItems((int)$targetId);
+            $itemsByOrder[(int)$targetId] = $items;
+            foreach ($items as $item) {
+                $quoteItems[] = [
+                    'product_id' => (int)($item['platillo_id'] ?? 0),
+                    'quantity' => (int)($item['cantidad'] ?? 0),
+                    'unit_price' => (float)($item['precio_unit'] ?? 0),
+                    'origen' => $item['origen'] ?? 'menu',
+                ];
+            }
         }
 
         try {
@@ -1498,32 +1519,82 @@ class Order
             throw new \InvalidArgumentException('Codigo de promocion invalido, expirado o no asignado a este usuario.');
         }
 
+        self::applyPromotionDiscountToOrders($targetOrderIds, $itemsByOrder, $quote);
+
+        return self::findById($orderId, $userId) ?? self::rawOrderById($orderId, $userId);
+    }
+
+    /**
+     * @param array<int> $targetOrderIds
+     * @param array<int, array<int, array<string, mixed>>> $itemsByOrder
+     */
+    private static function applyPromotionDiscountToOrders(array $targetOrderIds, array $itemsByOrder, array $quote): void
+    {
         $columns = self::getTableColumns('rest_pedidos');
-        $fields = [];
-        $params = [
-            ':id' => $orderId,
-            ':total' => (float)$quote['total'],
-        ];
-
-        if (in_array('descuento', $columns, true)) {
-            $fields[] = 'descuento = :descuento';
-            $params[':descuento'] = (float)$quote['discount'];
-        }
-        if (in_array('total', $columns, true)) {
-            $fields[] = 'total = :total';
-        }
-        if (in_array('updated_at', $columns, true)) {
-            $fields[] = 'updated_at = NOW()';
+        if (!in_array('total', $columns, true) && !in_array('descuento', $columns, true)) {
+            return;
         }
 
-        if (!empty($fields)) {
+        $remainingDiscount = round((float)($quote['discount'] ?? 0), 2);
+        if ($remainingDiscount <= 0) {
+            return;
+        }
+
+        $eligibleProductIds = array_values(array_filter(array_map('intval', $quote['applicable_product_ids'] ?? [])));
+        foreach ($targetOrderIds as $targetId) {
+            if ($remainingDiscount <= 0) {
+                break;
+            }
+
+            $targetId = (int)$targetId;
+            $items = $itemsByOrder[$targetId] ?? [];
+            $eligibleSubtotal = 0.0;
+            foreach ($items as $item) {
+                $productId = (int)($item['platillo_id'] ?? 0);
+                if (!empty($eligibleProductIds) && !in_array($productId, $eligibleProductIds, true)) {
+                    continue;
+                }
+                $eligibleSubtotal += (float)($item['precio_unit'] ?? 0) * (int)($item['cantidad'] ?? 0);
+            }
+
+            if ($eligibleSubtotal <= 0) {
+                continue;
+            }
+
+            $order = self::rawOrderById($targetId);
+            if (!$order) {
+                continue;
+            }
+
+            $currentTotal = round((float)($order['total'] ?? $order['subtotal'] ?? 0), 2);
+            $appliedDiscount = min($remainingDiscount, $currentTotal, $eligibleSubtotal);
+            if ($appliedDiscount <= 0) {
+                continue;
+            }
+
+            $fields = [];
+            $params = [
+                ':id' => $targetId,
+                ':discount' => $appliedDiscount,
+                ':total' => round(max(0, $currentTotal - $appliedDiscount), 2),
+            ];
+
+            if (in_array('descuento', $columns, true)) {
+                $fields[] = 'descuento = :discount';
+            }
+            if (in_array('total', $columns, true)) {
+                $fields[] = 'total = :total';
+            }
+            if (in_array('updated_at', $columns, true)) {
+                $fields[] = 'updated_at = NOW()';
+            }
+
             Database::rowCount(
                 'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id = :id',
                 $params
             );
+            $remainingDiscount = round($remainingDiscount - $appliedDiscount, 2);
         }
-
-        return self::rawOrderById($orderId, $userId);
     }
 
     public static function validateExitPass(string $payload, int $validatorUserId): ?array

@@ -18,6 +18,7 @@ import { formatImageUrl } from '../../services/api';
 import { createStoreOrder } from '../../services/store.service';
 import { confirmPayment } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
+import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { Colors, Spacing, Shadows } from '../../theme';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash';
@@ -51,7 +52,7 @@ export default function StorePaymentScreen() {
   const direccionId = params.direccionId ? parseInt(params.direccionId, 10) : undefined;
 
   const [loading, setLoading] = useState(false);
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(STRIPE_IS_CONFIGURED ? 'card' : 'cash');
 
   const isIOS = Platform.OS === 'ios';
   const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
@@ -74,6 +75,9 @@ export default function StorePaymentScreen() {
       }
 
       if (selectedMethod === 'card') {
+        if (!STRIPE_IS_CONFIGURED) {
+          throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
+        }
         if (!params.clientSecret) throw new Error('Falta el secreto del cliente para procesar la tarjeta.');
 
         const order = await createStoreOrder({
@@ -189,22 +193,24 @@ export default function StorePaymentScreen() {
 
         {/* Payment methods */}
         <View style={styles.methodsContainer}>
-          <TouchableOpacity
-            style={[styles.methodCard, selectedMethod === 'card' && styles.methodCardActive]}
-            onPress={() => setSelectedMethod('card')}
-          >
-            <Ionicons
-              name="card-outline"
-              size={26}
-              color={selectedMethod === 'card' ? Colors.primary : Colors.textMuted}
-            />
-            <Text
-              numberOfLines={2}
-              style={[styles.methodText, selectedMethod === 'card' && styles.methodTextActive]}
+          {STRIPE_IS_CONFIGURED ? (
+            <TouchableOpacity
+              style={[styles.methodCard, selectedMethod === 'card' && styles.methodCardActive]}
+              onPress={() => setSelectedMethod('card')}
             >
-              Tarjeta
-            </Text>
-          </TouchableOpacity>
+              <Ionicons
+                name="card-outline"
+                size={26}
+                color={selectedMethod === 'card' ? Colors.primary : Colors.textMuted}
+              />
+              <Text
+                numberOfLines={2}
+                style={[styles.methodText, selectedMethod === 'card' && styles.methodTextActive]}
+              >
+                Tarjeta
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity
             style={[styles.methodCard, selectedMethod === 'wallet' && styles.methodCardActive]}
@@ -242,7 +248,7 @@ export default function StorePaymentScreen() {
         </View>
 
         {/* Card field */}
-        {selectedMethod === 'card' && (
+        {selectedMethod === 'card' && STRIPE_IS_CONFIGURED && (
           <View style={styles.stripeContainer}>
             <Text style={styles.sectionLabel}>Datos de la tarjeta</Text>
             <CardField

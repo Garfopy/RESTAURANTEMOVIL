@@ -33,12 +33,16 @@ export default function ProductScreen() {
   const insets = useSafeAreaInsets();
   const { id, restauranteId } = useLocalSearchParams<{
     id: string;
-    restauranteId: string;
+    restauranteId?: string;
   }>();
+  const parsedRestaurantId = typeof restauranteId === 'string' && restauranteId !== ''
+    ? Number(restauranteId)
+    : undefined;
+  const parsedProductId = Number(id);
 
   const { data: platillo, isLoading, isError, isRefetching, refetch } = useDish(
-    Number(restauranteId),
-    Number(id)
+    parsedRestaurantId,
+    parsedProductId
   );
 
   const addItem = useCartStore((s) => s.addItem);
@@ -94,7 +98,7 @@ export default function ProductScreen() {
 
   async function refreshProduct() {
     await Promise.all([
-      refreshBranchConfig(Number(restauranteId), { force: true }),
+      parsedRestaurantId ? refreshBranchConfig(parsedRestaurantId, { force: true }) : Promise.resolve(),
       refetch(),
     ]).catch(() => undefined);
   }

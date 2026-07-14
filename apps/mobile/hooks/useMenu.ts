@@ -47,7 +47,7 @@ export function useDish(restauranteId?: number, dishId?: number) {
   return useQuery<Platillo>({
     queryKey: menuKeys.dish(restauranteId ?? 0, dishId ?? 0, version),
     queryFn: () => getDishById(restauranteId!, dishId!),
-    enabled: restauranteId !== undefined && dishId !== undefined,
+    enabled: dishId !== undefined && Number.isFinite(dishId),
     staleTime: 5 * 60 * 1000,
   });
 }

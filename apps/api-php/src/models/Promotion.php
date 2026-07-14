@@ -26,14 +26,13 @@ class Promotion
     private static function selectColumns(string $alias = ''): string
     {
         $prefix = $alias !== '' ? $alias . '.' : '';
+        $productIdExpression = self::productIdExpression($alias);
         $fields = [
             "{$prefix}id",
             "{$prefix}usuario_id",
+            "{$productIdExpression} AS platillo_id",
+            "(SELECT rp.restaurante_id FROM rest_platillos rp WHERE rp.id = {$productIdExpression} LIMIT 1) AS restaurante_id",
         ];
-
-        if (self::columnExists('platillo_id')) {
-            $fields[] = "{$prefix}platillo_id";
-        }
 
         return implode(', ', array_merge($fields, [
             "{$prefix}titulo",
@@ -41,10 +40,40 @@ class Promotion
             "{$prefix}imagen",
             "{$prefix}deep_link",
             "{$prefix}code",
+            self::selectNullableColumn('discount_type', $alias),
+            self::selectNullableColumn('discount_value', $alias),
             "{$prefix}activo",
             "{$prefix}expires_at",
             "{$prefix}created_at",
         ]));
+    }
+
+    private static function selectNullableColumn(string $column, string $alias = ''): string
+    {
+        if (self::columnExists($column)) {
+            $prefix = $alias !== '' ? $alias . '.' : '';
+            return "{$prefix}{$column}";
+        }
+
+        return "NULL AS {$column}";
+    }
+
+    private static function productIdExpression(string $alias = ''): string
+    {
+        $prefix = $alias !== '' ? $alias . '.' : '';
+        $fallback = "CASE
+            WHEN {$prefix}deep_link REGEXP '/(product|producto|platillo)/[0-9]+'
+                THEN CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX({$prefix}deep_link, '?', 1), '#', 1), '/', -1) AS UNSIGNED)
+            WHEN {$prefix}code = 'AMARE-66-0701'
+                THEN 28
+            ELSE NULL
+        END";
+
+        if (self::columnExists('platillo_id')) {
+            return "COALESCE({$prefix}platillo_id, {$fallback})";
+        }
+
+        return $fallback;
     }
 
     /**
@@ -178,6 +207,18 @@ class Promotion
             $params[':platillo_id'] = !empty($data['platillo_id']) ? (int)$data['platillo_id'] : null;
         }
 
+        if (self::columnExists('discount_type')) {
+            $columns[] = 'discount_type';
+            $values[] = ':discount_type';
+            $params[':discount_type'] = $data['discount_type'] ?? null;
+        }
+
+        if (self::columnExists('discount_value')) {
+            $columns[] = 'discount_value';
+            $values[] = ':discount_value';
+            $params[':discount_value'] = isset($data['discount_value']) ? (float)$data['discount_value'] : null;
+        }
+
         $sql = 'INSERT INTO mobile_promociones (' . implode(', ', $columns) . ')
                 VALUES (' . implode(', ', $values) . ')';
 
@@ -196,6 +237,12 @@ class Promotion
         $allowed = ['titulo', 'descripcion', 'imagen', 'deep_link', 'code', 'activo', 'expires_at', 'usuario_id'];
         if (self::columnExists('platillo_id')) {
             $allowed[] = 'platillo_id';
+        }
+        if (self::columnExists('discount_type')) {
+            $allowed[] = 'discount_type';
+        }
+        if (self::columnExists('discount_value')) {
+            $allowed[] = 'discount_value';
         }
 
         foreach ($allowed as $key) {
@@ -373,6 +420,11 @@ class Promotion
 
     private static function calculateDiscount(array $promotion, array $items, float $eligibleSubtotal): float
     {
+        $structuredDiscount = self::calculateStructuredDiscount($promotion, $items, $eligibleSubtotal);
+        if ($structuredDiscount !== null) {
+            return $structuredDiscount;
+        }
+
         $text = strtoupper(trim(implode(' ', [
             (string)($promotion['titulo'] ?? ''),
             (string)($promotion['descripcion'] ?? ''),
@@ -380,11 +432,7 @@ class Promotion
         ])));
 
         if (preg_match('/2\s*X\s*1/', $text) === 1) {
-            $discount = 0.0;
-            foreach ($items as $item) {
-                $discount += floor((int)$item['quantity'] / 2) * (float)$item['unit_price'];
-            }
-            return round($discount, 2);
+            return self::calculateBogoDiscount($items);
         }
 
         if (preg_match('/(\d{1,2})\s*%/', $text, $matches) === 1) {
@@ -394,7 +442,14 @@ class Promotion
 
         if (preg_match('/(?:A\s+SOLO|SOLO)\s*\$?\s*(\d+(?:[.,]\d+)?)/', $text, $matches) === 1) {
             $promoPrice = (float)str_replace(',', '.', $matches[1]);
-            return round(max(0, $eligibleSubtotal - $promoPrice), 2);
+            $quantity = self::sumQuantities($items);
+            return round(max(0, $eligibleSubtotal - ($promoPrice * max(1, $quantity))), 2);
+        }
+
+        if (preg_match('/\bAMARE-(\d{1,4})(?:-|$)/', $text, $matches) === 1) {
+            $promoPrice = (float)$matches[1];
+            $quantity = self::sumQuantities($items);
+            return round(max(0, $eligibleSubtotal - ($promoPrice * max(1, $quantity))), 2);
         }
 
         if (str_contains($text, 'GRATIS') || str_contains($text, 'REGALO')) {
@@ -410,6 +465,68 @@ class Promotion
         }
 
         return 0.0;
+    }
+
+    private static function calculateStructuredDiscount(array $promotion, array $items, float $eligibleSubtotal): ?float
+    {
+        $type = strtolower(trim((string)($promotion['discount_type'] ?? '')));
+        if ($type === '') {
+            return null;
+        }
+
+        $value = isset($promotion['discount_value']) ? round((float)$promotion['discount_value'], 2) : 0.0;
+
+        switch ($type) {
+            case 'percent':
+                if ($value <= 0) {
+                    return 0.0;
+                }
+                $percent = min(100.0, max(0.0, $value));
+                return round($eligibleSubtotal * ($percent / 100), 2);
+
+            case 'amount':
+                return round(min(max(0.0, $value), $eligibleSubtotal), 2);
+
+            case 'fixed_price':
+                if ($value < 0) {
+                    return 0.0;
+                }
+                $quantity = self::sumQuantities($items);
+                return round(max(0, $eligibleSubtotal - ($value * max(1, $quantity))), 2);
+
+            case 'free_item':
+                return round(self::minimumUnitPrice($items), 2);
+
+            case 'bogo':
+                return self::calculateBogoDiscount($items);
+
+            default:
+                return null;
+        }
+    }
+
+    private static function calculateBogoDiscount(array $items): float
+    {
+        $discount = 0.0;
+        foreach ($items as $item) {
+            $discount += floor((int)$item['quantity'] / 2) * (float)$item['unit_price'];
+        }
+        return round($discount, 2);
+    }
+
+    private static function minimumUnitPrice(array $items): float
+    {
+        $unitPrices = array_map(static fn(array $item): float => (float)$item['unit_price'], $items);
+        return min($unitPrices ?: [0.0]);
+    }
+
+    private static function sumQuantities(array $items): int
+    {
+        return array_reduce(
+            $items,
+            static fn(int $sum, array $item): int => $sum + max(0, (int)($item['quantity'] ?? 0)),
+            0
+        );
     }
 
     public static function codeExists(string $code, ?int $excludeId = null): bool

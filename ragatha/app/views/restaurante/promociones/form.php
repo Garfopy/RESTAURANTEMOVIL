@@ -9,6 +9,8 @@ $formData  = $formData ?? null;
 $titulo      = htmlspecialchars($formData['titulo'] ?? $promo['titulo'] ?? '', ENT_QUOTES, 'UTF-8');
 $descripcion = htmlspecialchars($formData['descripcion'] ?? $promo['descripcion'] ?? '', ENT_QUOTES, 'UTF-8');
 $code        = htmlspecialchars($promo['code'] ?? '', ENT_QUOTES, 'UTF-8');
+$discountType = htmlspecialchars($formData['discount_type'] ?? $promo['discount_type'] ?? '', ENT_QUOTES, 'UTF-8');
+$discountValue = htmlspecialchars((string)($formData['discount_value'] ?? $promo['discount_value'] ?? ''), ENT_QUOTES, 'UTF-8');
 $expiresAt   = !empty($promo['expires_at']) ? str_replace(' ', 'T', $promo['expires_at']) : '';
 $imagenUrl   = $promo['imagen'] ?? null;
 $activo      = ($formData['activo'] ?? $promo['activo'] ?? 1) ? true : false;
@@ -173,6 +175,41 @@ $promoId     = (int)($promoId ?? $promo['id'] ?? 0);
           <div class="promo-error" style="display:none;font-size:.8rem;color:#EF4444;margin-top:4px"></div>
         </div>
       </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+        <div>
+          <label style="display:block;font-weight:600;font-size:.9rem;color:#374151;margin-bottom:8px">
+            Tipo de descuento
+          </label>
+          <select name="discount_type" id="inpDiscountType" class="promo-input"
+                  style="width:100%;padding:12px 14px;border:1.5px solid #D1D5DB;border-radius:8px;
+                         font-size:.95rem;background-color:#fff;transition:border-color 0.2s"
+                  onchange="actualizarValorDescuento()">
+            <option value="" <?= $discountType === '' ? 'selected' : '' ?>>Sin descuento directo</option>
+            <option value="percent" <?= $discountType === 'percent' ? 'selected' : '' ?>>Porcentaje</option>
+            <option value="amount" <?= $discountType === 'amount' ? 'selected' : '' ?>>Monto fijo</option>
+            <option value="fixed_price" <?= $discountType === 'fixed_price' ? 'selected' : '' ?>>Precio final del producto</option>
+            <option value="free_item" <?= $discountType === 'free_item' ? 'selected' : '' ?>>Producto gratis</option>
+            <option value="bogo" <?= $discountType === 'bogo' ? 'selected' : '' ?>>2x1</option>
+          </select>
+          <div style="font-size:.75rem;color:#9CA3AF;margin-top:4px">Usado por la app al validar el cupon.</div>
+          <div class="promo-error" style="display:none;font-size:.8rem;color:#EF4444;margin-top:4px"></div>
+        </div>
+
+        <div>
+          <label style="display:block;font-weight:600;font-size:.9rem;color:#374151;margin-bottom:8px">
+            Valor del descuento
+          </label>
+          <input type="number" name="discount_value" id="inpDiscountValue" class="promo-input"
+                 value="<?= $discountValue ?>"
+                 min="0" step="0.01"
+                 placeholder="Ej: 20, 50 o 66"
+                 style="width:100%;padding:12px 14px;border:1.5px solid #D1D5DB;border-radius:8px;
+                        font-size:.95rem;transition:border-color 0.2s">
+          <div style="font-size:.75rem;color:#9CA3AF;margin-top:4px">% para porcentaje, $ para monto o precio final.</div>
+          <div class="promo-error" style="display:none;font-size:.8rem;color:#EF4444;margin-top:4px"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Card: Usuario y Estado -->
@@ -296,6 +333,9 @@ $promoId     = (int)($promoId ?? $promo['id'] ?? 0);
     document.getElementById('inpTitulo').value = p.titulo || '';
     document.getElementById('inpDescripcion').value = p.descripcion || '';
     document.getElementById('inpCode').value = p.code || '';
+    document.getElementById('inpDiscountType').value = p.discount_type || '';
+    document.getElementById('inpDiscountValue').value = p.discount_value == null ? '' : p.discount_value;
+    actualizarValorDescuento();
     document.getElementById('inpActivo').checked = parseInt(p.activo) === 1 || p.activo === true;
 
     if (p.expires_at) {
@@ -323,6 +363,16 @@ $promoId     = (int)($promoId ?? $promo['id'] ?? 0);
     if (!select || !select.options || select.options.length <= 1) return;
     select.value = pendingUsuarioId;
   }
+
+  window.actualizarValorDescuento = function() {
+    var type = document.getElementById('inpDiscountType').value;
+    var valueInput = document.getElementById('inpDiscountValue');
+    var noValueNeeded = type === '' || type === 'free_item' || type === 'bogo';
+    valueInput.disabled = noValueNeeded;
+    if (noValueNeeded) {
+      valueInput.value = '';
+    }
+  };
 
   // ──────────────────────────────────────────────────────────────
   // Manejo de Imagen
@@ -508,11 +558,29 @@ $promoId     = (int)($promoId ?? $promo['id'] ?? 0);
       }
     }
 
+    var discountType = document.getElementById('inpDiscountType').value;
+    var discountValueRaw = document.getElementById('inpDiscountValue').value;
+    var discountValue = discountValueRaw === '' ? null : parseFloat(discountValueRaw);
+    if (discountType && ['percent', 'amount', 'fixed_price'].indexOf(discountType) !== -1) {
+      if (!discountValue || discountValue <= 0) {
+        setSubmitState(false, isEdit ? 'Guardar cambios' : 'Crear promociÃ³n', 'ðŸ’¾');
+        mostrarError('Indica un valor de descuento mayor a 0.');
+        return false;
+      }
+      if (discountType === 'percent' && discountValue > 100) {
+        setSubmitState(false, isEdit ? 'Guardar cambios' : 'Crear promociÃ³n', 'ðŸ’¾');
+        mostrarError('El porcentaje no puede ser mayor a 100.');
+        return false;
+      }
+    }
+
     var payload = {
       usuario_id: usuarioId,
       titulo: titulo,
       descripcion: document.getElementById('inpDescripcion').value.trim(),
       code: document.getElementById('inpCode').value.trim() || null,
+      discount_type: discountType || null,
+      discount_value: discountValue,
       expires_at: expiresAt || null,
       activo: document.getElementById('inpActivo').checked ? 1 : 0
     };
@@ -618,6 +686,7 @@ $promoId     = (int)($promoId ?? $promo['id'] ?? 0);
       await ApiClient.getTokenFromSession();
     }
 
+    actualizarValorDescuento();
     await cargarUsuarios();
     await cargarPromocionParaEditar();
   }

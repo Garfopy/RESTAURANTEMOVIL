@@ -13,16 +13,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { apiClient, formatImageUrl } from '../../services/api';
+import { normalizeAppDeepLink } from '../../services/deep-links.service';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import type { BannerItem } from '../../components/shared/BannerCarousel';
+import { useBranchStore } from '../../store/branch.store';
+import { useUserStore } from '../../store/user.store';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 
 interface Promocion {
   id: string | number;
+  platillo_id?: number | string | null;
+  product_id?: number | string | null;
+  restaurante_id?: number | string | null;
+  restaurant_id?: number | string | null;
   titulo: string;
   descripcion?: string;
   imagen?: string;
@@ -34,7 +41,10 @@ interface Promocion {
 
 export default function PromotionsScreen() {
   const router = useRouter();
+  const { code } = useLocalSearchParams<{ code?: string }>();
   const [selectedPromo, setSelectedPromo] = React.useState<Promocion | null>(null);
+  const selectedBranchId = useBranchStore((state) => state.seleccionada?.id ?? null);
+  const userBranchId = useUserStore((state) => state.user?.current_restaurante_id ?? null);
 
   const { data: promos, isLoading, refetch, isFetching } = useQuery<Promocion[]>({
     queryKey: ['promotions'],
@@ -60,14 +70,42 @@ export default function PromotionsScreen() {
     })
     .filter((item): item is BannerItem => item !== null);
 
+  React.useEffect(() => {
+    if (!promos?.length || typeof code !== 'string' || !code.trim()) return;
+
+    const matchingPromo = promos.find((promo) => promo.code?.toLowerCase() === code.trim().toLowerCase());
+    if (matchingPromo) {
+      setSelectedPromo(matchingPromo);
+    }
+  }, [code, promos]);
+
   const handlePromoPress = (deepLink?: string) => {
-    if (!deepLink) return;
+    const route = normalizeAppDeepLink(deepLink);
+    if (!route) return;
     try {
       // Redirección dinámica basada en la API
-      router.push(deepLink as any);
+      router.push(route as any);
     } catch (error) {
       console.warn('Ruta de deepLink inválida o no configurada:', deepLink);
     }
+  };
+
+  const handleProductPress = (promo?: Promocion | null) => {
+    const productId = getPromoProductId(promo);
+    const restaurantId = getPromoRestaurantId(promo, selectedBranchId ?? userBranchId ?? null);
+
+    if (productId > 0) {
+      router.push({
+        pathname: '/product/[id]',
+        params: {
+          id: String(productId),
+          ...(restaurantId > 0 ? { restauranteId: String(restaurantId) } : {}),
+        },
+      } as never);
+      return;
+    }
+
+    Alert.alert('Producto no disponible', 'Esta promocion no tiene un producto asociado.');
   };
 
   const copyCode = async (code?: string | null) => {
@@ -108,7 +146,7 @@ export default function PromotionsScreen() {
             bannerItems.length > 0 ? (
               <View style={styles.carouselContainer}>
                 <Text style={styles.sectionTitle}>Destacados de la semana</Text>
-                <BannerCarousel items={bannerItems} />
+                <BannerCarousel items={bannerItems} onPress={(item) => handlePromoPress(item.deepLink)} />
               </View>
             ) : null
           }
@@ -208,13 +246,13 @@ export default function PromotionsScreen() {
               ) : null}
 
               <View style={styles.modalActions}>
-                {getPromoDeepLink(selectedPromo ?? undefined) ? (
+                {getProductActionAvailable(selectedPromo) ? (
                   <TouchableOpacity
                     style={styles.primaryAction}
                     onPress={() => {
-                      const deepLink = getPromoDeepLink(selectedPromo ?? undefined);
+                      const promo = selectedPromo;
                       setSelectedPromo(null);
-                      handlePromoPress(deepLink);
+                      handleProductPress(promo);
                     }}
                   >
                     <Text style={styles.primaryActionText}>Ver producto</Text>
@@ -231,6 +269,37 @@ export default function PromotionsScreen() {
 
 function getPromoDeepLink(promo?: Promocion | null): string | undefined {
   return promo?.deep_link || promo?.deepLink || undefined;
+}
+
+function getPromoProductId(promo?: Promocion | null): number {
+  const explicitId = Number(promo?.platillo_id ?? promo?.product_id ?? 0);
+  if (explicitId > 0) return explicitId;
+
+  const deepLink = getPromoDeepLink(promo);
+  if (!deepLink) return 0;
+
+  const pathMatch = deepLink.match(/\/(?:product|producto|platillo)\/(\d+)/i);
+  if (pathMatch?.[1]) return Number(pathMatch[1]);
+
+  const queryMatch = deepLink.match(/[?&](?:product_id|platillo_id|id)=(\d+)/i);
+  return queryMatch?.[1] ? Number(queryMatch[1]) : 0;
+}
+
+function getPromoRestaurantId(promo?: Promocion | null, fallback?: number | null): number {
+  const explicitId = Number(promo?.restaurante_id ?? promo?.restaurant_id ?? 0);
+  if (explicitId > 0) return explicitId;
+
+  const deepLink = getPromoDeepLink(promo);
+  if (deepLink) {
+    const queryMatch = deepLink.match(/[?&](?:restauranteId|restaurante_id|restaurant_id|branch_id)=(\d+)/i);
+    if (queryMatch?.[1]) return Number(queryMatch[1]);
+  }
+
+  return Number(fallback ?? 0);
+}
+
+function getProductActionAvailable(promo?: Promocion | null): boolean {
+  return getPromoProductId(promo) > 0;
 }
 
 function formatPromoDate(value: string): string {

@@ -127,7 +127,7 @@ class OrderController
             $reward = (new RewardsService())->awardPoints(
                 $pdo,
                 (int)$user->id,
-                (float)($order['subtotal'] ?? $order['total'] ?? 0),
+                (float)($order['total'] ?? $order['subtotal'] ?? 0),
                 !empty($input['use_points']),
                 'food',
                 'order',
