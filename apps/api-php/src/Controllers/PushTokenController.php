@@ -26,6 +26,13 @@ class PushTokenController
             Response::validationError(['fcm_token' => [$exception->getMessage()]]);
         }
 
+        error_log(sprintf(
+            'PushTokenController INFO: user_id=%d platform=%s token=%s registered=1',
+            (int)$user->id,
+            $platform !== null && $platform !== '' ? $platform : 'unknown',
+            strlen($token) > 16 ? substr($token, 0, 12) . '...' . substr($token, -4) : $token
+        ));
+
         Response::success(['registered' => true], 'Token push registrado');
     }
 

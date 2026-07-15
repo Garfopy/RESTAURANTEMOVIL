@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   ActivityIndicator,
@@ -69,9 +69,91 @@ const COUNTRY_CODES: CountryCodeOption[] = [
 ];
 
 const DEFAULT_COUNTRY = COUNTRY_CODES[0];
+const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const WEEK_DAYS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, '');
+}
+
+function toDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseBirthDate(value?: string | null): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day, 12, 0, 0);
+  if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) return null;
+  return date;
+}
+
+function addYears(date: Date, years: number): Date {
+  const next = new Date(date);
+  next.setFullYear(next.getFullYear() + years);
+  return next;
+}
+
+function getAgeBounds() {
+  const today = new Date();
+  const max = addYears(today, -18);
+  const min = addYears(today, -120);
+  max.setHours(23, 59, 59, 999);
+  min.setHours(0, 0, 0, 0);
+  return { min, max };
+}
+
+function isAdultBirthday(value: string): boolean {
+  const date = parseBirthDate(value);
+  if (!date) return false;
+  const { min, max } = getAgeBounds();
+  return date >= min && date <= max;
+}
+
+function validateBirthday(value: string): string | null {
+  if (!value) return 'Cumpleaños es requerido';
+  if (!isAdultBirthday(value)) return 'Debes ser mayor de edad para crear una cuenta';
+  return null;
+}
+
+function formatBirthdayLabel(value: string): string {
+  const date = parseBirthDate(value);
+  if (!date) return 'Selecciona tu fecha';
+  return `${date.getDate()} de ${MONTHS[date.getMonth()].toLowerCase()} de ${date.getFullYear()}`;
+}
+
+function clampMonth(date: Date): Date {
+  const { min, max } = getAgeBounds();
+  const month = new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0);
+  const minMonth = new Date(min.getFullYear(), min.getMonth(), 1, 12, 0, 0);
+  const maxMonth = new Date(max.getFullYear(), max.getMonth(), 1, 12, 0, 0);
+  if (month < minMonth) return minMonth;
+  if (month > maxMonth) return maxMonth;
+  return month;
+}
+
+function moveMonth(date: Date, amount: number): Date {
+  return clampMonth(new Date(date.getFullYear(), date.getMonth() + amount, 1, 12, 0, 0));
+}
+
+function moveYear(date: Date, amount: number): Date {
+  return clampMonth(new Date(date.getFullYear() + amount, date.getMonth(), 1, 12, 0, 0));
+}
+
+function getCalendarCells(monthDate: Date) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1, 12, 0, 0).getDay();
+  const daysInMonth = new Date(year, month + 1, 0, 12, 0, 0).getDate();
+  const cells: Array<Date | null> = Array.from({ length: firstDay }, () => null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(year, month, day, 12, 0, 0));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
 }
 
 function validateLocalPhone10(value: string): string | null {
@@ -95,12 +177,16 @@ export default function RegisterScreen() {
   const [selectedCountry, setSelectedCountry] = useState<CountryCodeOption>(DEFAULT_COUNTRY);
   const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [detectingCountry, setDetectingCountry] = useState(false);
+  const [birthday, setBirthday] = useState('');
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => getAgeBounds().max);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [nombreError, setNombreError] = useState<string | null>(null);
   const [telefonoError, setTelefonoError] = useState<string | null>(null);
+  const [birthdayError, setBirthdayError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const intro = useRef(new Animated.Value(0)).current;
@@ -126,6 +212,9 @@ export default function RegisterScreen() {
     errorTextStyle: styles.fieldErrorText,
   };
 
+  const calendarCells = useMemo(() => getCalendarCells(calendarMonth), [calendarMonth]);
+  const selectedBirthday = useMemo(() => parseBirthDate(birthday), [birthday]);
+
   const handleNombreChange = (value: string) => {
     setNombre(value);
     setNombreError(value.trim() ? validateName(value) : null);
@@ -141,6 +230,18 @@ export default function RegisterScreen() {
     setTelefono(next);
     setTelefonoError(next ? validateLocalPhone10(next) : null);
   };
+
+  function openCalendar() {
+    setCalendarMonth(clampMonth(parseBirthDate(birthday) ?? getAgeBounds().max));
+    setCalendarVisible(true);
+  }
+
+  function selectBirthday(date: Date) {
+    const next = toDateString(date);
+    setBirthday(next);
+    setBirthdayError(validateBirthday(next));
+    setCalendarVisible(false);
+  }
 
   const handlePasswordChange = (value: string) => {
     setPassword(value);
@@ -187,15 +288,17 @@ export default function RegisterScreen() {
     const fullPhone = `${selectedCountry.dialCode}${localPhone}`;
     const nombreErr = validateName(nombre);
     const telefonoErr = validateLocalPhone10(localPhone);
+    const birthdayErr = validateBirthday(birthday);
     const emailErr = validateOptionalEmail(email);
     const passwordErr = validatePassword(password);
 
     setNombreError(nombreErr);
     setTelefonoError(telefonoErr);
+    setBirthdayError(birthdayErr);
     setEmailError(emailErr);
     setPasswordError(passwordErr);
 
-    if (nombreErr || telefonoErr || emailErr || passwordErr) {
+    if (nombreErr || telefonoErr || birthdayErr || emailErr || passwordErr) {
       toast.error('Por favor, corrige los errores en el formulario');
       return;
     }
@@ -206,6 +309,7 @@ export default function RegisterScreen() {
       const sesion = await register({
         nombre: nombre.trim(),
         telefono: fullPhone,
+        fecha_nacimiento: birthday,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         password,
       });
@@ -313,6 +417,32 @@ export default function RegisterScreen() {
                 <View style={styles.errorContainer}>
                   <Ionicons name="alert-circle" size={14} color={AuthColors.error} />
                   <Text style={styles.fieldErrorText}>{telefonoError}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.birthdayField}>
+              <Text style={styles.fieldLabel}>Cumpleaños</Text>
+              <TouchableOpacity
+                style={[styles.dateButton, birthdayError && styles.fieldInputError]}
+                onPress={openCalendar}
+                activeOpacity={0.86}
+                accessibilityLabel="Seleccionar fecha de cumpleaños"
+                accessibilityRole="button"
+                testID="birthday-input"
+              >
+                <View style={styles.dateCopy}>
+                  <Text style={[styles.dateValue, !birthday && styles.datePlaceholder]}>
+                    {formatBirthdayLabel(birthday)}
+                  </Text>
+                  <Text style={styles.dateHint}>Debes tener 18 años o más</Text>
+                </View>
+                <Ionicons name="calendar-outline" size={22} color={AuthColors.accent} />
+              </TouchableOpacity>
+              {birthdayError ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={14} color={AuthColors.error} />
+                  <Text style={styles.fieldErrorText}>{birthdayError}</Text>
                 </View>
               ) : null}
             </View>
@@ -425,6 +555,86 @@ export default function RegisterScreen() {
                 );
               })}
             </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={calendarVisible} transparent animationType="fade" onRequestClose={() => setCalendarVisible(false)}>
+        <Pressable style={styles.calendarBackdrop} onPress={() => setCalendarVisible(false)}>
+          <Pressable style={styles.calendarSheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.calendarHeader}>
+              <View>
+                <Text style={styles.calendarTitle}>Cumpleaños</Text>
+                <Text style={styles.calendarSubtitle}>Selecciona una fecha válida.</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.calendarClose}
+                onPress={() => setCalendarVisible(false)}
+                accessibilityLabel="Cerrar calendario"
+                accessibilityRole="button"
+              >
+                <Ionicons name="close" size={20} color={AuthColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.yearControls}>
+              <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((date) => moveYear(date, -10))}>
+                <Text style={styles.yearButtonText}>-10</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((date) => moveYear(date, -1))}>
+                <Ionicons name="chevron-back" size={18} color={AuthColors.accent} />
+              </TouchableOpacity>
+              <Text style={styles.yearLabel}>{calendarMonth.getFullYear()}</Text>
+              <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((date) => moveYear(date, 1))}>
+                <Ionicons name="chevron-forward" size={18} color={AuthColors.accent} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((date) => moveYear(date, 10))}>
+                <Text style={styles.yearButtonText}>+10</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.monthControls}>
+              <TouchableOpacity style={styles.monthArrow} onPress={() => setCalendarMonth((date) => moveMonth(date, -1))}>
+                <Ionicons name="chevron-back" size={20} color={AuthColors.text} />
+              </TouchableOpacity>
+              <Text style={styles.monthLabel}>{MONTHS[calendarMonth.getMonth()]}</Text>
+              <TouchableOpacity style={styles.monthArrow} onPress={() => setCalendarMonth((date) => moveMonth(date, 1))}>
+                <Ionicons name="chevron-forward" size={20} color={AuthColors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.weekRow}>
+              {WEEK_DAYS.map((day, index) => (
+                <Text key={`${day}-${index}`} style={styles.weekDay}>{day}</Text>
+              ))}
+            </View>
+
+            <View style={styles.daysGrid}>
+              {calendarCells.map((date, index) => {
+                const disabled = !date || !isAdultBirthday(toDateString(date));
+                const selected = Boolean(
+                  date &&
+                    selectedBirthday &&
+                    date.getFullYear() === selectedBirthday.getFullYear() &&
+                    date.getMonth() === selectedBirthday.getMonth() &&
+                    date.getDate() === selectedBirthday.getDate()
+                );
+
+                return (
+                  <TouchableOpacity
+                    key={date ? toDateString(date) : `empty-${index}`}
+                    style={[styles.dayCell, selected && styles.dayCellSelected]}
+                    onPress={() => date && selectBirthday(date)}
+                    disabled={disabled}
+                    activeOpacity={0.82}
+                  >
+                    <Text style={[styles.dayText, disabled && styles.dayTextDisabled, selected && styles.dayTextSelected]}>
+                      {date ? date.getDate() : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -559,6 +769,38 @@ const styles = StyleSheet.create({
     color: AuthColors.text,
     fontSize: 15,
     fontWeight: '700',
+  },
+  birthdayField: {
+    gap: 8,
+  },
+  dateButton: {
+    minHeight: 64,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: AuthColors.border,
+    backgroundColor: AuthColors.inputBg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  dateCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  dateValue: {
+    color: AuthColors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  datePlaceholder: {
+    color: AuthColors.muted,
+  },
+  dateHint: {
+    color: AuthColors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
   },
   errorContainer: {
     flexDirection: 'row',
@@ -697,5 +939,133 @@ const styles = StyleSheet.create({
     color: AuthColors.textSecondary,
     fontSize: 13,
     fontWeight: '700',
+  },
+  calendarBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  calendarSheet: {
+    borderRadius: 24,
+    backgroundColor: '#202329',
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.14)',
+    padding: 18,
+    gap: 14,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  calendarTitle: {
+    color: AuthColors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  calendarSubtitle: {
+    marginTop: 2,
+    color: AuthColors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  calendarClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(233,221,200,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.12)',
+  },
+  yearControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  yearButton: {
+    minWidth: 44,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AuthColors.inputBg,
+    borderWidth: 1,
+    borderColor: AuthColors.border,
+  },
+  yearButtonText: {
+    color: AuthColors.accent,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  yearLabel: {
+    flex: 1,
+    textAlign: 'center',
+    color: AuthColors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  monthControls: {
+    minHeight: 46,
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    backgroundColor: AuthColors.inputBg,
+    borderWidth: 1,
+    borderColor: AuthColors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  monthArrow: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLabel: {
+    color: AuthColors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  weekRow: {
+    flexDirection: 'row',
+  },
+  weekDay: {
+    flex: 1,
+    textAlign: 'center',
+    color: AuthColors.muted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+  },
+  dayCellSelected: {
+    backgroundColor: AuthColors.accent,
+  },
+  dayText: {
+    color: AuthColors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dayTextDisabled: {
+    color: 'rgba(216,205,187,0.24)',
+  },
+  dayTextSelected: {
+    color: AuthColors.buttonText,
+    fontWeight: '900',
   },
 });

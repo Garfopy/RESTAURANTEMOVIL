@@ -61,23 +61,26 @@ class PushToken
 
     public static function getEnabledTokensForUser(int $userId): array
     {
+        return array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => (string)($row['fcm_token'] ?? ''),
+            self::getEnabledTokenRowsForUser($userId)
+        ))));
+    }
+
+    public static function getEnabledTokenRowsForUser(int $userId): array
+    {
         if ($userId <= 0) {
             return [];
         }
 
-        $rows = Database::query(
-            'SELECT fcm_token
+        return Database::query(
+            'SELECT fcm_token, platform, device_id, last_seen_at
                FROM mobile_push_tokens
               WHERE usuario_id = :user_id
                 AND enabled = 1
               ORDER BY last_seen_at DESC, updated_at DESC',
             [':user_id' => $userId]
         );
-
-        return array_values(array_unique(array_filter(array_map(
-            static fn(array $row): string => (string)($row['fcm_token'] ?? ''),
-            $rows
-        ))));
     }
 
     public static function disableTokens(array $tokens): void

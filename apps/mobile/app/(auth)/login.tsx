@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
 
 const BENEFITS = [
   { icon: 'sparkles-outline' as const, label: 'Experiencias' },
@@ -92,9 +93,6 @@ export default function LoginScreen() {
             </View>
 
             <Text style={styles.tagline}>La mesa es solo el comienzo.</Text>
-            <Text style={styles.description}>
-              Descubre sabores, comparte momentos y disfruta una experiencia hecha alrededor de ti.
-            </Text>
 
             <View style={styles.benefits}>
               {BENEFITS.map((benefit) => (
@@ -119,7 +117,7 @@ export default function LoginScreen() {
           >
             <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
               <View style={styles.googleIcon}>
-                <Ionicons name="logo-google" size={19} color="#24272D" />
+                <GoogleGIcon size={20} />
               </View>
               <Text style={styles.googleLabel}>Continuar con Google</Text>
               <Ionicons name="arrow-forward" size={19} color="#24272D" />
@@ -138,6 +136,13 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             <Text style={styles.legal}>Al continuar aceptas nuestros términos y aviso de privacidad.</Text>
+            <TouchableOpacity
+              style={styles.legalLinkButton}
+              onPress={() => router.push('/legal/terms' as never)}
+              activeOpacity={0.82}
+            >
+              <Text style={styles.legalLink}>Ver términos y aviso legal</Text>
+            </TouchableOpacity>
           </Animated.View>
         </View>
       </SafeAreaView>
@@ -179,5 +184,7 @@ const styles = StyleSheet.create({
   primaryLabel: { flex: 1, color: '#24272D', fontSize: 15, fontWeight: '900' },
   secondaryButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center' },
   secondaryLabel: { color: '#F2EBDD', fontSize: 14, fontWeight: '800' },
-  legal: { color: '#77746E', fontSize: 10, textAlign: 'center', marginBottom: 4 },
+  legal: { color: '#77746E', fontSize: 10, textAlign: 'center' },
+  legalLinkButton: { alignSelf: 'center', paddingTop: 4, paddingBottom: 2, paddingHorizontal: 8 },
+  legalLink: { color: '#E9DDC8', fontSize: 11, fontWeight: '800', textAlign: 'center' },
 });

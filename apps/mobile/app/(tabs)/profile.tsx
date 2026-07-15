@@ -293,6 +293,13 @@ export default function ProfileScreen() {
               label="Centro de ayuda"
               color="#8B5CF6"
               onPress={() => Alert.alert('Ayuda', 'Próximamente...')}
+              showDivider
+            />
+            <MenuItem
+              icon="document-text"
+              label="Terminos y aviso legal"
+              color="#0F766E"
+              onPress={() => router.push('/legal/terms' as any)}
             />
           </View>
         </View>

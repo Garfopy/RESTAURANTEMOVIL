@@ -55,7 +55,7 @@ class ProfileController
             if (strlen($phone) < 10 || strlen($phone) > 15) {
                 Response::validationError(['telefono' => ['El telefono debe tener entre 10 y 15 digitos']]);
             }
-            if (User::existsByPhone($phone, (int)$user->id)) {
+            if (User::existsByAnyPhoneCandidate($phone, (int)$user->id)) {
                 Response::error('El telefono ya esta registrado', 409);
             }
             $updateData['telefono'] = $phone;
@@ -120,6 +120,16 @@ class ProfileController
         $updatedUser = User::findById($user->id);
         
         Response::success(['profile' => $updatedUser], 'Perfil actualizado exitosamente');
+    }
+
+    public function cancelOnboarding(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $deleted = User::deleteIncompleteGoogleOnboarding((int)$user->id);
+
+        Response::success([
+            'deleted' => $deleted,
+        ], $deleted ? 'Registro cancelado' : 'Flujo de registro cancelado');
     }
 
     private function isValidBirthDate(string $value): bool

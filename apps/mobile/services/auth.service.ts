@@ -130,6 +130,7 @@ export async function register(payload: RegisterPayload): Promise<Sesion> {
     password: payload.password,
     phone: payload.telefono ?? null,
     telefono: payload.telefono ?? null,
+    fecha_nacimiento: payload.fecha_nacimiento,
   });
   return parseSesion(data);
 }
@@ -174,6 +175,10 @@ export async function completeProfile(payload: ProfileUpdatePayload): Promise<Mo
   }
 
   return normalizeUser({ ...profile, requires_onboarding: false });
+}
+
+export async function cancelProfileOnboarding(): Promise<void> {
+  await apiClient.delete('/profile/onboarding');
 }
 
 export async function requestPasswordReset(identifier: string): Promise<{

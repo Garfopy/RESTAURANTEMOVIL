@@ -17,17 +17,30 @@ class FirebaseMessagingService
 
     public function sendToUser(int $userId, string $title, string $body, array $data = []): void
     {
-        $tokens = PushToken::getEnabledTokensForUser($userId);
-        if (empty($tokens)) {
+        $tokenRows = PushToken::getEnabledTokenRowsForUser($userId);
+        if (empty($tokenRows)) {
+            error_log('FirebaseMessagingService INFO: user_id=' . $userId . ' sin tokens push activos.');
             return;
         }
 
-        foreach ($tokens as $token) {
+        foreach ($tokenRows as $tokenRow) {
+            $token = (string)($tokenRow['fcm_token'] ?? '');
+            if ($token === '') {
+                continue;
+            }
+
             try {
                 $this->sendToToken($token, $title, $body, $data);
             } catch (\Throwable $exception) {
                 $message = $exception->getMessage();
-                error_log('FirebaseMessagingService ERROR: ' . $message);
+                $platform = (string)($tokenRow['platform'] ?? 'unknown');
+                error_log(sprintf(
+                    'FirebaseMessagingService ERROR: user_id=%d platform=%s token=%s message=%s',
+                    $userId,
+                    $platform !== '' ? $platform : 'unknown',
+                    $this->tokenPreview($token),
+                    $message
+                ));
                 if (str_contains($message, 'UNREGISTERED') || str_contains($message, 'INVALID_ARGUMENT')) {
                     PushToken::disableTokens([$token]);
                 }
@@ -56,8 +69,16 @@ class FirebaseMessagingService
                     ],
                 ],
                 'apns' => [
+                    'headers' => [
+                        'apns-priority' => '10',
+                        'apns-push-type' => 'alert',
+                    ],
                     'payload' => [
                         'aps' => [
+                            'alert' => [
+                                'title' => $title,
+                                'body' => $body,
+                            ],
                             'sound' => 'default',
                         ],
                     ],
@@ -154,6 +175,15 @@ class FirebaseMessagingService
         return $result;
     }
 
+    private function tokenPreview(string $token): string
+    {
+        if (strlen($token) <= 16) {
+            return $token;
+        }
+
+        return substr($token, 0, 12) . '...' . substr($token, -4);
+    }
+
     private function postForm(string $url, array $data): array
     {
         return $this->request($url, http_build_query($data), [
@@ -205,4 +235,3 @@ class FirebaseMessagingService
         return is_array($decoded) ? $decoded : [];
     }
 }
-

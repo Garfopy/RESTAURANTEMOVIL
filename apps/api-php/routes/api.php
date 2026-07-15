@@ -85,6 +85,7 @@ $routes = [
     // Profile routes
     ['GET', '/profile', ['Amare\Api\Controllers\ProfileController', 'show']],
     ['PUT', '/profile', ['Amare\Api\Controllers\ProfileController', 'update']],
+    ['DELETE', '/profile/onboarding', ['Amare\Api\Controllers\ProfileController', 'cancelOnboarding']],
     ['GET', '/profile/orders', ['Amare\Api\Controllers\ProfileController', 'orders']],
     ['POST', '/profile/avatar', ['Amare\Api\Controllers\ProfileController', 'updateAvatar']],
     ['GET', '/profile/fiscal-data', ['Amare\Api\Controllers\FiscalDataController', 'show']],

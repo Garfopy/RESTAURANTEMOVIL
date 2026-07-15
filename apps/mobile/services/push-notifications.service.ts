@@ -1,26 +1,53 @@
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import type { NotificationResponse } from 'expo-notifications';
 import type { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
 import { apiClient } from './api';
 import { normalizeAppDeepLink } from './deep-links.service';
 
 declare const require: (name: string) => any;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
-
+type ExpoNotificationsModule = typeof import('expo-notifications');
 type FirebaseMessagingModule = typeof import('@react-native-firebase/messaging');
 type FirebaseMessaging = FirebaseMessagingModule['default'];
 
+let expoNotifications: ExpoNotificationsModule | null | undefined;
 let firebaseMessaging: FirebaseMessaging | null | undefined;
+
+export function isPushRegistrationEnabled(): boolean {
+  return process.env.EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION === 'true';
+}
+
+function logPushDiagnostic(message: string, extra?: Record<string, unknown>) {
+  const suffix = extra ? ` ${JSON.stringify(extra)}` : '';
+  console.info(`[Push] ${message}${suffix}`);
+}
+
+function getExpoNotifications(): ExpoNotificationsModule | null {
+  if (expoNotifications !== undefined) {
+    return expoNotifications;
+  }
+
+  try {
+    expoNotifications = require('expo-notifications') as ExpoNotificationsModule;
+    expoNotifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+  } catch (error) {
+    expoNotifications = null;
+    if (__DEV__) {
+      console.warn('[Push] Expo Notifications no esta disponible en este build:', error);
+    }
+  }
+
+  return expoNotifications;
+}
 
 function getFirebaseMessaging(): FirebaseMessaging | null {
   if (firebaseMessaging !== undefined) {
@@ -40,17 +67,15 @@ function getFirebaseMessaging(): FirebaseMessaging | null {
   return firebaseMessaging;
 }
 
-try {
-  getFirebaseMessaging()?.().setBackgroundMessageHandler(async () => undefined);
-} catch (error) {
-  firebaseMessaging = null;
-  if (__DEV__) {
-    console.warn('[Push] No se pudo configurar background handler:', error);
+if (isPushRegistrationEnabled()) {
+  try {
+    getFirebaseMessaging()?.().setBackgroundMessageHandler(async () => undefined);
+  } catch (error) {
+    firebaseMessaging = null;
+    if (__DEV__) {
+      console.warn('[Push] No se pudo configurar background handler:', error);
+    }
   }
-}
-
-export function isPushRegistrationEnabled(): boolean {
-  return process.env.EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION === 'true';
 }
 
 export async function registerPushNotifications(): Promise<string | null> {
@@ -59,8 +84,14 @@ export async function registerPushNotifications(): Promise<string | null> {
   }
 
   try {
+    const Notifications = getExpoNotifications();
     const messaging = getFirebaseMessaging();
-    if (!messaging) {
+    if (!Notifications || !messaging) {
+      logPushDiagnostic('Modulos nativos no disponibles', {
+        hasExpoNotifications: Boolean(Notifications),
+        hasFirebaseMessaging: Boolean(messaging),
+        platform: Platform.OS,
+      });
       return null;
     }
 
@@ -75,43 +106,70 @@ export async function registerPushNotifications(): Promise<string | null> {
 
     const permissions = await Notifications.getPermissionsAsync();
     let finalStatus = permissions.status;
+    logPushDiagnostic('Permiso actual', {
+      platform: Platform.OS,
+      status: finalStatus,
+      canAskAgain: permissions.canAskAgain,
+      granted: permissions.granted,
+    });
 
     if (finalStatus !== 'granted') {
       const requested = await Notifications.requestPermissionsAsync();
       finalStatus = requested.status;
+      logPushDiagnostic('Permiso solicitado', {
+        platform: Platform.OS,
+        status: finalStatus,
+        canAskAgain: requested.canAskAgain,
+        granted: requested.granted,
+      });
     }
 
     if (finalStatus !== 'granted') {
+      logPushDiagnostic('Permiso denegado', { platform: Platform.OS });
       return null;
     }
 
     if (Platform.OS === 'ios') {
       await messaging().registerDeviceForRemoteMessages();
+      logPushDiagnostic('Dispositivo iOS registrado para mensajes remotos', {
+        platform: Platform.OS,
+        registered: messaging().isDeviceRegisteredForRemoteMessages,
+      });
     }
 
     const token = await messaging().getToken();
     if (!token) {
+      logPushDiagnostic('Firebase no regreso token FCM', { platform: Platform.OS });
       return null;
     }
+    logPushDiagnostic('Token FCM obtenido', {
+      platform: Platform.OS,
+      tokenPreview: `${token.slice(0, 12)}...`,
+      length: token.length,
+    });
 
     await apiClient.post('/profile/push-token', {
       fcm_token: token,
       platform: Platform.OS,
       device_id: Constants.sessionId ?? null,
     });
+    logPushDiagnostic('Token push guardado en API', { platform: Platform.OS });
 
     return token;
   } catch (error) {
-    if (__DEV__) {
-      console.warn('[Push] Registro desactivado o fallido:', error);
-    }
+    console.warn('[Push] Registro desactivado o fallido:', error);
     return null;
   }
 }
 
 export function subscribeForegroundFirebaseMessages() {
+  if (!isPushRegistrationEnabled()) {
+    return () => undefined;
+  }
+
+  const Notifications = getExpoNotifications();
   const messaging = getFirebaseMessaging();
-  if (!messaging) {
+  if (!Notifications || !messaging) {
     return () => undefined;
   }
 
@@ -141,6 +199,26 @@ export function subscribeForegroundFirebaseMessages() {
   }
 }
 
+export function subscribeNotificationResponses(onDeepLink: (deepLink: string) => void) {
+  if (!isPushRegistrationEnabled()) {
+    return () => undefined;
+  }
+
+  const Notifications = getExpoNotifications();
+  if (!Notifications) {
+    return () => undefined;
+  }
+
+  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const deepLink = getNotificationDeepLink(response);
+    if (deepLink) {
+      onDeepLink(deepLink);
+    }
+  });
+
+  return () => subscription.remove();
+}
+
 export async function unregisterPushNotifications(fcmToken: string): Promise<void> {
   if (!fcmToken) return;
   await apiClient.delete('/profile/push-token', {
@@ -148,7 +226,7 @@ export async function unregisterPushNotifications(fcmToken: string): Promise<voi
   });
 }
 
-export function getNotificationDeepLink(response: Notifications.NotificationResponse): string | null {
+export function getNotificationDeepLink(response: NotificationResponse): string | null {
   const data = response.notification.request.content.data ?? {};
   const deepLink = data.deep_link ?? data.deepLink;
 

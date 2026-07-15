@@ -66,6 +66,7 @@ class AuthController
         $input = ValidationMiddleware::getAllInput();
         $email = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
         $phone = self::normalizePhone($input['phone'] ?? $input['telefono'] ?? '');
+        $birthday = trim((string)($input['fecha_nacimiento'] ?? ''));
 
         if (strlen($phone) === 10) {
             $phone = '52' . $phone;
@@ -83,6 +84,10 @@ class AuthController
             Response::validationError(['email' => ['El correo electrónico no es válido']]);
         }
 
+        if (!$this->isValidBirthDate($birthday)) {
+            Response::validationError(['fecha_nacimiento' => ['Debes ser mayor de edad para crear una cuenta']]);
+        }
+
         if ($email !== '' && User::existsByEmail($email)) {
             Response::error('El correo electrónico ya está registrado', 409);
         }
@@ -95,7 +100,10 @@ class AuthController
             'nombre' => $input['name'],
             'email' => $email !== '' ? $email : null,
             'password_hash' => password_hash($input['password'], PASSWORD_DEFAULT),
-            'telefono' => $phone
+            'telefono' => $phone,
+            'fecha_nacimiento' => $birthday,
+            'terms_accepted_at' => date('Y-m-d H:i:s'),
+            'onboarding_completed_at' => date('Y-m-d H:i:s'),
         ]);
 
         if (!$userId) {
@@ -117,6 +125,25 @@ class AuthController
             'user' => $user,
             'token' => $token
         ], 'Usuario registrado exitosamente', 201);
+    }
+
+    private function isValidBirthDate(string $value): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return false;
+        }
+
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+        if (!checkdate($month, $day, $year)) {
+            return false;
+        }
+
+        $timestamp = strtotime($value . ' 00:00:00');
+        if ($timestamp === false || $timestamp > time()) {
+            return false;
+        }
+
+        return $timestamp <= strtotime('-18 years') && $timestamp >= strtotime('-120 years');
     }
 
     public function login(): void

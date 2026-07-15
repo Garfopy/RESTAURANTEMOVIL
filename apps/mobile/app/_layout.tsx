@@ -30,8 +30,7 @@ import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
-import { getNotificationDeepLink, isPushRegistrationEnabled, registerPushNotifications, subscribeForegroundFirebaseMessages } from '../services/push-notifications.service';
-import * as Notifications from 'expo-notifications';
+import { isPushRegistrationEnabled, registerPushNotifications, subscribeForegroundFirebaseMessages, subscribeNotificationResponses } from '../services/push-notifications.service';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -55,6 +54,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const { isAuthenticated, isLoading, user } = useUserStore();
   const inAuth = segments[0] === '(auth)';
+  const inPublicLegal = segments[0] === 'legal';
   const inCompleteProfile = inAuth && segments[1] === 'complete-profile';
   const inWaiter = segments[0] === '(waiter)';
   const inHostess = segments[0] === '(hostess)';
@@ -70,7 +70,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       (user.requires_onboarding || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
   );
   const redirectTo =
-    !isLoading && !isAuthenticated && !inAuth
+    !isLoading && !isAuthenticated && !inAuth && !inPublicLegal
       ? '/(auth)/login'
       : !isLoading && needsOnboarding && !inCompleteProfile
         ? '/(auth)/complete-profile'
@@ -191,16 +191,11 @@ function PushNotificationRuntime() {
     }
 
     const unsubscribeForeground = subscribeForegroundFirebaseMessages();
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const deepLink = getNotificationDeepLink(response);
-      if (deepLink) {
-        router.push(deepLink as never);
-      }
-    });
+    const unsubscribeResponses = subscribeNotificationResponses((deepLink) => router.push(deepLink as never));
 
     return () => {
       unsubscribeForeground();
-      subscription.remove();
+      unsubscribeResponses();
     };
   }, [router]);
 
@@ -314,6 +309,7 @@ export default function RootLayout() {
                     <Stack.Screen name="checkout/payment" />
                     <Stack.Screen name="checkout/exit-pass" />
                     <Stack.Screen name="order/[id]" />
+                    <Stack.Screen name="legal/terms" />
                   </Stack>
                   <GlobalCartButton />
                 </View>

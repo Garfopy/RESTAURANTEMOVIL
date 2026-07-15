@@ -17,7 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { completeProfile } from '../../services/auth.service';
+import { cancelProfileOnboarding, completeProfile } from '../../services/auth.service';
 import { getApiError } from '../../services/api';
 import { useUserStore } from '../../store/user.store';
 import { Colors, Typography } from '../../theme';
@@ -136,6 +136,7 @@ export default function CompleteProfileScreen() {
   const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [canceling, setCanceling] = useState(false);
 
   const phoneDigits = useMemo(() => onlyDigits(phone), [phone]);
   const calendarCells = useMemo(() => getCalendarCells(calendarMonth), [calendarMonth]);
@@ -156,7 +157,7 @@ export default function CompleteProfileScreen() {
 
   async function submit() {
     if (!canSubmit) {
-      setError('Completa tu telefono, selecciona una fecha valida y confirma que eres mayor de edad.');
+      setError('Completa tu teléfono, selecciona una fecha válida y confirma que eres mayor de edad.');
       return;
     }
 
@@ -179,9 +180,18 @@ export default function CompleteProfileScreen() {
     }
   }
 
-  async function exit() {
-    await logout();
-    router.replace('/(auth)/login' as never);
+  async function cancel() {
+    try {
+      setCanceling(true);
+      setError(null);
+      await cancelProfileOnboarding();
+    } catch {
+      // Si el servidor no puede borrar la cuenta, igual se aborta el flujo local.
+    } finally {
+      await logout();
+      setCanceling(false);
+      router.replace('/(auth)/login' as never);
+    }
   }
 
   return (
@@ -199,13 +209,13 @@ export default function CompleteProfileScreen() {
               </View>
               <Text style={styles.title}>Completa tu perfil</Text>
               <Text style={styles.subtitle}>
-                Usaremos estos datos para proteger tu cuenta y preparar beneficios como promos de cumpleanos.
+                Usaremos estos datos para proteger tu cuenta y preparar beneficios como promos de cumpleaños.
               </Text>
             </View>
 
             <View style={styles.form}>
               <View style={styles.field}>
-                <Text style={styles.label}>Telefono</Text>
+                <Text style={styles.label}>Teléfono</Text>
                 <View style={styles.phoneRow}>
                   <View style={styles.prefix}>
                     <Text style={styles.prefixText}>+52</Text>
@@ -215,7 +225,7 @@ export default function CompleteProfileScreen() {
                     onChangeText={(value) => setPhone(onlyDigits(value).slice(0, 10))}
                     keyboardType="phone-pad"
                     textContentType="telephoneNumber"
-                    placeholder="10 digitos"
+                    placeholder="10 dígitos"
                     placeholderTextColor="#857D71"
                     style={styles.input}
                     maxLength={10}
@@ -224,13 +234,13 @@ export default function CompleteProfileScreen() {
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.label}>Cumpleanos</Text>
+                <Text style={styles.label}>Cumpleaños</Text>
                 <TouchableOpacity style={styles.dateButton} onPress={openCalendar} activeOpacity={0.86}>
                   <View>
                     <Text style={[styles.dateValue, !birthday && styles.datePlaceholder]}>
                       {formatBirthdayLabel(birthday)}
                     </Text>
-                    <Text style={styles.dateHint}>Debes tener 18 anos o mas</Text>
+                    <Text style={styles.dateHint}>Debes tener 18 años o más</Text>
                   </View>
                   <Ionicons name="calendar-outline" size={22} color="#E9DDC8" />
                 </TouchableOpacity>
@@ -244,12 +254,21 @@ export default function CompleteProfileScreen() {
                 <View style={[styles.checkBox, termsAccepted && styles.checkBoxOn]}>
                   {termsAccepted ? <Ionicons name="checkmark" size={16} color="#24272D" /> : null}
                 </View>
-                <Text style={styles.checkText}>Acepto terminos, condiciones y aviso de privacidad.</Text>
+                <Text style={styles.checkText}>Acepto términos, condiciones y aviso de privacidad.</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.termsLinkButton}
+                onPress={() => router.push('/legal/terms' as never)}
+                activeOpacity={0.82}
+              >
+                <Ionicons name="document-text-outline" size={16} color="#E9DDC8" />
+                <Text style={styles.termsLinkText}>Ver términos y aviso legal</Text>
               </TouchableOpacity>
 
               <View style={styles.switchRow}>
                 <View style={styles.switchCopy}>
-                  <Text style={styles.switchTitle}>Promos de cumpleanos</Text>
+                  <Text style={styles.switchTitle}>Promos de cumpleaños</Text>
                   <Text style={styles.switchText}>Recibir beneficios, cupones y novedades de Amare.</Text>
                 </View>
                 <Switch
@@ -278,8 +297,17 @@ export default function CompleteProfileScreen() {
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.exitButton} onPress={exit} activeOpacity={0.8}>
-                <Text style={styles.exitText}>Cerrar sesion</Text>
+              <TouchableOpacity
+                style={styles.exitButton}
+                onPress={cancel}
+                activeOpacity={0.8}
+                disabled={canceling || saving}
+              >
+                {canceling ? (
+                  <ActivityIndicator size="small" color="#BDB4A5" />
+                ) : (
+                  <Text style={styles.exitText}>Cancelar</Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -451,6 +479,14 @@ const styles = StyleSheet.create({
   },
   checkBoxOn: { backgroundColor: '#E9DDC8', borderColor: '#E9DDC8' },
   checkText: { flex: 1, color: '#CFC6B8', fontSize: 12, lineHeight: 17 },
+  termsLinkButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 2,
+  },
+  termsLinkText: { color: '#E9DDC8', fontSize: 12, fontWeight: '800' },
   switchRow: {
     minHeight: 76,
     borderRadius: 18,

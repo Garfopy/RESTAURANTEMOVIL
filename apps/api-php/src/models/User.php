@@ -10,17 +10,38 @@ class User
 {
     public static function create(array $data): int
     {
-        $sql = "INSERT INTO mobile_usuarios (nombre, email, password_hash, telefono, foto_url, google_id, created_at) 
-                VALUES (:nombre, :email, :password_hash, :telefono, :foto_url, :google_id, NOW())";
-        
-        return Database::execute($sql, [
+        $columns = ['nombre', 'email', 'password_hash', 'telefono', 'foto_url', 'google_id', 'created_at'];
+        $values = [':nombre', ':email', ':password_hash', ':telefono', ':foto_url', ':google_id', 'NOW()'];
+        $params = [
             ':nombre' => $data['nombre'],
             ':email' => $data['email'],
             ':password_hash' => $data['password_hash'] ?? null,
             ':telefono' => $data['telefono'] ?? null,
             ':foto_url' => $data['foto_url'] ?? null,
             ':google_id' => $data['google_id'] ?? null
-        ]);
+        ];
+
+        if (self::columnExists('mobile_usuarios', 'fecha_nacimiento')) {
+            $columns[] = 'fecha_nacimiento';
+            $values[] = ':fecha_nacimiento';
+            $params[':fecha_nacimiento'] = $data['fecha_nacimiento'] ?? null;
+        }
+
+        if (self::columnExists('mobile_usuarios', 'terms_accepted_at') && !empty($data['terms_accepted_at'])) {
+            $columns[] = 'terms_accepted_at';
+            $values[] = ':terms_accepted_at';
+            $params[':terms_accepted_at'] = $data['terms_accepted_at'];
+        }
+
+        if (self::columnExists('mobile_usuarios', 'onboarding_completed_at') && !empty($data['onboarding_completed_at'])) {
+            $columns[] = 'onboarding_completed_at';
+            $values[] = ':onboarding_completed_at';
+            $params[':onboarding_completed_at'] = $data['onboarding_completed_at'];
+        }
+
+        $sql = 'INSERT INTO mobile_usuarios (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', $values) . ')';
+
+        return Database::execute($sql, $params);
     }
 
     public static function findByEmail(string $email): ?array
@@ -72,8 +93,21 @@ class User
 
     public static function findById(int $id): ?array
     {
-        $sql = "SELECT id, nombre, email, rol, telefono, fecha_nacimiento, onboarding_completed_at,
-                       terms_accepted_at, marketing_opt_in, foto_url, google_id, activo, created_at, updated_at,
+        $fechaNacimientoField = self::columnExists('mobile_usuarios', 'fecha_nacimiento')
+            ? 'fecha_nacimiento'
+            : 'NULL AS fecha_nacimiento';
+        $onboardingCompletedField = self::columnExists('mobile_usuarios', 'onboarding_completed_at')
+            ? 'onboarding_completed_at'
+            : 'NULL AS onboarding_completed_at';
+        $termsAcceptedField = self::columnExists('mobile_usuarios', 'terms_accepted_at')
+            ? 'terms_accepted_at'
+            : 'NULL AS terms_accepted_at';
+        $marketingOptInField = self::columnExists('mobile_usuarios', 'marketing_opt_in')
+            ? 'marketing_opt_in'
+            : '0 AS marketing_opt_in';
+
+        $sql = "SELECT id, nombre, email, rol, telefono, {$fechaNacimientoField}, {$onboardingCompletedField},
+                       {$termsAcceptedField}, {$marketingOptInField}, foto_url, google_id, activo, created_at, updated_at,
                        edad, genero, sexualidad, descripcion AS biografia, intereses AS gustos,
                        que_busca, redes_sociales, is_social_active, current_restaurante_id, mesa
                 FROM mobile_usuarios WHERE id = :id LIMIT 1";
@@ -331,6 +365,109 @@ class User
 
         $result = Database::queryOne($sql, $params);
         return ($result['count'] ?? 0) > 0;
+    }
+
+    /**
+     * Valida duplicados aunque el telefono este guardado con o sin lada MX.
+     */
+    public static function existsByAnyPhoneCandidate(string $phone, ?int $excludeId = null): bool
+    {
+        foreach (self::phoneLookupCandidates($phone) as $candidate) {
+            if (self::existsByPhone($candidate, $excludeId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function deleteIncompleteGoogleOnboarding(int $id): bool
+    {
+        $user = self::findByIdWithPassword($id);
+        if (!$user) {
+            return false;
+        }
+
+        $isIncompleteGoogleUser =
+            trim((string)($user['google_id'] ?? '')) !== '' &&
+            trim((string)($user['password_hash'] ?? '')) === '' &&
+            trim((string)($user['telefono'] ?? '')) === '' &&
+            trim((string)($user['terms_accepted_at'] ?? '')) === '' &&
+            trim((string)($user['onboarding_completed_at'] ?? '')) === '';
+
+        if (!$isIncompleteGoogleUser || self::hasUserActivity($id)) {
+            return false;
+        }
+
+        return Database::rowCount(
+            'DELETE FROM mobile_usuarios WHERE id = :id LIMIT 1',
+            [':id' => $id]
+        ) > 0;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private static function phoneLookupCandidates(string $phone): array
+    {
+        $phone = preg_replace('/\D+/', '', $phone);
+        $candidates = [$phone];
+
+        if (strlen($phone) === 10) {
+            $candidates[] = '52' . $phone;
+        }
+
+        if (substr($phone, 0, 2) === '52' && strlen($phone) === 12) {
+            $candidates[] = substr($phone, 2);
+        }
+
+        if (substr($phone, 0, 1) === '1' && strlen($phone) === 11) {
+            $candidates[] = substr($phone, 1);
+        }
+
+        return array_values(array_unique(array_filter($candidates)));
+    }
+
+    private static function hasUserActivity(int $id): bool
+    {
+        $checks = [
+            ['rest_pedidos', 'mobile_usuario_id'],
+            ['mobile_direcciones', 'usuario_id'],
+            ['mobile_favoritos', 'usuario_id'],
+            ['mobile_push_tokens', 'usuario_id'],
+            ['amare_wallets', 'user_id'],
+            ['amare_wallets', 'usuario_id'],
+            ['amare_wallet_transactions', 'user_id'],
+            ['amare_wallet_transactions', 'usuario_id'],
+            ['social_likes', 'liker_user_id'],
+            ['social_likes', 'liked_user_id'],
+            ['social_gift_orders', 'sender_user_id'],
+            ['social_gift_orders', 'recipient_user_id'],
+            ['social_account_notifications', 'user_id'],
+            ['invoice_requests', 'mobile_usuario_id'],
+        ];
+
+        foreach ($checks as [$table, $column]) {
+            if (self::countUserReferences($table, $column, $id) > 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function countUserReferences(string $tableName, string $columnName, int $id): int
+    {
+        if (!self::tableExists($tableName) || !self::columnExists($tableName, $columnName)) {
+            return 0;
+        }
+
+        $row = Database::queryOne(
+            "SELECT COUNT(*) AS total FROM `{$tableName}` WHERE `{$columnName}` = :id",
+            [':id' => $id]
+        );
+
+        return (int)($row['total'] ?? 0);
     }
 
     private static function normalizeStaffUser(array $staff): array

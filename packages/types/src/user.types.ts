@@ -74,4 +74,5 @@ export interface RegisterPayload {
   email?: string | null;
   password: string;
   telefono: string;
+  fecha_nacimiento: string;
 }
