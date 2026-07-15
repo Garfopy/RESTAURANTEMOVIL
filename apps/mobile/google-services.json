@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "859009059542-bajt3mfumjaoqk673orr1o1u1nf070uf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.amare.app",
+            "certificate_hash": "1e461caf0f50e96d51410ffd8b954f6faa500fa6"
+          }
+        },
+        {
           "client_id": "859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -29,6 +37,13 @@
             {
               "client_id": "859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "859009059542-3c3159vd6maibhhgpjng9t63q5rjmsl1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.amare.app"
+              }
             }
           ]
         }

@@ -376,16 +376,11 @@ class SocialController
             [':user_id' => (int)$user->id]
         );
 
-        $notifications = array_map(static function (array $row): array {
-            $payload = [];
-            if (!empty($row['payload_json'])) {
-                $decoded = json_decode((string)$row['payload_json'], true);
-                if (is_array($decoded)) {
-                    $payload = $decoded;
-                }
-            }
-
-            return [
+        $notifications = [];
+        $staleNotificationIds = [];
+        foreach ($rows as $row) {
+            $payload = $this->notificationPayload($row);
+            $notification = [
                 'id' => (int)$row['id'],
                 'actor_user_id' => isset($row['actor_user_id']) ? (int)$row['actor_user_id'] : null,
                 'type' => (string)$row['type'],
@@ -395,9 +390,101 @@ class SocialController
                 'read_at' => $row['read_at'] ?? null,
                 'created_at' => $row['created_at'] ?? null,
             ];
-        }, $rows);
+
+            if ($this->isAccountNotificationActionableForUser($notification, (int)$user->id)) {
+                $notifications[] = $notification;
+            } else {
+                $staleNotificationIds[] = (int)$row['id'];
+            }
+        }
+
+        if (!empty($staleNotificationIds)) {
+            $this->markAccountNotificationIdsRead($staleNotificationIds, (int)$user->id);
+        }
 
         Response::success(['notifications' => $notifications]);
+    }
+
+    private function notificationPayload(array $row): array
+    {
+        if (empty($row['payload_json'])) {
+            return [];
+        }
+
+        $decoded = json_decode((string)$row['payload_json'], true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function notificationNumberPayload(array $notification, string $key): ?int
+    {
+        $payload = $notification['payload'] ?? [];
+        if (!is_array($payload) || !array_key_exists($key, $payload)) {
+            return null;
+        }
+
+        $value = $payload[$key];
+        if (is_numeric($value) && (int)$value > 0) {
+            return (int)$value;
+        }
+
+        return null;
+    }
+
+    private function isAccountNotificationActionableForUser(array $notification, int $userId): bool
+    {
+        if ((string)($notification['type'] ?? '') !== 'social_gift_received') {
+            return true;
+        }
+
+        $giftId = $this->notificationNumberPayload($notification, 'gift_id');
+        if ($giftId === null || !$this->tableExists('social_gift_orders')) {
+            return false;
+        }
+
+        $gift = Database::queryOne(
+            'SELECT id, recipient_user_id, status
+               FROM social_gift_orders
+              WHERE id = :id AND recipient_user_id = :user_id
+              LIMIT 1',
+            [
+                ':id' => $giftId,
+                ':user_id' => $userId,
+            ]
+        );
+
+        if (!$gift) {
+            return false;
+        }
+
+        $status = strtolower(trim((string)($gift['status'] ?? '')));
+        return $status === '' || in_array($status, ['listo', 'reclamado'], true);
+    }
+
+    private function markAccountNotificationIdsRead(array $notificationIds, int $userId): void
+    {
+        $notificationIds = array_values(array_unique(array_filter(
+            array_map('intval', $notificationIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if (empty($notificationIds) || !$this->tableExists('social_account_notifications')) {
+            return;
+        }
+
+        $placeholders = [];
+        $params = [':user_id' => $userId];
+        foreach ($notificationIds as $index => $notificationId) {
+            $key = ':notification_id_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $notificationId;
+        }
+
+        Database::rowCount(
+            'UPDATE social_account_notifications
+                SET read_at = COALESCE(read_at, NOW())
+              WHERE user_id = :user_id
+                AND id IN (' . implode(',', $placeholders) . ')',
+            $params
+        );
     }
 
     public function markAccountNotificationRead(int $notificationId): void

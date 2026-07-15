@@ -222,18 +222,42 @@ class AuthController
             Response::validationError(['token' => ['El token de Google es requerido']]);
         }
 
-        $googleClient = new \Google_Client(['client_id' => $_ENV['GOOGLE_CLIENT_ID']]);
-        
+        $googleClientId = '';
+        foreach ([
+            $_ENV['GOOGLE_CLIENT_ID'] ?? null,
+            $_ENV['GOOGLE_WEB_CLIENT_ID'] ?? null,
+            getenv('GOOGLE_CLIENT_ID') ?: null,
+            getenv('GOOGLE_WEB_CLIENT_ID') ?: null,
+            '859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com',
+        ] as $candidateClientId) {
+            $googleClientId = trim((string)$candidateClientId);
+            if ($googleClientId !== '') {
+                break;
+            }
+        }
+        if ($googleClientId === '') {
+            Response::serverError('Google Sign-In no esta configurado');
+        }
+
         try {
+            $googleClient = new \Google_Client(['client_id' => $googleClientId]);
             $payload = $googleClient->verifyIdToken($input['token']);
             
             if (!$payload) {
                 Response::unauthorized('Token de Google inválido');
             }
 
-            $googleId = $payload['sub'];
-            $email = $payload['email'];
-            $nombre = $payload['name'];
+            $googleId = (string)($payload['sub'] ?? '');
+            $email = strtolower(trim((string)($payload['email'] ?? '')));
+            $nombre = trim((string)($payload['name'] ?? ''));
+
+            if ($googleId === '' || $email === '') {
+                Response::unauthorized('Token de Google invalido');
+            }
+
+            if ($nombre === '') {
+                $nombre = $email;
+            }
 
             $user = User::findByGoogleId($googleId);
 
@@ -247,6 +271,7 @@ class AuthController
                     $userId = User::create([
                         'nombre' => $nombre,
                         'email' => $email,
+                        'password_hash' => password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT),
                         'google_id' => $googleId
                     ]);
                     $user = User::findById($userId);
@@ -268,7 +293,8 @@ class AuthController
                 'user' => $user,
                 'token' => $token
             ], 'Inicio de sesión con Google exitoso');
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            error_log('AuthController::google ERROR: ' . $e->getMessage());
             Response::serverError('Error al verificar token de Google');
         }
     }

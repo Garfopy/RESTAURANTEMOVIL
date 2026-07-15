@@ -228,16 +228,70 @@ export async function unregisterPushNotifications(fcmToken: string): Promise<voi
 
 export function getNotificationDeepLink(response: NotificationResponse): string | null {
   const data = response.notification.request.content.data ?? {};
-  const deepLink = data.deep_link ?? data.deepLink;
+  return getNotificationDataDeepLink(data);
+}
 
-  if (typeof deepLink === 'string') {
-    return normalizeAppDeepLink(deepLink);
+export function getNotificationDataDeepLink(data: Record<string, unknown>): string | null {
+  const deepLink = stringValue(data.deep_link ?? data.deepLink);
+  const type = stringValue(data.type);
+  const code = stringValue(data.code ?? data.codigo);
+  const promotionId = stringValue(data.promotion_id ?? data.promo_id ?? data.promocion_id);
+
+  if (type?.toLowerCase().includes('promotion') || type?.toLowerCase().includes('promo')) {
+    if (code) {
+      return `/promotions?code=${encodeURIComponent(code)}`;
+    }
+    if (promotionId) {
+      return `/promotions?promotionId=${encodeURIComponent(promotionId)}`;
+    }
   }
 
-  const code = data.code ?? data.codigo;
-  if (typeof code === 'string' && code.trim() !== '') {
-    return `/promotions?code=${encodeURIComponent(code.trim())}`;
+  if (deepLink) {
+    const normalized = normalizeAppDeepLink(deepLink);
+    return withPromotionParams(normalized, { code, promotionId });
+  }
+
+  if (code) {
+    return `/promotions?code=${encodeURIComponent(code)}`;
+  }
+
+  if (promotionId) {
+    return `/promotions?promotionId=${encodeURIComponent(promotionId)}`;
   }
 
   return null;
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value.trim() !== '' ? value.trim() : null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return null;
+}
+
+function withPromotionParams(route: string | null, params: { code: string | null; promotionId: string | null }): string | null {
+  if (!route || !isPromotionsRoute(route)) {
+    return route;
+  }
+
+  const [path, query = ''] = route.split('?');
+  const searchParams = new URLSearchParams(query);
+  if (params.code && !searchParams.has('code')) {
+    searchParams.set('code', params.code);
+  } else if (params.promotionId && !searchParams.has('promotionId') && !searchParams.has('promotion_id')) {
+    searchParams.set('promotionId', params.promotionId);
+  }
+
+  const nextQuery = searchParams.toString();
+  return nextQuery ? `${path}?${nextQuery}` : path;
+}
+
+function isPromotionsRoute(route: string): boolean {
+  const path = route.split('?')[0]?.toLowerCase() ?? '';
+  return path === '/promotions' || path === '/(tabs)/promotions';
 }

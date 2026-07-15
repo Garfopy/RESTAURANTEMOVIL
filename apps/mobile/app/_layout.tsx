@@ -17,6 +17,7 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { AppState, Platform, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useUserStore } from '../store/user.store';
@@ -30,7 +31,7 @@ import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
-import { isPushRegistrationEnabled, registerPushNotifications, subscribeForegroundFirebaseMessages, subscribeNotificationResponses } from '../services/push-notifications.service';
+import { getNotificationDeepLink, isPushRegistrationEnabled, registerPushNotifications, subscribeForegroundFirebaseMessages } from '../services/push-notifications.service';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -184,6 +185,20 @@ function PushNotificationRuntime() {
   const isAuthenticated = useUserStore((state) => state.isAuthenticated);
   const userId = useUserStore((state) => state.user?.id ?? null);
   const registeredForUserRef = useRef<number | null>(null);
+  const handledNotificationIdsRef = useRef(new Set<string>());
+
+  const handleNotificationResponse = React.useCallback((response: Notifications.NotificationResponse | null | undefined) => {
+    if (!response) return;
+
+    const id = response.notification.request.identifier;
+    if (id && handledNotificationIdsRef.current.has(id)) return;
+    if (id) handledNotificationIdsRef.current.add(id);
+
+    const deepLink = getNotificationDeepLink(response);
+    if (deepLink) {
+      router.push(deepLink as never);
+    }
+  }, [router]);
 
   useEffect(() => {
     if (!isPushRegistrationEnabled()) {
@@ -191,13 +206,20 @@ function PushNotificationRuntime() {
     }
 
     const unsubscribeForeground = subscribeForegroundFirebaseMessages();
-    const unsubscribeResponses = subscribeNotificationResponses((deepLink) => router.push(deepLink as never));
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    void Notifications.getLastNotificationResponseAsync()
+      .then(handleNotificationResponse)
+      .catch((error) => {
+        if (__DEV__) {
+          console.warn('[Push] No se pudo leer la notificacion inicial:', error);
+        }
+      });
 
     return () => {
       unsubscribeForeground();
-      unsubscribeResponses();
+      subscription.remove();
     };
-  }, [router]);
+  }, [handleNotificationResponse]);
 
   useEffect(() => {
     if (!isPushRegistrationEnabled() || !isAuthenticated || !userId || registeredForUserRef.current === userId) {

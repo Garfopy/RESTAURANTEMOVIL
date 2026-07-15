@@ -277,9 +277,12 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
     $imagenUrl = self::PROMOTION_DB_PATH . $filename;
 }
 
-    $newId = Promotion::create([
+    $productId = $input['producto_id'] ?? $input['product_id'] ?? $input['platillo_id'] ?? null;
+
+    $promotionData = [
         'usuario_id'  => (int)$input['usuario_id'],
         'platillo_id' => !empty($input['platillo_id']) ? (int)$input['platillo_id'] : null,
+        'producto_id' => !empty($productId) ? (int)$productId : null,
         'titulo'      => trim($input['titulo']),
         'descripcion' => $input['descripcion'] ?? null,
         'imagen' => $imagenUrl,
@@ -295,7 +298,25 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         'expires_at'  => !empty($input['expires_at'])
                             ? $input['expires_at']
                             : null,
-    ], $adminId);
+    ];
+
+    foreach ([
+        'tipo_descuento',
+        'valor_descuento',
+        'scope_tipo',
+        'scope_ids',
+        'buy_qty',
+        'pay_qty',
+        'min_subtotal',
+        'max_uses',
+        'combinable',
+    ] as $ruleField) {
+        if (array_key_exists($ruleField, $input)) {
+            $promotionData[$ruleField] = $input[$ruleField];
+        }
+    }
+
+    $newId = Promotion::create($promotionData, $adminId);
 
     $promotion = Promotion::findById($newId);
     $this->notifyPromotionActivated($promotion);
@@ -359,6 +380,13 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         }
         if (array_key_exists('platillo_id', $input)) {
             $input['platillo_id'] = !empty($input['platillo_id']) ? (int)$input['platillo_id'] : null;
+        }
+        if (array_key_exists('product_id', $input) && !array_key_exists('producto_id', $input)) {
+            $input['producto_id'] = $input['product_id'];
+            unset($input['product_id']);
+        }
+        if (array_key_exists('producto_id', $input)) {
+            $input['producto_id'] = !empty($input['producto_id']) ? (int)$input['producto_id'] : null;
         }
         $discountInput = $this->normalizeDiscountInput($input, $promotion['discount_type'] ?? null);
         if (!empty($discountInput)) {
@@ -514,7 +542,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
             (new FirebaseMessagingService())->sendToUser($userId, $title, $body, [
                 'type' => 'promotion_activated',
                 'promotion_id' => (int)$promotion['id'],
-                'deep_link' => (string)($promotion['deep_link'] ?? '/(tabs)/promotions'),
+                'deep_link' => '/promotions?promotionId=' . (int)$promotion['id'],
                 'code' => $promotion['code'] ?? null,
             ]);
         } catch (\Throwable $exception) {
@@ -524,14 +552,26 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
     private function normalizeDiscountInput(array $input, ?string $existingType = null): array
     {
-        $hasType = array_key_exists('discount_type', $input);
-        $hasValue = array_key_exists('discount_value', $input);
+        $typeInput = $this->firstInputValue($input, ['discount_type', 'tipo_promocion', 'promotion_type', 'tipo_descuento', 'tipo']);
+        $valueInput = $this->firstInputValue($input, [
+            'discount_value',
+            'porcentaje_descuento',
+            'valor_descuento',
+            'monto_descuento',
+            'monto_fijo',
+            'precio_final',
+            'discount_percent',
+            'discount_percentage',
+            'discount_amount',
+        ]);
+        $hasType = $typeInput['exists'];
+        $hasValue = $valueInput['exists'];
 
         if (!$hasType && !$hasValue) {
             return [];
         }
 
-        $rawType = $hasType ? trim((string)($input['discount_type'] ?? '')) : trim((string)($existingType ?? ''));
+        $rawType = $hasType ? trim((string)$typeInput['value']) : trim((string)($existingType ?? ''));
         if ($rawType === '' || strtolower($rawType) === 'none' || strtolower($rawType) === 'null') {
             return [
                 'discount_type' => null,
@@ -539,7 +579,7 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
             ];
         }
 
-        $type = strtolower($rawType);
+        $type = $this->normalizeDiscountType($rawType);
         $allowed = ['percent', 'amount', 'fixed_price', 'free_item', 'bogo'];
         if (!in_array($type, $allowed, true)) {
             Response::validationError([
@@ -548,8 +588,8 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
         }
 
         $value = null;
-        if ($hasValue && $input['discount_value'] !== '' && $input['discount_value'] !== null) {
-            $value = round((float)$input['discount_value'], 2);
+        if ($hasValue && $valueInput['value'] !== '' && $valueInput['value'] !== null) {
+            $value = round((float)$valueInput['value'], 2);
         }
 
         if (in_array($type, ['percent', 'amount', 'fixed_price'], true)) {
@@ -569,5 +609,47 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
             'discount_type' => $type,
             'discount_value' => $value,
         ];
+    }
+
+    /**
+     * @param array<int, string> $keys
+     * @return array{exists: bool, value: mixed}
+     */
+    private function firstInputValue(array $input, array $keys): array
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input)) {
+                return ['exists' => true, 'value' => $input[$key]];
+            }
+        }
+
+        return ['exists' => false, 'value' => null];
+    }
+
+    private function normalizeDiscountType(string $type): string
+    {
+        $normalized = strtolower(trim($type));
+        $normalized = str_replace([' ', '-'], '_', $normalized);
+        $normalized = strtr($normalized, [
+            'porcentaje' => 'percent',
+            'percentage' => 'percent',
+            'percentual' => 'percent',
+            'monto' => 'amount',
+            'monto_fijo' => 'amount',
+            'fixed_amount' => 'amount',
+            'importe' => 'amount',
+            'precio_fijo' => 'fixed_price',
+            'precio_final' => 'fixed_price',
+            'fixed' => 'fixed_price',
+            'gratis' => 'free_item',
+            'producto_gratis' => 'free_item',
+            'free' => 'free_item',
+            'paquete' => 'bogo',
+            'package' => 'bogo',
+            '2x1' => 'bogo',
+            '2_x_1' => 'bogo',
+        ]);
+
+        return $normalized;
     }
 }

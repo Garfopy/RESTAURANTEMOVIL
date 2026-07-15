@@ -55,8 +55,14 @@ function normalizeSegments(segments: string[], params: URLSearchParams): string 
   if (!first) return null;
 
   if (PROMOTION_SEGMENTS.has(first)) {
-    const code = params.get('code') ?? params.get('codigo') ?? originalSecond ?? null;
-    return code ? `/promotions?code=${encodeURIComponent(code)}` : '/promotions';
+    const code = params.get('code') ?? params.get('codigo') ?? null;
+    const promotionId = params.get('promotion_id') ?? params.get('promo_id') ?? params.get('promocion_id') ?? params.get('id') ?? null;
+    if (code) return `/promotions?code=${encodeURIComponent(code)}`;
+    if (promotionId) return `/promotions?promotionId=${encodeURIComponent(promotionId)}`;
+    if (!originalSecond) return '/promotions';
+    return /^\d+$/.test(originalSecond)
+      ? `/promotions?promotionId=${encodeURIComponent(originalSecond)}`
+      : `/promotions?code=${encodeURIComponent(originalSecond)}`;
   }
 
   if (PRODUCT_SEGMENTS.has(first) && originalSecond) {

@@ -41,7 +41,7 @@ interface Promocion {
 
 export default function PromotionsScreen() {
   const router = useRouter();
-  const { code } = useLocalSearchParams<{ code?: string }>();
+  const { code, promotionId } = useLocalSearchParams<{ code?: string; promotionId?: string }>();
   const [selectedPromo, setSelectedPromo] = React.useState<Promocion | null>(null);
   const selectedBranchId = useBranchStore((state) => state.seleccionada?.id ?? null);
   const userBranchId = useUserStore((state) => state.user?.current_restaurante_id ?? null);
@@ -71,13 +71,23 @@ export default function PromotionsScreen() {
     .filter((item): item is BannerItem => item !== null);
 
   React.useEffect(() => {
-    if (!promos?.length || typeof code !== 'string' || !code.trim()) return;
+    if (!promos?.length) return;
 
-    const matchingPromo = promos.find((promo) => promo.code?.toLowerCase() === code.trim().toLowerCase());
+    const matchingPromo = promos.find((promo) => {
+      if (typeof code === 'string' && code.trim() !== '') {
+        return promo.code?.toLowerCase() === code.trim().toLowerCase();
+      }
+
+      if (typeof promotionId === 'string' && promotionId.trim() !== '') {
+        return String(promo.id) === promotionId.trim();
+      }
+
+      return false;
+    });
     if (matchingPromo) {
       setSelectedPromo(matchingPromo);
     }
-  }, [code, promos]);
+  }, [code, promotionId, promos]);
 
   const handlePromoPress = (deepLink?: string) => {
     const route = normalizeAppDeepLink(deepLink);

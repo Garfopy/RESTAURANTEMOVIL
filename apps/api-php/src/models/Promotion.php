@@ -30,6 +30,7 @@ class Promotion
         $fields = [
             "{$prefix}id",
             "{$prefix}usuario_id",
+            "{$productIdExpression} AS producto_id",
             "{$productIdExpression} AS platillo_id",
             "(SELECT rp.restaurante_id FROM rest_platillos rp WHERE rp.id = {$productIdExpression} LIMIT 1) AS restaurante_id",
         ];
@@ -40,8 +41,17 @@ class Promotion
             "{$prefix}imagen",
             "{$prefix}deep_link",
             "{$prefix}code",
-            self::selectNullableColumn('discount_type', $alias),
-            self::selectNullableColumn('discount_value', $alias),
+            self::discountTypeExpression($alias) . " AS discount_type",
+            self::discountValueExpression($alias) . " AS discount_value",
+            self::selectNullableColumn('tipo_descuento', $alias),
+            self::selectNullableColumn('valor_descuento', $alias),
+            self::selectNullableColumn('scope_tipo', $alias),
+            self::selectNullableColumn('scope_ids', $alias),
+            self::selectNullableColumn('buy_qty', $alias),
+            self::selectNullableColumn('pay_qty', $alias),
+            self::selectNullableColumn('min_subtotal', $alias),
+            self::selectNullableColumn('max_uses', $alias),
+            self::selectNullableColumn('combinable', $alias),
             "{$prefix}activo",
             "{$prefix}expires_at",
             "{$prefix}created_at",
@@ -61,19 +71,64 @@ class Promotion
     private static function productIdExpression(string $alias = ''): string
     {
         $prefix = $alias !== '' ? $alias . '.' : '';
+        $productCandidates = [];
+        if (self::columnExists('producto_id')) {
+            $productCandidates[] = "{$prefix}producto_id";
+        }
+        if (self::columnExists('platillo_id')) {
+            $productCandidates[] = "{$prefix}platillo_id";
+        }
         $fallback = "CASE
-            WHEN {$prefix}deep_link REGEXP '/(product|producto|platillo)/[0-9]+'
+            WHEN {$prefix}deep_link REGEXP '/(product|products|producto|productos|platillo|platillos)/[0-9]+'
                 THEN CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX({$prefix}deep_link, '?', 1), '#', 1), '/', -1) AS UNSIGNED)
-            WHEN {$prefix}code = 'AMARE-66-0701'
-                THEN 28
             ELSE NULL
         END";
 
-        if (self::columnExists('platillo_id')) {
-            return "COALESCE({$prefix}platillo_id, {$fallback})";
+        if (!empty($productCandidates)) {
+            $productCandidates[] = $fallback;
+            return "COALESCE(" . implode(', ', $productCandidates) . ")";
         }
 
         return $fallback;
+    }
+
+    private static function discountTypeExpression(string $alias = ''): string
+    {
+        $prefix = $alias !== '' ? $alias . '.' : '';
+        $candidates = [];
+        if (self::columnExists('tipo_descuento')) {
+            $candidates[] = "CASE LOWER({$prefix}tipo_descuento)
+                WHEN 'porcentaje' THEN 'percent'
+                WHEN 'monto_fijo' THEN 'amount'
+                WHEN 'monto' THEN 'amount'
+                WHEN 'precio_final' THEN 'fixed_price'
+                WHEN 'precio_fijo' THEN 'fixed_price'
+                WHEN 'producto_gratis' THEN 'free_item'
+                WHEN 'gratis' THEN 'free_item'
+                WHEN 'paquete' THEN 'bogo'
+                WHEN '2x1' THEN 'bogo'
+                ELSE NULLIF({$prefix}tipo_descuento, '')
+            END";
+        }
+        if (self::columnExists('discount_type')) {
+            $candidates[] = "NULLIF({$prefix}discount_type, '')";
+        }
+
+        return !empty($candidates) ? 'COALESCE(' . implode(', ', $candidates) . ')' : 'NULL';
+    }
+
+    private static function discountValueExpression(string $alias = ''): string
+    {
+        $prefix = $alias !== '' ? $alias . '.' : '';
+        $candidates = [];
+        if (self::columnExists('valor_descuento')) {
+            $candidates[] = "{$prefix}valor_descuento";
+        }
+        if (self::columnExists('discount_value')) {
+            $candidates[] = "{$prefix}discount_value";
+        }
+
+        return !empty($candidates) ? 'COALESCE(' . implode(', ', $candidates) . ')' : 'NULL';
     }
 
     /**
@@ -206,17 +261,47 @@ class Promotion
             array_splice($values, 1, 0, ':platillo_id');
             $params[':platillo_id'] = !empty($data['platillo_id']) ? (int)$data['platillo_id'] : null;
         }
+        if (self::columnExists('producto_id')) {
+            array_splice($columns, 1, 0, 'producto_id');
+            array_splice($values, 1, 0, ':producto_id');
+            $params[':producto_id'] = !empty($data['producto_id'] ?? $data['product_id'] ?? null)
+                ? (int)($data['producto_id'] ?? $data['product_id'])
+                : (!empty($data['platillo_id']) ? (int)$data['platillo_id'] : null);
+        }
+
+        $canonicalType = self::canonicalDiscountType($data['discount_type'] ?? $data['tipo_descuento'] ?? null);
+        $discountValue = self::discountValue($data);
 
         if (self::columnExists('discount_type')) {
             $columns[] = 'discount_type';
             $values[] = ':discount_type';
-            $params[':discount_type'] = $data['discount_type'] ?? null;
+            $params[':discount_type'] = $canonicalType;
         }
 
         if (self::columnExists('discount_value')) {
             $columns[] = 'discount_value';
             $values[] = ':discount_value';
-            $params[':discount_value'] = isset($data['discount_value']) ? (float)$data['discount_value'] : null;
+            $params[':discount_value'] = $discountValue;
+        }
+        if (self::columnExists('tipo_descuento')) {
+            $columns[] = 'tipo_descuento';
+            $values[] = ':tipo_descuento';
+            $params[':tipo_descuento'] = self::spanishDiscountType($canonicalType);
+        }
+        if (self::columnExists('valor_descuento')) {
+            $columns[] = 'valor_descuento';
+            $values[] = ':valor_descuento';
+            $params[':valor_descuento'] = $discountValue ?? 0.0;
+        }
+        foreach (['scope_tipo', 'scope_ids', 'buy_qty', 'pay_qty', 'min_subtotal', 'max_uses', 'combinable'] as $optionalColumn) {
+            if (self::columnExists($optionalColumn)) {
+                $columns[] = $optionalColumn;
+                $values[] = ':' . $optionalColumn;
+                $params[':' . $optionalColumn] = self::preparePromotionColumnValue(
+                    $optionalColumn,
+                    $data[$optionalColumn] ?? self::defaultPromotionColumnValue($optionalColumn)
+                );
+            }
         }
 
         $sql = 'INSERT INTO mobile_promociones (' . implode(', ', $columns) . ')
@@ -238,17 +323,59 @@ class Promotion
         if (self::columnExists('platillo_id')) {
             $allowed[] = 'platillo_id';
         }
+        if (self::columnExists('producto_id')) {
+            $allowed[] = 'producto_id';
+        }
         if (self::columnExists('discount_type')) {
             $allowed[] = 'discount_type';
         }
         if (self::columnExists('discount_value')) {
             $allowed[] = 'discount_value';
         }
+        if (self::columnExists('tipo_descuento')) {
+            $allowed[] = 'tipo_descuento';
+        }
+        if (self::columnExists('valor_descuento')) {
+            $allowed[] = 'valor_descuento';
+        }
+        foreach (['scope_tipo', 'scope_ids', 'buy_qty', 'pay_qty', 'min_subtotal', 'max_uses', 'combinable'] as $optionalColumn) {
+            if (self::columnExists($optionalColumn)) {
+                $allowed[] = $optionalColumn;
+            }
+        }
+
+        if (
+            (array_key_exists('discount_type', $data) || array_key_exists('tipo_descuento', $data))
+            && (self::columnExists('discount_type') || self::columnExists('tipo_descuento'))
+        ) {
+            $canonicalType = self::canonicalDiscountType($data['discount_type'] ?? $data['tipo_descuento'] ?? null);
+            if (self::columnExists('discount_type')) {
+                $data['discount_type'] = $canonicalType;
+            }
+            if (self::columnExists('tipo_descuento')) {
+                $data['tipo_descuento'] = self::spanishDiscountType($canonicalType);
+            }
+        }
+        if (
+            (array_key_exists('discount_value', $data) || array_key_exists('valor_descuento', $data))
+            && (self::columnExists('discount_value') || self::columnExists('valor_descuento'))
+        ) {
+            $discountValue = self::discountValue($data);
+            if (self::columnExists('discount_value')) {
+                $data['discount_value'] = $discountValue;
+            }
+            if (self::columnExists('valor_descuento')) {
+                $data['valor_descuento'] = $discountValue ?? 0.0;
+            }
+        }
+        if (array_key_exists('platillo_id', $data) && !array_key_exists('producto_id', $data) && self::columnExists('producto_id')) {
+            $data['producto_id'] = $data['platillo_id'];
+        }
 
         foreach ($allowed as $key) {
             if (array_key_exists($key, $data)) {
                 $setClause[] = "{$key} = :{$key}";
-                $params[":{$key}"] = $data[$key];
+                $params[":{$key}"] = self::preparePromotionColumnValue($key, $data[$key]);
             }
         }
 
@@ -325,22 +452,16 @@ class Promotion
             throw new \DomainException('Agrega productos al carrito para usar este codigo.');
         }
 
-        $productIds = self::extractProductIds($promotion);
-        $eligibleItems = [];
-        foreach ($normalizedItems as $item) {
-            if (!empty($productIds) && !in_array((int)$item['product_id'], $productIds, true)) {
-                continue;
-            }
-            $eligibleItems[] = $item;
-        }
+        $subtotal = self::sumItems($normalizedItems);
+        $eligibleItems = self::filterEligibleItems($promotion, $normalizedItems);
+        $applicableProductIds = self::extractProductIds($promotion, $eligibleItems);
 
         if (empty($eligibleItems)) {
             throw new \DomainException('Este codigo no es valido para los productos de tu carrito.');
         }
 
-        $subtotal = self::sumItems($normalizedItems);
         $eligibleSubtotal = self::sumItems($eligibleItems);
-        $discount = self::calculateDiscount($promotion, $eligibleItems, $eligibleSubtotal);
+        $discount = self::calculateDiscount($promotion, $eligibleItems, $eligibleSubtotal, $subtotal);
 
         if ($discount <= 0) {
             throw new \DomainException('Este codigo no cumple las condiciones para tu carrito.');
@@ -355,8 +476,84 @@ class Promotion
             'subtotal' => round($subtotal, 2),
             'eligible_subtotal' => round($eligibleSubtotal, 2),
             'total' => round(max(0, $subtotal - $discount), 2),
-            'applicable_product_ids' => $productIds,
+            'applicable_product_ids' => $applicableProductIds,
         ];
+    }
+
+    private static function filterEligibleItems(array $promotion, array $normalizedItems): array
+    {
+        $scopeType = self::resolveScopeType($promotion);
+        $scopeIds = self::productScopeIds($promotion);
+
+        if ($scopeType === 'all') {
+            return $normalizedItems;
+        }
+
+        $eligibleItems = [];
+
+        if ($scopeType === 'products') {
+            if (empty($scopeIds)) {
+                return [];
+            }
+
+            foreach ($normalizedItems as $item) {
+                if (in_array((int)$item['product_id'], $scopeIds, true)) {
+                    $eligibleItems[] = $item;
+                }
+            }
+
+            return $eligibleItems;
+        }
+
+        if ($scopeType === 'categories') {
+            $scopeIds = self::parseIdList($promotion['scope_ids'] ?? null);
+            if (empty($scopeIds)) {
+                return [];
+            }
+
+            $categoriesByProduct = self::getProductCategoryMap(
+                array_values(array_unique(array_map(static fn(array $item): int => (int)$item['product_id'], $normalizedItems)))
+            );
+
+            foreach ($normalizedItems as $item) {
+                $categoryId = (int)($categoriesByProduct[(int)$item['product_id']] ?? 0);
+                if ($categoryId > 0 && in_array($categoryId, $scopeIds, true)) {
+                    $eligibleItems[] = $item;
+                }
+            }
+
+            return $eligibleItems;
+        }
+
+        return $normalizedItems;
+    }
+
+    private static function getProductCategoryMap(array $productIds): array
+    {
+        $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static fn(int $id): bool => $id > 0)));
+        if (empty($productIds)) {
+            return [];
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($productIds as $index => $productId) {
+            $placeholder = ':product_id_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $productId;
+        }
+
+        $rows = Database::query(
+            'SELECT id, categoria_id FROM rest_platillos WHERE id IN (' . implode(', ', $placeholders) . ')',
+            $params
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)$row['id']] = (int)($row['categoria_id'] ?? 0);
+        }
+
+        return $map;
     }
 
     private static function normalizeCartItems(array $items): array
@@ -369,8 +566,8 @@ class Promotion
 
             $productId = (int)($item['product_id'] ?? $item['platillo_id'] ?? $item['id'] ?? 0);
             $quantity = max(0, (int)($item['quantity'] ?? $item['cantidad'] ?? $item['qty'] ?? 0));
-            $unitPrice = round((float)($item['unit_price'] ?? $item['precio_unit'] ?? $item['price'] ?? 0), 2);
-            $origin = (string)($item['origen'] ?? 'menu');
+            $unitPrice = round((float)($item['unit_price'] ?? $item['precio_unit'] ?? $item['precio_unitario'] ?? $item['price'] ?? 0), 2);
+            $origin = strtolower(trim((string)($item['origen'] ?? 'menu')));
 
             if ($productId <= 0 || $quantity <= 0 || $unitPrice <= 0 || $origin !== 'menu') {
                 continue;
@@ -386,21 +583,50 @@ class Promotion
         return $normalized;
     }
 
-    private static function extractProductIds(array $promotion): array
+    private static function extractProductIds(array $promotion, array $eligibleItems = []): array
     {
-        if (!empty($promotion['platillo_id'])) {
-            return [(int)$promotion['platillo_id']];
+        $scopeType = self::resolveScopeType($promotion);
+        if ($scopeType === 'all') {
+            return [];
+        }
+
+        if ($scopeType === 'products') {
+            return self::productScopeIds($promotion);
+        }
+
+        if ($scopeType === 'categories') {
+            return array_values(array_unique(array_map(
+                static fn(array $item): int => (int)$item['product_id'],
+                $eligibleItems
+            )));
+        }
+
+        return self::legacyProductIds($promotion);
+    }
+
+    private static function productScopeIds(array $promotion): array
+    {
+        $scopeIds = self::parseIdList($promotion['scope_ids'] ?? null);
+        return !empty($scopeIds) ? $scopeIds : self::legacyProductIds($promotion);
+    }
+
+    private static function legacyProductIds(array $promotion): array
+    {
+        $ids = [];
+
+        foreach (['producto_id', 'platillo_id', 'product_id'] as $key) {
+            if (!empty($promotion[$key])) {
+                $ids[] = (int)$promotion[$key];
+            }
         }
 
         $deepLink = (string)($promotion['deep_link'] ?? '');
-        $ids = [];
-
-        if (preg_match_all('#/product/(\d+)#', $deepLink, $matches)) {
+        if (preg_match_all('#/(?:product|products|producto|productos|platillo|platillos)/(\d+)#i', $deepLink, $matches)) {
             foreach ($matches[1] as $id) {
                 $ids[] = (int)$id;
             }
         }
-        if (preg_match_all('/(?:product_id|platillo_id)=([0-9]+)/', $deepLink, $matches)) {
+        if (preg_match_all('/(?:product_id|platillo_id|producto_id)=([0-9]+)/i', $deepLink, $matches)) {
             foreach ($matches[1] as $id) {
                 $ids[] = (int)$id;
             }
@@ -418,9 +644,9 @@ class Promotion
         );
     }
 
-    private static function calculateDiscount(array $promotion, array $items, float $eligibleSubtotal): float
+    private static function calculateDiscount(array $promotion, array $items, float $eligibleSubtotal, float $subtotal): float
     {
-        $structuredDiscount = self::calculateStructuredDiscount($promotion, $items, $eligibleSubtotal);
+        $structuredDiscount = self::calculateStructuredDiscount($promotion, $items, $eligibleSubtotal, $subtotal);
         if ($structuredDiscount !== null) {
             return $structuredDiscount;
         }
@@ -431,8 +657,8 @@ class Promotion
             (string)($promotion['code'] ?? ''),
         ])));
 
-        if (preg_match('/2\s*X\s*1/', $text) === 1) {
-            return self::calculateBogoDiscount($items);
+        if (preg_match('/(\d+)\s*X\s*(\d+)/', $text, $matches) === 1) {
+            return self::calculateBogoDiscount($items, (int)$matches[1], (int)$matches[2]);
         }
 
         if (preg_match('/(\d{1,2})\s*%/', $text, $matches) === 1) {
@@ -442,12 +668,6 @@ class Promotion
 
         if (preg_match('/(?:A\s+SOLO|SOLO)\s*\$?\s*(\d+(?:[.,]\d+)?)/', $text, $matches) === 1) {
             $promoPrice = (float)str_replace(',', '.', $matches[1]);
-            $quantity = self::sumQuantities($items);
-            return round(max(0, $eligibleSubtotal - ($promoPrice * max(1, $quantity))), 2);
-        }
-
-        if (preg_match('/\bAMARE-(\d{1,4})(?:-|$)/', $text, $matches) === 1) {
-            $promoPrice = (float)$matches[1];
             $quantity = self::sumQuantities($items);
             return round(max(0, $eligibleSubtotal - ($promoPrice * max(1, $quantity))), 2);
         }
@@ -467,11 +687,16 @@ class Promotion
         return 0.0;
     }
 
-    private static function calculateStructuredDiscount(array $promotion, array $items, float $eligibleSubtotal): ?float
+    private static function calculateStructuredDiscount(array $promotion, array $items, float $eligibleSubtotal, float $subtotal): ?float
     {
         $type = strtolower(trim((string)($promotion['discount_type'] ?? '')));
         if ($type === '') {
             return null;
+        }
+
+        $minimumSubtotal = round((float)($promotion['min_subtotal'] ?? 0), 2);
+        if ($minimumSubtotal > 0 && $subtotal < $minimumSubtotal) {
+            return 0.0;
         }
 
         $value = isset($promotion['discount_value']) ? round((float)$promotion['discount_value'], 2) : 0.0;
@@ -498,20 +723,42 @@ class Promotion
                 return round(self::minimumUnitPrice($items), 2);
 
             case 'bogo':
-                return self::calculateBogoDiscount($items);
+                return self::calculateBogoDiscount(
+                    $items,
+                    (int)($promotion['buy_qty'] ?? 2),
+                    (int)($promotion['pay_qty'] ?? 1)
+                );
 
             default:
                 return null;
         }
     }
 
-    private static function calculateBogoDiscount(array $items): float
+    private static function calculateBogoDiscount(array $items, int $buyQty = 2, int $payQty = 1): float
     {
-        $discount = 0.0;
-        foreach ($items as $item) {
-            $discount += floor((int)$item['quantity'] / 2) * (float)$item['unit_price'];
+        if ($buyQty <= 1 || $payQty < 0 || $payQty >= $buyQty) {
+            return 0.0;
         }
-        return round($discount, 2);
+
+        $unitPrices = [];
+        foreach ($items as $item) {
+            $quantity = max(0, (int)($item['quantity'] ?? 0));
+            for ($i = 0; $i < $quantity; $i++) {
+                $unitPrices[] = (float)$item['unit_price'];
+            }
+        }
+
+        if (count($unitPrices) < $buyQty) {
+            return 0.0;
+        }
+
+        $freeCount = intdiv(count($unitPrices), $buyQty) * ($buyQty - $payQty);
+        if ($freeCount <= 0) {
+            return 0.0;
+        }
+
+        sort($unitPrices, SORT_NUMERIC);
+        return round(array_sum(array_slice($unitPrices, 0, $freeCount)), 2);
     }
 
     private static function minimumUnitPrice(array $items): float
@@ -527,6 +774,110 @@ class Promotion
             static fn(int $sum, array $item): int => $sum + max(0, (int)($item['quantity'] ?? 0)),
             0
         );
+    }
+
+    private static function canonicalDiscountType(mixed $type): ?string
+    {
+        $normalized = strtolower(trim((string)$type));
+        $normalized = str_replace([' ', '-'], '_', $normalized);
+
+        return match ($normalized) {
+            'percent', 'percentage', 'porcentaje', 'percentual' => 'percent',
+            'amount', 'monto', 'monto_fijo', 'fixed_amount', 'importe' => 'amount',
+            'fixed_price', 'precio_final', 'precio_fijo', 'fixed' => 'fixed_price',
+            'free_item', 'gratis', 'producto_gratis', 'free' => 'free_item',
+            'bogo', 'paquete', 'package', '2x1', '2_x_1' => 'bogo',
+            '', 'none', 'null' => null,
+            default => $normalized,
+        };
+    }
+
+    private static function spanishDiscountType(mixed $type): string
+    {
+        return match (self::canonicalDiscountType($type)) {
+            'percent', 'percentage', 'porcentaje' => 'porcentaje',
+            'amount', 'monto', 'monto_fijo' => 'monto_fijo',
+            'fixed_price', 'precio_final', 'precio_fijo' => 'precio_final',
+            'free_item', 'gratis', 'producto_gratis' => 'producto_gratis',
+            'bogo', 'paquete', '2x1' => 'paquete',
+            default => 'porcentaje',
+        };
+    }
+
+    private static function discountValue(array $data): ?float
+    {
+        $value = $data['discount_value'] ?? $data['valor_descuento'] ?? null;
+        if ($value === '' || $value === null) {
+            return null;
+        }
+
+        return round((float)$value, 2);
+    }
+
+    private static function normalizeScopeType(mixed $scopeType): string
+    {
+        $normalized = strtolower(trim((string)$scopeType));
+        $normalized = str_replace([' ', '-'], '_', $normalized);
+
+        return match ($normalized) {
+            'product', 'products', 'producto', 'productos', 'platillo', 'platillos' => 'products',
+            'category', 'categories', 'categoria', 'categorias' => 'categories',
+            default => 'all',
+        };
+    }
+
+    private static function resolveScopeType(array $promotion): string
+    {
+        $rawScope = $promotion['scope_tipo'] ?? null;
+        if ($rawScope !== null && trim((string)$rawScope) !== '') {
+            return self::normalizeScopeType($rawScope);
+        }
+
+        return !empty(self::legacyProductIds($promotion)) ? 'products' : 'all';
+    }
+
+    private static function parseIdList(mixed $value): array
+    {
+        if (is_array($value)) {
+            $rawIds = $value;
+        } else {
+            $text = trim((string)$value);
+            if ($text === '') {
+                return [];
+            }
+
+            $decoded = json_decode($text, true);
+            $rawIds = is_array($decoded) ? $decoded : preg_split('/\s*,\s*/', $text);
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map('intval', $rawIds),
+            static fn(int $id): bool => $id > 0
+        )));
+    }
+
+    private static function preparePromotionColumnValue(string $column, mixed $value): mixed
+    {
+        return match ($column) {
+            'scope_tipo' => self::normalizeScopeType($value),
+            'scope_ids' => is_array($value)
+                ? json_encode(array_values(self::parseIdList($value)), JSON_UNESCAPED_UNICODE)
+                : ($value === '' ? null : $value),
+            'buy_qty', 'pay_qty', 'max_uses' => ($value === '' || $value === null) ? null : max(0, (int)$value),
+            'min_subtotal' => ($value === '' || $value === null) ? 0.0 : round((float)$value, 2),
+            'combinable' => !empty($value) ? 1 : 0,
+            default => $value,
+        };
+    }
+
+    private static function defaultPromotionColumnValue(string $column): mixed
+    {
+        return match ($column) {
+            'scope_tipo' => 'all',
+            'min_subtotal' => 0.0,
+            'combinable' => 0,
+            default => null,
+        };
     }
 
     public static function codeExists(string $code, ?int $excludeId = null): bool

@@ -1,62 +1,70 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useUserStore } from '../../store/user.store';
+import { loginWithGoogle } from '../../services/auth.service';
+import { getApiError } from '../../services/api';
+import { Colors, Typography } from '../../theme';
+import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
 
-// @react-native-google-signin requiere build nativo; no disponible en Expo Go.
-let GoogleSignin: any = null;
+type GoogleSignInModule = {
+  configure: (options: { webClientId: string; iosClientId?: string; offlineAccess?: boolean; scopes?: string[] }) => void;
+  hasPlayServices: (options?: { showPlayServicesUpdateDialog?: boolean }) => Promise<boolean>;
+  signIn: () => Promise<{ idToken?: string | null; data?: { idToken?: string | null } | null }>;
+};
+
+let GoogleSignin: GoogleSignInModule | null = null;
 let statusCodes: Record<string, string> = {};
+
 try {
   const mod = require('@react-native-google-signin/google-signin');
   GoogleSignin = mod.GoogleSignin;
   statusCodes = mod.statusCodes ?? {};
 } catch {
-  // Silenciado en Expo Go.
+  // Google Sign-In is only available in native builds, not Expo Go.
 }
-import { useUserStore } from '../../store/user.store';
-import { loginWithGoogle } from '../../services/auth.service';
-import { Colors, Typography } from '../../theme';
-import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
 
+const DEFAULT_WEB_CLIENT_ID = '859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com';
+const DEFAULT_IOS_CLIENT_ID = '859009059542-3c3159vd6maibhhgpjng9t63q5rjmsl1.apps.googleusercontent.com';
 const WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ??
   (Constants.expoConfig?.extra?.googleWebClientId as string | undefined) ??
-  '';
+  DEFAULT_WEB_CLIENT_ID;
 
 export default function GoogleAuthScreen() {
   const router = useRouter();
-  const login = useUserStore((s) => s.login);
+  const login = useUserStore((state) => state.login);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!GoogleSignin) {
       setError('Google Sign-In requiere una build nativa o dev client. No funciona dentro de Expo Go.');
-      return;
-    }
-
-    if (!WEB_CLIENT_ID) {
-      setError('Falta configurar EXPO_PUBLIC_GOOGLE_CLIENT_ID para iniciar sesión con Google.');
+      setLoading(false);
       return;
     }
 
     GoogleSignin.configure({
       webClientId: WEB_CLIENT_ID,
+      iosClientId: DEFAULT_IOS_CLIENT_ID,
       offlineAccess: false,
+      scopes: ['profile', 'email'],
     });
-    signIn();
+
+    void signIn();
   }, []);
 
   function goToLogin() {
     router.replace('/(auth)/login' as never);
   }
 
-  function isGoogleSignInCancelled(error: unknown): boolean {
-    const code = (error as { code?: string })?.code;
-    const message = String((error as { message?: string })?.message ?? '').toLowerCase();
+  function isGoogleSignInCancelled(authError: unknown): boolean {
+    const code = (authError as { code?: string })?.code;
+    const message = String((authError as { message?: string })?.message ?? '').toLowerCase();
 
     return (
       code === statusCodes.SIGN_IN_CANCELLED ||
@@ -70,23 +78,36 @@ export default function GoogleAuthScreen() {
     try {
       setLoading(true);
       setError(null);
-      await GoogleSignin.hasPlayServices();
+
+      if (!GoogleSignin) {
+        throw new Error('Google Sign-In no esta disponible en esta build.');
+      }
+
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      }
+
       const userInfo = await GoogleSignin.signIn();
       const idToken = userInfo.data?.idToken ?? userInfo.idToken;
-      if (!idToken) throw new Error('No se obtuvo el ID token de Google');
+      if (!idToken) {
+        throw new Error('No se obtuvo el ID token de Google');
+      }
 
       const sesion = await loginWithGoogle({
         id_token: idToken,
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
       });
       await login(sesion);
-      // AuthGuard en _layout.tsx redirigirá a (tabs) automáticamente.
-    } catch (err: unknown) {
-      if (isGoogleSignInCancelled(err)) {
+    } catch (authError: unknown) {
+      if (isGoogleSignInCancelled(authError)) {
         goToLogin();
         return;
       }
-      setError('No se pudo iniciar sesión con Google. Intenta de nuevo.');
+
+      if (__DEV__) {
+        console.warn('[GoogleAuth] Error al iniciar sesion con Google:', authError);
+      }
+      setError(getGoogleAuthErrorMessage(authError));
     } finally {
       setLoading(false);
     }
@@ -108,7 +129,7 @@ export default function GoogleAuthScreen() {
           <Text style={styles.title}>{error ? 'No pudimos entrar' : 'Conectando con Google'}</Text>
           <Text style={styles.subtitle}>
             {error
-              ? 'Revisa tu conexión o intenta seleccionar tu cuenta de nuevo.'
+              ? 'Revisa tu conexion o intenta seleccionar tu cuenta de nuevo.'
               : 'Estamos validando tu cuenta para iniciar tu experiencia en Amare.'}
           </Text>
 
@@ -150,6 +171,25 @@ export default function GoogleAuthScreen() {
       </SafeAreaView>
     </LinearGradient>
   );
+}
+
+function getGoogleAuthErrorMessage(authError: unknown): string {
+  const code = (authError as { code?: string })?.code;
+  const rawMessage = (authError as { message?: string })?.message ?? '';
+
+  if (code === 'DEVELOPER_ERROR' || rawMessage.includes('DEVELOPER_ERROR') || rawMessage.includes('10:')) {
+    return 'Google Sign-In no esta configurado para esta build. Registra el SHA-1/SHA-256 de Android en Firebase y descarga el google-services.json actualizado.';
+  }
+
+  if (code === 'PLAY_SERVICES_NOT_AVAILABLE') {
+    return 'Google Play Services no esta disponible o necesita actualizarse.';
+  }
+
+  if (rawMessage.includes('No se obtuvo el ID token')) {
+    return 'Google no devolvio un token valido. Revisa que el Web Client ID sea el correcto.';
+  }
+
+  return getApiError(authError) || 'No se pudo iniciar sesion con Google. Intenta de nuevo.';
 }
 
 const styles = StyleSheet.create({

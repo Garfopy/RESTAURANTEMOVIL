@@ -1535,7 +1535,20 @@ class Order
             return;
         }
 
-        $remainingDiscount = round((float)($quote['discount'] ?? 0), 2);
+        $quotedDiscount = round((float)($quote['discount'] ?? 0), 2);
+        $alreadyAppliedDiscount = 0.0;
+        foreach ($targetOrderIds as $targetId) {
+            $order = self::rawOrderById((int)$targetId);
+            if (!$order) {
+                continue;
+            }
+
+            $subtotal = round((float)($order['subtotal'] ?? 0), 2);
+            $total = round((float)($order['total'] ?? $subtotal), 2);
+            $alreadyAppliedDiscount += max(0, $subtotal - $total);
+        }
+
+        $remainingDiscount = round(max(0, $quotedDiscount - $alreadyAppliedDiscount), 2);
         if ($remainingDiscount <= 0) {
             return;
         }
@@ -1567,6 +1580,8 @@ class Order
             }
 
             $currentTotal = round((float)($order['total'] ?? $order['subtotal'] ?? 0), 2);
+            $currentSubtotal = round((float)($order['subtotal'] ?? $currentTotal), 2);
+            $currentDiscount = max(0, $currentSubtotal - $currentTotal);
             $appliedDiscount = min($remainingDiscount, $currentTotal, $eligibleSubtotal);
             if ($appliedDiscount <= 0) {
                 continue;
@@ -1575,7 +1590,7 @@ class Order
             $fields = [];
             $params = [
                 ':id' => $targetId,
-                ':discount' => $appliedDiscount,
+                ':discount' => round($currentDiscount + $appliedDiscount, 2),
                 ':total' => round(max(0, $currentTotal - $appliedDiscount), 2),
             ];
 

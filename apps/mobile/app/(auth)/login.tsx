@@ -131,6 +131,14 @@ export default function LoginScreen() {
               <Ionicons name="arrow-forward" size={19} color="#24272D" />
             </TouchableOpacity>
 
+            <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
+              <View style={styles.googleIcon}>
+                <Ionicons name="logo-google" size={19} color="#F2EBDD" />
+              </View>
+              <Text style={styles.googleLabel}>Continuar con Google</Text>
+              <Ionicons name="arrow-forward" size={19} color="#F2EBDD" />
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.secondaryButton} onPress={() => navigate('/(auth)/register')} activeOpacity={0.86}>
               <Text style={styles.secondaryLabel}>Crear una cuenta</Text>
             </TouchableOpacity>
