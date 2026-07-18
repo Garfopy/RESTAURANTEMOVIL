@@ -14,13 +14,14 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { apiClient, getApiError } from '../../services/api';
 import { Button } from '../ui/Button';
 import { FormField } from '../ui/FormField';
 import { Colors, Spacing } from '../../theme';
 import type { DeliveryAddressSelection } from '../../store/cart.store';
+import type { Region } from 'react-native-maps';
+import { SafeMapView } from '../shared/SafeMapView';
 
 type SavedAddress = {
   id: number | string;
@@ -48,7 +49,7 @@ type DraftAddress = {
 type DeliveryAddressModalProps = {
   visible: boolean;
   onDismiss: () => void;
-  onConfirm: (address: DeliveryAddressSelection) => void;
+  onConfirm: (address: DeliveryAddressSelection) => void | Promise<void>;
 };
 
 const DEFAULT_REGION: Region = {
@@ -204,13 +205,18 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
     };
   }
 
-  function handleConfirmSavedAddress() {
+  async function handleConfirmSavedAddress() {
     if (!selectedAddress) {
       Alert.alert('Dirección requerida', 'Selecciona una dirección o agrega una nueva.');
       return;
     }
 
-    onConfirm(buildSelection(selectedAddress));
+    try {
+      await Promise.resolve(onConfirm(buildSelection(selectedAddress)));
+    } catch (error) {
+      console.error('Error confirmando direcciÃ³n guardada:', error);
+      Alert.alert('No pudimos abrir domicilio', 'Intenta nuevamente en un momento.');
+    }
   }
 
   async function handleSaveNewAddress() {
@@ -250,7 +256,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
         throw new Error('No se recibió la dirección guardada.');
       }
 
-      onConfirm(buildSelection(saved));
+      await Promise.resolve(onConfirm(buildSelection(saved)));
     } catch (error) {
       Alert.alert('No se pudo guardar', getApiError(error));
     } finally {
@@ -342,7 +348,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                 {mode === 'new' ? (
                   <View style={styles.newAddressWrap}>
                     <View style={styles.mapWrapper}>
-                      <MapView
+                      <SafeMapView
                         style={styles.map}
                         region={region}
                         onRegionChangeComplete={handleRegionChangeComplete}
@@ -350,6 +356,7 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
                         rotateEnabled={false}
                         pitchEnabled={false}
                         toolbarEnabled={false}
+                        fallbackText="Mapa no disponible por el momento."
                       />
                       <View style={styles.mapCenterPointer} pointerEvents="none">
                         <Ionicons name="location" size={42} color={Colors.primary} style={{ marginTop: -42 }} />

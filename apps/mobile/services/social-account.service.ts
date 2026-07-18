@@ -48,7 +48,7 @@ export type SocialAccountCover = {
   payer_user_id: number;
   covered_user_id: number;
   payer_pedido_id?: number | null;
-  payment_mode: 'account' | 'stripe';
+  payment_mode: 'account' | 'stripe' | 'wallet';
   status: string;
   amount_mxn: number;
   items_count: number;
@@ -65,6 +65,9 @@ export type CoverSocialAccountResult = {
   approval_required?: boolean;
   covered_exit_pass?: unknown;
   covered_order_id?: number | null;
+  covered_visit_id?: number | null;
+  post_payment_action_required?: boolean;
+  wallet?: unknown;
   client_secret?: string;
   payment_intent_id?: string;
 };
@@ -119,7 +122,7 @@ export async function markSocialAccountNotificationRead(notificationId: number):
 export async function coverSocialDinerAccount(params: {
   dinerUserId: number;
   restaurantId: number;
-  paymentMode: 'account' | 'stripe';
+  paymentMode: 'account' | 'stripe' | 'wallet';
   requestKey: string;
 }): Promise<CoverSocialAccountResult> {
   const response = await apiClient.post<ApiEnvelope<CoverSocialAccountResult> | CoverSocialAccountResult>(

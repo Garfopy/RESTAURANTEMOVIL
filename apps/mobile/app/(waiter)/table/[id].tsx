@@ -49,6 +49,7 @@ import {
   type WaiterTicketStatus,
 } from '../../../components/waiter/WaiterTicketPreviewModal';
 import { InvoiceRequestForm } from '../../../components/shared/InvoiceRequestForm';
+import { appendBeverageOptions, appendBeverageSelectionToNotes, isBeverageProduct } from '../../../utils/beverage-options';
 
 const PLACEHOLDER_FOOD = require('../../../assets/placeholder-food.jpg');
 
@@ -350,7 +351,10 @@ export default function WaiterTableScreen() {
       setSelectedMods([]);
       const fullProduct = await getDishById(restaurantId, product.id);
       const defaultSelection = defaultModifierSelection(fullProduct);
-      const hasChoices = (fullProduct.modificadores ?? []).length > 0 || defaultSelection.length > 0;
+      const hasChoices =
+        (fullProduct.modificadores ?? []).length > 0 ||
+        defaultSelection.length > 0 ||
+        isBeverageProduct(fullProduct);
 
       if (quickAdd && !hasChoices) {
         waiterCart.addItem({
@@ -458,7 +462,7 @@ export default function WaiterTableScreen() {
       platillo: selectedProduct,
       cantidad: quantity,
       modificadores: selectedMods,
-      notas: notes.trim(),
+      notas: appendBeverageSelectionToNotes(notes, selectedMods),
     });
     setSelectedProduct(null);
   }
@@ -1175,10 +1179,10 @@ export default function WaiterTableScreen() {
                         keyboardShouldPersistTaps="handled"
                         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                       >
-                        {(selectedProduct.modificadores ?? []).length === 0 ? (
+                        {appendBeverageOptions(selectedProduct, selectedProduct.modificadores ?? []).length === 0 ? (
                           <Text style={styles.noModsText}>Sin modificadores. Puedes agregar notas para cocina.</Text>
                         ) : null}
-                        {(selectedProduct.modificadores ?? []).map((mod) => (
+                        {appendBeverageOptions(selectedProduct, selectedProduct.modificadores ?? []).map((mod) => (
                           <View key={mod.id} style={styles.modifierBlock}>
                             <View style={styles.modifierHeader}>
                               <Text style={styles.modifierTitle}>{mod.nombre}</Text>

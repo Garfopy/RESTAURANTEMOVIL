@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { API_BASE_URL } from '../constants/api';
 import type { InvoiceRequestPayload } from './fiscal.service';
 import type { Pedido, CreateOrderPayload, PaymentIntent, MetodoPago, ExitPass, TrackingEvent } from '@amare/types';
 
@@ -48,6 +49,55 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
   return normalizeCreatedOrder(data.data.order);
 }
 
+export async function createPickupOrder(payload: {
+  restaurante_id: number;
+  usuario_id: number;
+  cliente_nombre: string;
+  comprador_telefono?: string | null;
+  metodo_pago: string;
+  payment_intent_id?: string | null;
+  app_order_id: string;
+  pagado: boolean;
+  pickup_at?: string | null;
+  items: Array<{
+    platillo_id: number;
+    cantidad: number;
+    notas?: string | null;
+    modificadores?: Array<{ modificador_id: number; cantidad: number }>;
+  }>;
+}): Promise<Pedido> {
+  const { data } = await apiClient.post<{
+    ok?: boolean;
+    message?: string;
+    data?: { pedido?: Pedido; idempotent?: boolean };
+  }>(apiV1Url('/rest-pedidos'), {
+    restaurante_id: payload.restaurante_id,
+    usuario_id: payload.usuario_id,
+    tipo_pedido: 'pickup',
+    tipo_entrega: 'pickup',
+    items: payload.items,
+    cliente_nombre: payload.cliente_nombre,
+    comprador_telefono: payload.comprador_telefono ?? null,
+    metodo_pago: payload.metodo_pago,
+    payment_intent_id: payload.payment_intent_id ?? null,
+    app_order_id: payload.app_order_id,
+    pickup_at: payload.pickup_at ?? null,
+    pagado: payload.pagado,
+  });
+
+  const pedido = data.data?.pedido;
+  if (!data.ok || !pedido) {
+    throw new Error(data.message || 'No se pudo crear el pedido para recoger.');
+  }
+
+  return {
+    ...pedido,
+    total: Number(pedido.total || 0),
+    subtotal: Number(pedido.subtotal || 0),
+    items: Array.isArray(pedido.items) ? pedido.items : [],
+  };
+}
+
 function normalizeCreatedOrder(order: Pedido): Pedido {
   if (order.tipo_pedido !== 'eat_in' || !Array.isArray(order.items)) {
     return order;
@@ -90,6 +140,39 @@ export async function getOrderById(id: number): Promise<Pedido> {
   }>(`/orders/${id}`);
 
   return data.data.order;
+}
+
+export async function getPickupOrderById(id: number, userId: number): Promise<Pedido> {
+  const { data } = await apiClient.get<{
+    ok?: boolean;
+    message?: string;
+    data?: { pedido?: Pedido };
+  }>(apiV1Url(`/rest-pedidos/${id}`), {
+    params: { usuario_id: userId },
+    _suppressConsoleError: true,
+  } as any);
+
+  const pedido = data.data?.pedido;
+  if (!data.ok || !pedido) {
+    throw new Error(data.message || 'No se pudo consultar el pedido para recoger.');
+  }
+
+  return {
+    ...pedido,
+    total: Number(pedido.total || 0),
+    subtotal: Number(pedido.subtotal || 0),
+    items: Array.isArray(pedido.items) ? pedido.items : [],
+  };
+}
+
+function apiV1Url(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  try {
+    const apiUrl = new URL(API_BASE_URL);
+    return `${apiUrl.origin}/api/v1${cleanPath}`;
+  } catch {
+    return `/api/v1${cleanPath}`;
+  }
 }
 
 export async function getStoreOrders(): Promise<Pedido[]> {

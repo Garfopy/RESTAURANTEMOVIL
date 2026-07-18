@@ -1389,6 +1389,9 @@ class Order
         if (self::visitHasOutstandingBalance($targetOrderIds)) {
             return null;
         }
+        if (!self::visitTicketPaymentCoversCurrentVisit($order)) {
+            return null;
+        }
 
         $tokenOrder = self::getExitTokenOrderForIds($targetOrderIds);
         $token = $tokenOrder['salida_token'] ?? ($order['salida_token'] ?? null);
@@ -1472,6 +1475,11 @@ class Order
             }
 
             $order = $tokenOrder;
+        }
+
+        self::assertExitPassBelongsToCurrentVisit($order);
+        if (!self::visitTicketPaymentCoversCurrentVisit($order)) {
+            return null;
         }
 
         return self::formatExitPass($order, (string)$order['salida_token']);
@@ -1641,6 +1649,11 @@ class Order
             return null;
         }
 
+        self::assertExitPassBelongsToCurrentVisit($order);
+        if (!self::visitTicketPaymentCoversCurrentVisit($order)) {
+            throw new \DomainException('Tienes un saldo pendiente en tu visita actual');
+        }
+
         if (!empty($order['salida_validado_at'])) {
             return self::formatExitPass($order, (string)$order['salida_token']);
         }
@@ -1687,8 +1700,71 @@ class Order
             self::clearDinerTableSession((int)$order['mobile_usuario_id']);
         }
 
+        if (!empty($order['visita_id']) && self::tableExists('rest_visitas')) {
+            Database::rowCount(
+                "UPDATE rest_visitas
+                    SET estado = 'pagada',
+                        salida_at = COALESCE(salida_at, NOW())
+                  WHERE id = :visit_id",
+                [':visit_id' => (int)$order['visita_id']]
+            );
+        }
+
         $updated = self::rawOrderById((int)$order['id']);
         return self::formatExitPass($updated ?? $order, (string)$order['salida_token']);
+    }
+
+    private static function assertExitPassBelongsToCurrentVisit(array $order): void
+    {
+        $userId = (int)($order['mobile_usuario_id'] ?? 0);
+        $visitId = (int)($order['visita_id'] ?? 0);
+        if ($userId <= 0 || $visitId <= 0 || !self::tableExists('rest_pedidos')) {
+            return;
+        }
+
+        $current = Database::queryOne(
+            "SELECT visita_id
+               FROM rest_pedidos
+              WHERE mobile_usuario_id = :user_id
+                AND tipo_pedido = 'eat_in'
+                AND visita_id IS NOT NULL
+                AND visita_id > 0
+                AND COALESCE(salida_validado_at, '') = ''
+              ORDER BY id DESC
+              LIMIT 1",
+            [':user_id' => $userId]
+        );
+        $currentVisitId = (int)($current['visita_id'] ?? 0);
+        if ($currentVisitId > 0 && $currentVisitId !== $visitId) {
+            throw new \DomainException('Este QR no corresponde a tu visita actual');
+        }
+    }
+
+    private static function visitTicketPaymentCoversCurrentVisit(array $order): bool
+    {
+        $visitId = (int)($order['visita_id'] ?? 0);
+        if ($visitId <= 0 || !self::tableExists('rest_tickets')) {
+            return true;
+        }
+
+        $totals = Database::queryOne(
+            "SELECT
+                COALESCE(SUM(CASE WHEN estado <> 'cancelado' THEN total ELSE 0 END), 0) AS orders_total,
+                COALESCE((
+                    SELECT SUM(total)
+                      FROM rest_tickets
+                     WHERE visita_id = :ticket_visit_id
+                       AND estado = 'pagado'
+                ), 0) AS paid_total
+               FROM rest_pedidos
+              WHERE visita_id = :visit_id",
+            [':visit_id' => $visitId, ':ticket_visit_id' => $visitId]
+        );
+
+        $ordersTotal = round((float)($totals['orders_total'] ?? 0), 2);
+        $paidTotal = round((float)($totals['paid_total'] ?? 0), 2);
+
+        return $ordersTotal <= 0 || $paidTotal + 0.01 >= $ordersTotal;
     }
 
     private static function formatExitPass(?array $order, string $token): ?array

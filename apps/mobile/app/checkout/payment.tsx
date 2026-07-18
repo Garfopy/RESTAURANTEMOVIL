@@ -19,7 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
-import { confirmPayment, createOrder, createPaymentIntent, getOrderById } from '../../services/orders.service';
+import { useUserStore } from '../../store/user.store';
+import { confirmPayment, createOrder, createPaymentIntent, createPickupOrder, getOrderById } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
 import {
   EMPTY_FISCAL_DATA,
@@ -94,6 +95,7 @@ export default function PaymentScreen() {
   }>();
 
   const { items, total, clear, restauranteId: cartRestaurantId } = useCartStore();
+  const user = useUserStore((s) => s.user);
   const selectedBranchId = useBranchStore((s) => s.seleccionada?.id);
   const tableSession = useTableSessionStore((s) => s.session);
   const resolvedRestaurantId =
@@ -131,6 +133,9 @@ export default function PaymentScreen() {
   const [invoiceRequired, setInvoiceRequired] = useState(false);
   const [invoiceSaveToProfile, setInvoiceSaveToProfile] = useState(true);
   const [invoiceFiscalData, setInvoiceFiscalData] = useState<FiscalData>(EMPTY_FISCAL_DATA);
+  const [pickupPhone, setPickupPhone] = useState('');
+  const [pickupAppOrderId] = useState(() => `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+  const isPickupOrder = tipoPedido === 'pickup';
 
   const config = useBranchConfigStore((state) => (state.branchId === resolvedRestaurantId ? state.config : null));
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
@@ -196,6 +201,11 @@ export default function PaymentScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isPickupOrder) return;
+    setPickupPhone((current) => current || normalizePhone(String(user?.telefono ?? '')));
+  }, [isPickupOrder, user?.telefono]);
 
   const rewardsPaymentMode = selectedMethod === 'amare' ? 'wallet' : 'external';
   const couponDiscount = Math.max(0, Number(couponQuote?.discount ?? 0));
@@ -343,6 +353,65 @@ export default function PaymentScreen() {
         return;
       }
       const invoiceRequest = buildInvoiceRequest(invoiceRequired, invoiceFiscalData, invoiceSaveToProfile);
+
+      if (isPickupOrder) {
+        const phone = normalizePhone(pickupPhone || String(user?.telefono ?? ''));
+        if (!phone || phone.length !== 10) {
+          Alert.alert('Telefono requerido', 'Ingresa un telefono de 10 digitos para avisarte cuando tu pedido este listo.');
+          return;
+        }
+
+        if (selectedMethod === 'wallet') {
+          Alert.alert('Metodo no disponible', 'Apple Pay / Google Pay para recoger aun no esta habilitado. Usa tarjeta, efectivo o Saldo Amare.');
+          return;
+        }
+
+        if (selectedMethod === 'cash') {
+          const order = await createPickupOrderBackend('cash', null, false, phone);
+          clear();
+          await refreshRewardsWallet();
+          showInvoiceReceived(invoiceRequest !== null);
+          await finishOrderFlow(order.id, null, order.folio);
+          return;
+        }
+
+        if (selectedMethod === 'amare') {
+          if (!canPayWithAmare) {
+            throw new Error('Tu Saldo Amare no alcanza para cubrir este pago.');
+          }
+          const order = await createPickupOrderBackend('amare_wallet', null, true, phone);
+          clear();
+          await refreshRewardsWallet();
+          showInvoiceReceived(invoiceRequest !== null);
+          await finishOrderFlow(order.id, null, order.folio);
+          return;
+        }
+
+        if (selectedMethod === 'card') {
+          if (!STRIPE_IS_CONFIGURED) {
+            throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
+          }
+          const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
+          if (!paymentIntent.clientSecret) {
+            throw new Error('No se recibio el cliente de pago de Stripe. Intenta de nuevo.');
+          }
+          const { error } = await stripeConfirm(paymentIntent.clientSecret, {
+            paymentMethodType: 'Card',
+          });
+
+          if (error) {
+            Alert.alert('Pago rechazado', error.message);
+            return;
+          }
+
+          const order = await createPickupOrderBackend('card', paymentIntent.intentId, true, phone);
+          clear();
+          await refreshRewardsWallet();
+          showInvoiceReceived(invoiceRequest !== null);
+          await finishOrderFlow(order.id, null, order.folio);
+          return;
+        }
+      }
 
       if (selectedMethod === 'cash') {
         const order = existingOrderId ? null : await createOrderBackend('cash');
@@ -526,6 +595,35 @@ export default function PaymentScreen() {
     });
   }
 
+  async function createPickupOrderBackend(metodoPago: string, paymentIntentId: string | null, paid: boolean, phone: string) {
+    if (!user?.id) {
+      throw new Error('No se detecto el usuario autenticado.');
+    }
+
+    return await createPickupOrder({
+      restaurante_id: Number(resolvedRestaurantId),
+      usuario_id: Number(user.id),
+      cliente_nombre: String(user.nombre || 'Cliente Amare').trim(),
+      comprador_telefono: phone,
+      metodo_pago: metodoPago,
+      payment_intent_id: paymentIntentId,
+      app_order_id: pickupAppOrderId,
+      pagado: paid,
+      pickup_at: null,
+      items: items.map((item) => ({
+        platillo_id: item.platillo.id,
+        cantidad: item.cantidad,
+        notas: item.notas,
+        modificadores: item.modificadores_seleccionados.flatMap((modifier) =>
+          modifier.opciones.map((option) => ({
+            modificador_id: Number(option.opcion_id || modifier.modificador_id),
+            cantidad: Number(option.cantidad || 1),
+          }))
+        ),
+      })),
+    });
+  }
+
   function showInvoiceReceived(enabled: boolean) {
     if (enabled) {
       Alert.alert('Solicitud de factura recibida', 'La sucursal recibio tus datos fiscales para procesarla.');
@@ -604,6 +702,22 @@ export default function PaymentScreen() {
             <Text style={styles.secureNote}>
               <Ionicons name="lock-closed-outline" size={12} color={Colors.success} /> Pago seguro procesado por Stripe
             </Text>
+          </View>
+        ) : null}
+
+        {isPickupOrder ? (
+          <View style={styles.pickupContactBox}>
+            <Text style={styles.sectionLabel}>Contacto para recoger</Text>
+            <TextInput
+              value={pickupPhone}
+              onChangeText={(value) => setPickupPhone(normalizePhone(value))}
+              placeholder="Telefono de 10 digitos"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="phone-pad"
+              maxLength={10}
+              style={styles.pickupPhoneInput}
+            />
+            <Text style={styles.pickupContactHint}>Te avisaremos cuando el pedido este listo en mostrador.</Text>
           </View>
         ) : null}
 
@@ -810,6 +924,17 @@ function refreshRealtimeState(queryClient: ReturnType<typeof useQueryClient>): v
   void queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic });
 }
 
+function normalizePhone(value: string): string {
+  const digits = value.replace(/\D+/g, '');
+  if (digits.length === 12 && digits.startsWith('52')) {
+    return digits.slice(2);
+  }
+  if (digits.length === 13 && digits.startsWith('521')) {
+    return digits.slice(3);
+  }
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
@@ -872,6 +997,31 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   secureNote: { fontSize: 12, color: Colors.success, textAlign: 'center', marginTop: 4 },
+  pickupContactBox: {
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+  },
+  pickupPhoneInput: {
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  pickupContactHint: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
   couponBox: {
     gap: 12,
     borderRadius: 16,

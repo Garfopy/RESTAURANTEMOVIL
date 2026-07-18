@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import { createPaymentIntent } from '../../services/orders.service';
+import { ensureLocationPermission } from '../../services/app-permissions.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Shadows } from '../../theme';
 
@@ -84,9 +85,9 @@ export default function StoreCheckoutScreen() {
   async function obtenerUbicacionGPS() {
     try {
       setLoadingLocation(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const permission = await ensureLocationPermission({ explainIfBlocked: true });
 
-      if (status !== 'granted') {
+      if (!permission.granted) {
         Alert.alert(
           'Permiso denegado',
           'Necesitamos acceso a tu ubicación para calcular el envío.'

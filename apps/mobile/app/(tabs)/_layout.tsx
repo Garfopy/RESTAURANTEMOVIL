@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../store/theme.store';
 import { useUserStore } from '../../store/user.store';
+import { useTableSessionStore } from '../../store/table-session.store';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -87,6 +88,7 @@ export default function TabsLayout() {
   const router = useRouter();
   const theme = useThemeColors();
   const user = useUserStore((state) => state.user);
+  const tableSession = useTableSessionStore((state) => state.session);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const compact = width < 380;
@@ -95,6 +97,8 @@ export default function TabsLayout() {
   const tabBarBottom = safeBottom + (Platform.OS === 'ios' ? 8 : 6);
   const tabBarHeight = compact ? 56 : 60;
   const socialActive = Boolean(user?.is_social_active || user?.modo_social);
+  const socialAvailableInRestaurant = Boolean(tableSession?.restauranteId || user?.current_restaurante_id);
+  const showSocialTab = socialActive && socialAvailableInRestaurant;
 
   return (
     <Tabs
@@ -161,7 +165,7 @@ export default function TabsLayout() {
         name="social"
         listeners={{
           tabPress: (event) => {
-            if (!socialActive) return;
+            if (!showSocialTab) return;
 
             event.preventDefault();
             router.push({
@@ -171,7 +175,7 @@ export default function TabsLayout() {
           },
         }}
         options={{
-          href: socialActive ? '/(tabs)/social?view=discover' : null,
+          href: showSocialTab ? '/(tabs)/social?view=discover' : null,
           tabBarStyle: { display: 'none' },
           tabBarIcon: ({ focused, color }) => (
             <TabIcon

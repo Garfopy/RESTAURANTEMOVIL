@@ -70,6 +70,10 @@ $routes = [
     ['POST', '/hostess/orders/:id/complete', ['Amare\Api\Controllers\HostessController', 'completeOrder']],
     ['GET', '/hostess/reservations', ['Amare\Api\Controllers\HostessController', 'reservations']],
     ['POST', '/hostess/reservations/:id/complete', ['Amare\Api\Controllers\HostessController', 'completeReservation']],
+
+    // Customer reservation routes
+    ['GET', '/reservations/availability', ['Amare\Api\Controllers\ReservationController', 'availability']],
+    ['POST', '/reservations', ['Amare\Api\Controllers\ReservationController', 'store']],
     
     // Payments routes
     ['POST', '/payments/create-intent', ['Amare\Api\Controllers\PaymentController', 'createPaymentIntent']],

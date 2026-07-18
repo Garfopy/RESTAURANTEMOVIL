@@ -3,10 +3,16 @@ import type { InvoiceRequestPayload } from './fiscal.service';
 import type { ModificadorSeleccionado, Sucursal } from '@amare/types';
 
 function flattenModifierSelection(modifiers: ModificadorSeleccionado[]): Array<{ modificador_id: number; cantidad: number }> {
-  return modifiers.flatMap((group) => group.opciones.map((option) => ({
-    modificador_id: Number(option.opcion_id),
-    cantidad: Math.max(1, Number(option.cantidad ?? 1)),
-  })));
+  return modifiers.flatMap((group) =>
+    group.opciones.flatMap((option) => {
+      const id = Number(option.opcion_id);
+      if (id <= 0) return [];
+      return [{
+        modificador_id: id,
+        cantidad: Math.max(1, Number(option.cantidad ?? 1)),
+      }];
+    })
+  );
 }
 
 type Envelope<T> =

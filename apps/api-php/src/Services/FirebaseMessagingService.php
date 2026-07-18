@@ -130,9 +130,25 @@ class FirebaseMessagingService
         $json = trim((string)($_ENV['FIREBASE_SERVICE_ACCOUNT_JSON'] ?? $_SERVER['FIREBASE_SERVICE_ACCOUNT_JSON'] ?? getenv('FIREBASE_SERVICE_ACCOUNT_JSON') ?: ''));
 
         if ($json === '') {
+            $base64 = trim((string)($_ENV['FIREBASE_SERVICE_ACCOUNT_JSON_BASE64'] ?? $_SERVER['FIREBASE_SERVICE_ACCOUNT_JSON_BASE64'] ?? getenv('FIREBASE_SERVICE_ACCOUNT_JSON_BASE64') ?: ''));
+            if ($base64 !== '') {
+                $decoded = base64_decode($base64, true);
+                if ($decoded === false || trim($decoded) === '') {
+                    throw new \RuntimeException('FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 no es valido.');
+                }
+                $json = $decoded;
+            }
+        }
+
+        if ($json === '') {
             $path = trim((string)($_ENV['GOOGLE_APPLICATION_CREDENTIALS'] ?? $_SERVER['GOOGLE_APPLICATION_CREDENTIALS'] ?? getenv('GOOGLE_APPLICATION_CREDENTIALS') ?: ''));
             if ($path === '') {
-                throw new \RuntimeException('Configura GOOGLE_APPLICATION_CREDENTIALS o FIREBASE_SERVICE_ACCOUNT_JSON.');
+                $path = $this->defaultCredentialsPath();
+            } elseif (!$this->isAbsolutePath($path)) {
+                $path = $this->appRootPath() . DIRECTORY_SEPARATOR . ltrim($path, DIRECTORY_SEPARATOR . '/');
+            }
+            if ($path === '') {
+                throw new \RuntimeException('Configura GOOGLE_APPLICATION_CREDENTIALS, FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 o sube config/firebase-service-account.json.');
             }
             if (!is_file($path) || !is_readable($path)) {
                 throw new \RuntimeException('No se puede leer el archivo de credenciales Firebase.');
@@ -146,6 +162,33 @@ class FirebaseMessagingService
         }
 
         return $credentials;
+    }
+
+    private function defaultCredentialsPath(): string
+    {
+        $root = $this->appRootPath();
+        foreach ([
+            $root . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'firebase-service-account.json',
+            $root . DIRECTORY_SEPARATOR . 'firebase-service-account.json',
+            $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'firebase-service-account.json',
+        ] as $path) {
+            if (is_file($path) && is_readable($path)) {
+                return $path;
+            }
+        }
+
+        return '';
+    }
+
+    private function appRootPath(): string
+    {
+        return dirname(__DIR__, 2);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        return strpos($path, DIRECTORY_SEPARATOR) === 0
+            || preg_match('/^[A-Za-z]:[\/\\\\]/', $path) === 1;
     }
 
     private function projectId(): string

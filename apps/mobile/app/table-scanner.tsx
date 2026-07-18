@@ -17,6 +17,7 @@ import type { TableScanResult } from '@amare/types';
 import { getBranchById } from '../services/branches.service';
 import { getTableSessionDiagnostic, resetTableSessionForTesting, scanTableQr } from '../services/table-session.service';
 import { getApiError, getApiErrorCode } from '../services/api';
+import { ensureCameraPermission } from '../services/app-permissions.service';
 import { useBranchStore } from '../store/branch.store';
 import { useCartStore } from '../store/cart.store';
 import { useTableSessionStore } from '../store/table-session.store';
@@ -49,6 +50,13 @@ export default function TableScannerScreen() {
   const deferScan = useTableSessionStore((s) => s.deferScan);
   const clearTableSession = useTableSessionStore((s) => s.clearSession);
   const updateProfile = useUserStore((s) => s.updateProfile);
+
+  async function handleCameraPermissionRequest() {
+    const result = await requestPermission();
+    if (!result.granted && !result.canAskAgain) {
+      await ensureCameraPermission({ explainIfBlocked: true });
+    }
+  }
 
   const destination = typeof returnTo === 'string' && returnTo.trim() ? returnTo : '/(tabs)';
   const resolvedDestination = destination === '/(tabs)/index' ? '/(tabs)' : destination;
@@ -359,7 +367,7 @@ export default function TableScannerScreen() {
           <Text style={styles.subtitle}>
             Necesitamos la cámara para leer el QR de tu mesa y habilitar Comer aquí.
           </Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleCameraPermissionRequest}>
             <Text style={styles.primaryButtonText}>Permitir cámara</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater}>

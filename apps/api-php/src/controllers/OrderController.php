@@ -226,7 +226,11 @@ class OrderController
             Response::validationError(['payload' => ['El QR de salida es obligatorio']]);
         }
 
-        $exitPass = Order::validateExitPass($payload, $user->id);
+        try {
+            $exitPass = Order::validateExitPass($payload, $user->id);
+        } catch (\DomainException $exception) {
+            Response::error($exception->getMessage(), 409);
+        }
         if (!$exitPass) {
             Response::notFound('QR de salida inválido o expirado');
         }

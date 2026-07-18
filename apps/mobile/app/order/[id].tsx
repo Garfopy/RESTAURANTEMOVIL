@@ -14,8 +14,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient, formatImageUrl } from '../../services/api';
-import { getOrders, getOrderTracking } from '../../services/orders.service';
+import { getOrders, getOrderTracking, getPickupOrderById } from '../../services/orders.service';
 import { useTableSessionStore } from '../../store/table-session.store';
+import { useUserStore } from '../../store/user.store';
 import { Colors, Spacing, Shadows } from '../../theme';
 import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -116,6 +117,7 @@ export default function OrderDetailScreen() {
   const router = useRouter();
   const [payingAccount, setPayingAccount] = useState(false);
   const tableSession = useTableSessionStore((s) => s.session);
+  const user = useUserStore((s) => s.user);
 
   function handleBackToOrders() {
     router.replace('/(tabs)/orders' as never);
@@ -130,6 +132,14 @@ export default function OrderDetailScreen() {
       } catch (error: any) {
         if (error?.response?.status !== 404) {
           throw error;
+        }
+
+        if (user?.id && Number(id) > 0) {
+          try {
+            return await getPickupOrderById(Number(id), Number(user.id));
+          } catch {
+            // Continue with the existing open-account fallback below.
+          }
         }
 
         const orders = await getOrders();
@@ -185,6 +195,10 @@ export default function OrderDetailScreen() {
       Boolean(order?.consumo_id) ||
       Number(order?.pedidos_count ?? 0) > 1 ||
       Number(order?.cuenta_abierta ?? 0) === 1);
+  const canGenerateSocialCoverExitQr =
+    isEatInConsumption &&
+    !order?.salida_validado_at &&
+    (order?.metodo_pago === 'social_cover' || Boolean(order?.pagado_at || order?.cerrado_at));
   const accountStatusLabel = order?.salida_validado_at
     ? 'Cuenta cerrada'
     : order?.pagado_at || order?.cerrado_at
@@ -516,6 +530,17 @@ export default function OrderDetailScreen() {
           </TouchableOpacity>
         )}
 
+        {canGenerateSocialCoverExitQr && (
+          <TouchableOpacity
+            style={styles.socialExitButton}
+            onPress={handleGenerateExitQr}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="qr-code-outline" size={20} color="#111827" />
+            <Text style={styles.socialExitButtonText}>Ya no pediré nada más, generar QR de salida</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.helpButton} activeOpacity={0.8}>
           <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
           <Text style={styles.helpButtonText}>Necesito ayuda con mi pedido</Text>
@@ -710,6 +735,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
+  },
+
+  socialExitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    backgroundColor: '#F8E8C8',
+    borderWidth: 1,
+    borderColor: '#E7C987',
+    ...Shadows.sm,
+  },
+  socialExitButtonText: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    flexShrink: 1,
   },
 
   helpButton: {

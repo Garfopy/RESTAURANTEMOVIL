@@ -22,6 +22,7 @@ import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { CartButton } from '../../components/shared/CartButton';
 import { TableContextBanner } from '../../components/shared/TableContextBanner';
+import { appendBeverageOptions, appendBeverageSelectionToNotes } from '../../utils/beverage-options';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 import type {
   ModificadorSeleccionado,
@@ -208,7 +209,7 @@ export default function ProductScreen() {
       return;
     }
 
-    addItem(platillo, cantidad, modsSel, '');
+    addItem(platillo, cantidad, modsSel, appendBeverageSelectionToNotes('', modsSel));
   }
 
   if (isError) {
@@ -253,6 +254,7 @@ export default function ProductScreen() {
   );
   const total = (platillo.precio + extrasUnit) * cantidad;
   const footerPadding = Math.max(insets.bottom, 18);
+  const displayModifiers = appendBeverageOptions(platillo, platillo.modificadores ?? []);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -313,7 +315,7 @@ export default function ProductScreen() {
                 <Text style={styles.heroDescription}>{platillo.descripcion}</Text>
               ) : null}
 
-              {platillo.modificadores?.map((mod) => (
+              {displayModifiers.map((mod) => (
                 <View key={mod.id} style={styles.modGroup}>
                   <Text style={styles.modTitle}>
                     {mod.nombre}

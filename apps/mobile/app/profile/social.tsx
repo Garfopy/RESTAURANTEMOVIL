@@ -52,9 +52,11 @@ import {
   markSocialAccountNotificationRead,
   prepareSocialAccountCoverPayment,
   respondSocialAccountCoverRequest,
+  type CoverSocialAccountResult,
   type SocialAccountNotification,
   type SocialDinerAccountResult,
 } from '../../services/social-account.service';
+import { getExitPass } from '../../services/orders.service';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 import { useBranchStore } from '../../store/branch.store';
@@ -650,7 +652,13 @@ function getSexualityDescription(value?: string | null): string | null {
 export default function SocialProfileScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { activateSocial, view } = useLocalSearchParams<{ activateSocial?: string; view?: string }>();
+  const { activateSocial, view, notificationType, giftId, coverId } = useLocalSearchParams<{
+    activateSocial?: string;
+    view?: string;
+    notificationType?: string;
+    giftId?: string;
+    coverId?: string;
+  }>();
   const { width, height } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
   const user = useUserStore((state) => state.user);
@@ -692,13 +700,15 @@ export default function SocialProfileScreen() {
   const [coverAccountResult, setCoverAccountResult] = useState<SocialDinerAccountResult | null>(null);
   const [coverAccountLoading, setCoverAccountLoading] = useState(false);
   const [coverAccountSending, setCoverAccountSending] = useState(false);
-  const [coverAccountMode, setCoverAccountMode] = useState<'account' | 'stripe'>('account');
+  const [coverAccountMode, setCoverAccountMode] = useState<'account' | 'stripe' | 'wallet'>('account');
   const [accountNotifications, setAccountNotifications] = useState<SocialAccountNotification[]>([]);
   const [accountNotificationBusyId, setAccountNotificationBusyId] = useState<number | null>(null);
   const [giftNotificationBusyId, setGiftNotificationBusyId] = useState<number | null>(null);
   const [approvedCoverPayment, setApprovedCoverPayment] = useState<SocialAccountNotification | null>(null);
   const [approvedCoverCardComplete, setApprovedCoverCardComplete] = useState(false);
   const [approvedCoverPaying, setApprovedCoverPaying] = useState(false);
+  const [postPaidCoverResult, setPostPaidCoverResult] = useState<CoverSocialAccountResult | null>(null);
+  const [postPaidCoverLoading, setPostPaidCoverLoading] = useState(false);
   const [mesaOptionsLoading, setMesaOptionsLoading] = useState(false);
   const [modoSocial, setModoSocial] = useState(false);
   const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
@@ -738,6 +748,7 @@ export default function SocialProfileScreen() {
   const pendingProfileScrollFieldRef = useRef<SocialRequiredField | null>(null);
   const giftRequestKeyRef = useRef<string | null>(null);
   const socialScanActivationHandledRef = useRef(false);
+  const socialNotificationDeepLinkHandledRef = useRef<string | null>(null);
   const staleSocialActivationHandledRef = useRef(false);
 
   const interestOptions = useMemo(() => {
@@ -859,6 +870,39 @@ export default function SocialProfileScreen() {
       setGiftCheckoutMode('account');
     }
   }, [giftCheckoutMode, stripeAvailable]);
+
+  useEffect(() => {
+    if (!notificationType) return;
+
+    const key = `${notificationType}:${giftId ?? ''}:${coverId ?? ''}`;
+    if (socialNotificationDeepLinkHandledRef.current === key) return;
+
+    const target = accountNotifications.find((notification) => {
+      if (notification.type !== notificationType) return false;
+      if (giftId && String(getNotificationNumberPayload(notification, 'gift_id')) !== String(giftId)) return false;
+      if (coverId && String(getNotificationNumberPayload(notification, 'cover_id')) !== String(coverId)) return false;
+      return true;
+    });
+
+    if (!target) return;
+
+    socialNotificationDeepLinkHandledRef.current = key;
+    setSocialView('discover');
+    setNotificationsVisible(false);
+
+    const isApprovedStripe =
+      target.type === 'social_account_cover_approved' &&
+      getNotificationStringPayload(target, 'payment_mode') === 'stripe' &&
+      getNotificationNumberPayload(target, 'cover_id') !== null;
+
+    if (isApprovedStripe) {
+      setApprovedCoverPayment(target);
+      setApprovedCoverCardComplete(false);
+      return;
+    }
+
+    setNotificationsVisible(true);
+  }, [accountNotifications, coverId, giftId, notificationType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1588,12 +1632,16 @@ export default function SocialProfileScreen() {
       const result = await respondSocialAccountCoverRequest(coverId, action);
       await markNotificationRead(notification);
       if (action === 'accept') {
-        Alert.alert(
-          'Solicitud aceptada',
-          result.cover?.payment_mode === 'stripe'
-            ? 'Le avisamos para que termine el pago con tarjeta.'
-          : 'Tu cuenta fue cubierta. Ya puedes mostrar tu QR de salida cuando corresponda.'
-        );
+        if (result.post_payment_action_required || result.covered_order_id) {
+          setPostPaidCoverResult(result);
+        } else {
+          Alert.alert(
+            'Solicitud aceptada',
+            result.cover?.payment_mode === 'stripe'
+              ? 'Le avisamos para que termine el pago con tarjeta.'
+              : 'Tu cuenta fue cubierta. Ya puedes mostrar tu QR de salida cuando corresponda.'
+          );
+        }
       } else {
         Alert.alert('Solicitud rechazada', 'Le avisamos que preferiste conservar tu cuenta.');
       }
@@ -1604,6 +1652,36 @@ export default function SocialProfileScreen() {
     } finally {
       setAccountNotificationBusyId(null);
     }
+  }
+
+  async function handlePostPaidCoverExit() {
+    const orderId = Number(postPaidCoverResult?.covered_order_id ?? 0);
+    if (!orderId || postPaidCoverLoading) return;
+
+    setPostPaidCoverLoading(true);
+    try {
+      const exitPass = await getExitPass(orderId);
+      setPostPaidCoverResult(null);
+      router.push({
+        pathname: '/checkout/exit-pass',
+        params: {
+          orderId: String(exitPass.pedido_id ?? orderId),
+          payload: String(exitPass.payload ?? ''),
+          folio: String(exitPass.folio ?? ''),
+          mesaLabel: String(postPaidCoverResult?.cover?.covered_mesa ?? exitPass.mesa_id ?? ''),
+        },
+      } as never);
+    } catch (error) {
+      Alert.alert('No pudimos generar tu QR', getApiError(error));
+    } finally {
+      setPostPaidCoverLoading(false);
+    }
+  }
+
+  function handlePostPaidCoverContinue() {
+    setPostPaidCoverResult(null);
+    setNotificationsVisible(false);
+    router.replace('/(tabs)' as never);
   }
 
   async function handleRespondGiftRequest(action: 'accept' | 'reject', notification = latestAccountNotification) {
@@ -1801,11 +1879,11 @@ export default function SocialProfileScreen() {
     }
   }
 
-  function buildCoverRequestKey(dinerUserId: number, mode: 'account' | 'stripe'): string {
+  function buildCoverRequestKey(dinerUserId: number, mode: 'account' | 'stripe' | 'wallet'): string {
     return `cover_${user?.id ?? 'u'}_${dinerUserId}_${mode}_${Date.now().toString(36)}`;
   }
 
-  async function handleCoverAccountSubmit(mode: 'account' | 'stripe') {
+  async function handleCoverAccountSubmit(mode: 'account' | 'stripe' | 'wallet') {
     const target = coverAccountDiner;
     if (!target || !selectedBranch?.id || !coverAccountResult?.account) return;
 
@@ -1827,7 +1905,9 @@ export default function SocialProfileScreen() {
         'Solicitud enviada',
         mode === 'stripe'
           ? `${target.nombre} debe aceptar antes de que puedas pagar con tarjeta.`
-          : `${target.nombre} debe aceptar antes de que su consumo se agregue a tu cuenta.`
+          : mode === 'wallet'
+            ? `${target.nombre} debe aceptar antes de que se cobre de tu Saldo Amare.`
+            : `${target.nombre} debe aceptar antes de que su consumo se agregue a tu cuenta.`
       );
       await refreshRealtimeState();
       closeCoverAccountModal();
@@ -4057,6 +4137,21 @@ export default function SocialProfileScreen() {
                       </Text>
                       <Text style={styles.giftPaymentModeText}>Se habilita si acepta.</Text>
                     </TouchableOpacity>
+
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={() => setCoverAccountMode('wallet')}
+                      style={[
+                        styles.giftPaymentModeCard,
+                        coverAccountMode === 'wallet' && styles.giftPaymentModeCardActive,
+                      ]}
+                    >
+                      <Ionicons name="wallet-outline" size={18} color={coverAccountMode === 'wallet' ? Colors.primary : Colors.textSecondary} />
+                      <Text style={[styles.giftPaymentModeTitle, coverAccountMode === 'wallet' && styles.giftPaymentModeTitleActive]}>
+                        Saldo Amare
+                      </Text>
+                      <Text style={styles.giftPaymentModeText}>Se cobra si acepta.</Text>
+                    </TouchableOpacity>
                   </View>
 
                   <Text style={styles.coverAccountApprovalNote}>
@@ -4072,12 +4167,18 @@ export default function SocialProfileScreen() {
                     {coverAccountSending ? (
                       <ActivityIndicator size="small" color={Colors.white} />
                     ) : (
-                      <Ionicons name={coverAccountMode === 'stripe' ? 'card-outline' : 'add-circle-outline'} size={18} color={Colors.white} />
+                      <Ionicons
+                        name={coverAccountMode === 'stripe' ? 'card-outline' : coverAccountMode === 'wallet' ? 'wallet-outline' : 'add-circle-outline'}
+                        size={18}
+                        color={Colors.white}
+                      />
                     )}
                     <Text style={styles.giftSendButtonText}>
                       {coverAccountMode === 'stripe'
                         ? `Solicitar permiso para pagar $${coverAccountResult.account.total_mxn.toFixed(2)}`
-                        : `Solicitar agregar $${coverAccountResult.account.total_mxn.toFixed(2)} a mi cuenta`}
+                        : coverAccountMode === 'wallet'
+                          ? `Solicitar pagar $${coverAccountResult.account.total_mxn.toFixed(2)} con Saldo Amare`
+                          : `Solicitar agregar $${coverAccountResult.account.total_mxn.toFixed(2)} a mi cuenta`}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -4219,6 +4320,51 @@ export default function SocialProfileScreen() {
                 )}
                 <Text style={styles.giftSendButtonText}>Confirmar pago</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(postPaidCoverResult)}
+        transparent
+        animationType="fade"
+        onRequestClose={postPaidCoverLoading ? undefined : handlePostPaidCoverContinue}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={postPaidCoverLoading ? undefined : handlePostPaidCoverContinue} />
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <View style={styles.postPaidContent}>
+              <View style={styles.coverAccountIcon}>
+                <Ionicons name="checkmark-circle-outline" size={26} color={Colors.success || '#059669'} />
+              </View>
+              <Text style={styles.coverAccountTitle}>Tu cuenta ha sido pagada</Text>
+              <Text style={styles.centerStateText}>¿Deseas seguir pidiendo o prefieres retirarte?</Text>
+
+              <View style={styles.postPaidActions}>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalActionGhostButton]}
+                  activeOpacity={0.86}
+                  disabled={postPaidCoverLoading}
+                  onPress={handlePostPaidCoverContinue}
+                >
+                  <Text style={styles.modalActionGhostButtonText}>Seguir pidiendo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalActionButton, styles.modalActionPrimaryButton, postPaidCoverLoading && styles.saveButtonDisabled]}
+                  activeOpacity={0.86}
+                  disabled={postPaidCoverLoading}
+                  onPress={handlePostPaidCoverExit}
+                >
+                  {postPaidCoverLoading ? (
+                    <ActivityIndicator size="small" color={Colors.white} />
+                  ) : (
+                    <Ionicons name="qr-code-outline" size={18} color={Colors.white} />
+                  )}
+                  <Text style={styles.modalActionPrimaryButtonText}>Retirarme</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
@@ -6353,7 +6499,26 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     paddingHorizontal: 20,
     marginTop: 0,
+    flexDirection: 'row',
+    gap: 8,
     ...Shadows.md,
+  },
+  modalActionPrimaryButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.white,
+  },
+  postPaidContent: {
+    padding: 22,
+    alignItems: 'center',
+    gap: 14,
+  },
+  postPaidActions: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
   },
   filterGhostButton: {
     minHeight: 56,

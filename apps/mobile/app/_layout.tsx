@@ -31,7 +31,13 @@ import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
-import { getNotificationDeepLink, isPushRegistrationEnabled, registerPushNotifications, subscribeForegroundFirebaseMessages } from '../services/push-notifications.service';
+import {
+  getNotificationDeepLink,
+  isPushRegistrationEnabled,
+  registerPushNotifications,
+  subscribeForegroundFirebaseMessages,
+  subscribePushTokenRefresh,
+} from '../services/push-notifications.service';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -206,6 +212,7 @@ function PushNotificationRuntime() {
     }
 
     const unsubscribeForeground = subscribeForegroundFirebaseMessages();
+    const unsubscribeTokenRefresh = subscribePushTokenRefresh();
     const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
     void Notifications.getLastNotificationResponseAsync()
       .then(handleNotificationResponse)
@@ -217,6 +224,7 @@ function PushNotificationRuntime() {
 
     return () => {
       unsubscribeForeground();
+      unsubscribeTokenRefresh();
       subscription.remove();
     };
   }, [handleNotificationResponse]);
@@ -227,7 +235,7 @@ function PushNotificationRuntime() {
     }
 
     registeredForUserRef.current = userId;
-    void registerPushNotifications().catch((error) => {
+    void registerPushNotifications({ reason: 'app-start' }).catch((error) => {
       registeredForUserRef.current = null;
       if (__DEV__) {
         console.warn('[Push] No se pudo registrar el token:', error);

@@ -85,7 +85,8 @@ function normalizeSegments(segments: string[], params: URLSearchParams): string 
   }
 
   if (first === 'social') {
-    return '/social';
+    const query = params.toString();
+    return query ? `/social?${query}` : '/social';
   }
 
   return null;

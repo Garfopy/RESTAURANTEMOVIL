@@ -14,6 +14,7 @@ import {
   RefreshControl,
   useWindowDimensions,
   Alert,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +22,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
+import * as Notifications from 'expo-notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserStore } from '../../store/user.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
@@ -30,6 +31,9 @@ import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranches } from '../../hooks/useBranches';
 import { useFeaturedDishes, useCategories, useDishes } from '../../hooks/useMenu';
 import { getNearestBranches } from '../../services/branches.service';
+import { ensureCameraPermission, ensureLocationPermission } from '../../services/app-permissions.service';
+import { createReservation, getReservationAvailability, type ReservationTable } from '../../services/reservations.service';
+import { getApiError } from '../../services/api';
 import { Colors } from '../../theme';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
@@ -38,10 +42,12 @@ import { SearchBar } from '../../components/ui/SearchBar';
 import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
+import { SafeMapView } from '../../components/shared/SafeMapView';
 import { useToast } from '../../context/ToastContext';
 import { DeliveryAddressModal } from '../../components/modals/DeliveryAddressModal';
 import type { Platillo, Categoria, TipoPedido, Sucursal } from '@amare/types';
 import type { DeliveryAddressSelection } from '../../store/cart.store';
+import { hasGrantedNotificationPermission, registerPushNotifications } from '../../services/push-notifications.service';
 
 const HOME_BANNERS = [
   {
@@ -101,7 +107,21 @@ export default function HomeScreen() {
   const [pickupListExpanded, setPickupListExpanded] = useState(true);
   const [search, setSearch] = useState('');
   const [refreshingHome, setRefreshingHome] = useState(false);
+  const [isPermissionsResolved, setIsPermissionsResolved] = useState(false);
+  const [reservationVisible, setReservationVisible] = useState(false);
+  const [reservationName, setReservationName] = useState('');
+  const [reservationPhone, setReservationPhone] = useState('');
+  const [reservationEmail, setReservationEmail] = useState('');
+  const [reservationDate, setReservationDate] = useState('');
+  const [reservationTime, setReservationTime] = useState('');
+  const [reservationPeople, setReservationPeople] = useState(2);
+  const [reservationNotes, setReservationNotes] = useState('');
+  const [reservationTables, setReservationTables] = useState<ReservationTable[]>([]);
+  const [selectedReservationTableId, setSelectedReservationTableId] = useState<number | null>(null);
+  const [reservationLoading, setReservationLoading] = useState(false);
+  const [reservationSubmitting, setReservationSubmitting] = useState(false);
   const initialFlowStartedRef = useRef(false);
+  const runtimePermissionsRequestedRef = useRef(false);
   const homeIntro = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0)).current;
 
@@ -114,6 +134,46 @@ export default function HomeScreen() {
       ])
     ).start();
   }, [heroGlow, homeIntro]);
+
+  useEffect(() => {
+    if (runtimePermissionsRequestedRef.current) {
+      return;
+    }
+
+    runtimePermissionsRequestedRef.current = true;
+    let cancelled = false;
+
+    async function requestInitialNativePermissions() {
+      try {
+        await Location.requestForegroundPermissionsAsync();
+        const notificationPermission = await Notifications.requestPermissionsAsync();
+
+        if (hasGrantedNotificationPermission(notificationPermission) && user?.id) {
+          void registerPushNotifications({
+            force: true,
+            reason: 'permission-accepted',
+            userId: user.id,
+          }).catch((error) => {
+            if (__DEV__) {
+              console.warn('[Push] No se pudo sincronizar el token tras aceptar permisos:', error);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error solicitando permisos nativos iniciales:', error);
+      } finally {
+        if (!cancelled) {
+          setIsPermissionsResolved(true);
+        }
+      }
+    }
+
+    void requestInitialNativePermissions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // 🎞️ Animación para los indicadores (dots)
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -184,6 +244,129 @@ export default function HomeScreen() {
     }
   }
 
+  function getReservationBranch(): Sucursal | null {
+    return branch ?? menuBranch;
+  }
+
+  function canShowReservations(): boolean {
+    const targetBranch = getReservationBranch();
+    return Boolean(targetBranch?.reservas_habilitadas && !(tipoPedido === 'eat_in' && tableSession));
+  }
+
+  function normalizeReservationPhone(value: string): string {
+    const digits = value.replace(/\D+/g, '');
+    if (digits.length === 12 && digits.startsWith('52')) {
+      return digits.slice(2);
+    }
+    if (digits.length === 13 && digits.startsWith('521')) {
+      return digits.slice(3);
+    }
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+
+  function openReservationModal() {
+    const userAny = user as any;
+    const today = new Date().toISOString().slice(0, 10);
+    setReservationName((user?.nombre ?? '').trim());
+    setReservationPhone(normalizeReservationPhone(String(userAny?.telefono ?? userAny?.phone ?? '').trim()));
+    setReservationEmail(String(userAny?.email ?? userAny?.correo ?? '').trim());
+    setReservationDate((current) => current || today);
+    setReservationTime((current) => current || '20:00');
+    setReservationPeople((current) => current || 2);
+    setReservationNotes('');
+    setReservationTables([]);
+    setSelectedReservationTableId(null);
+    setReservationVisible(true);
+  }
+
+  function validateReservationForm(): string | null {
+    if (!getReservationBranch()?.id) return 'Selecciona una sucursal para reservar.';
+    if (!reservationName.trim()) return 'Ingresa tu nombre.';
+    if (!/^\d{10}$/.test(normalizeReservationPhone(reservationPhone))) return 'Ingresa un telefono de 10 digitos.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reservationDate.trim())) return 'Usa fecha en formato aaaa-mm-dd.';
+    if (!/^\d{2}:\d{2}$/.test(reservationTime.trim())) return 'Usa hora en formato hh:mm.';
+    if (reservationPeople < 1) return 'Indica el numero de personas.';
+    return null;
+  }
+
+  async function refreshReservationTables() {
+    const validation = validateReservationForm();
+    if (validation) {
+      Alert.alert('Revisa tu reserva', validation);
+      return;
+    }
+
+    const targetBranch = getReservationBranch();
+    if (!targetBranch) return;
+
+    setReservationLoading(true);
+    try {
+      const availability = await getReservationAvailability({
+        restaurantId: targetBranch.id,
+        fecha: reservationDate.trim(),
+        hora: reservationTime.trim(),
+        personas: reservationPeople,
+      });
+      setReservationTables(availability.tables);
+      setSelectedReservationTableId(availability.tables[0]?.id ?? null);
+      if (availability.tables.length === 0) {
+        Alert.alert('Sin mesas disponibles', 'No encontramos mesas libres para ese horario. Intenta otra hora.');
+      }
+    } catch (error) {
+      Alert.alert('No pudimos consultar mesas', 'Intenta de nuevo en unos momentos.');
+    } finally {
+      setReservationLoading(false);
+    }
+  }
+
+  async function submitReservation() {
+    const validation = validateReservationForm();
+    if (validation) {
+      Alert.alert('Revisa tu reserva', validation);
+      return;
+    }
+    const targetBranch = getReservationBranch();
+    if (!targetBranch || !selectedReservationTableId) {
+      Alert.alert('Mesa requerida', 'Consulta disponibilidad y selecciona una mesa.');
+      return;
+    }
+
+    setReservationSubmitting(true);
+    try {
+      const availability = await getReservationAvailability({
+        restaurantId: targetBranch.id,
+        fecha: reservationDate.trim(),
+        hora: reservationTime.trim(),
+        personas: reservationPeople,
+      });
+      const stillAvailable = availability.tables.some((item) => item.id === selectedReservationTableId);
+      if (!stillAvailable) {
+        setReservationTables(availability.tables);
+        setSelectedReservationTableId(availability.tables[0]?.id ?? null);
+        Alert.alert('Mesa no disponible', 'La mesa seleccionada ya no esta libre en ese horario. Elige otra mesa.');
+        return;
+      }
+
+      await createReservation({
+        restaurantId: targetBranch.id,
+        mesaId: selectedReservationTableId,
+        nombre: reservationName.trim(),
+        telefono: normalizeReservationPhone(reservationPhone),
+        email: reservationEmail.trim(),
+        fecha: reservationDate.trim(),
+        hora: reservationTime.trim(),
+        personas: reservationPeople,
+        notas: reservationNotes.trim(),
+      });
+      setReservationVisible(false);
+      Alert.alert('Reserva confirmada', 'Tu mesa quedo reservada. Te esperamos en Amare.');
+    } catch (error) {
+      Alert.alert('No pudimos reservar', getApiError(error));
+    } finally {
+      setReservationSubmitting(false);
+    }
+  }
+
   async function getDetectedCoords(options?: { silentOnDenied?: boolean }): Promise<{ lat: number; lng: number } | null> {
     if (detectedCoords) {
       return detectedCoords;
@@ -192,11 +375,7 @@ export default function HomeScreen() {
     setDetectingLocation(true);
 
     try {
-      let permission = await Location.getForegroundPermissionsAsync();
-
-      if (!permission.granted && permission.canAskAgain) {
-        permission = await Location.requestForegroundPermissionsAsync();
-      }
+      const permission = await ensureLocationPermission();
 
       if (!permission.granted) {
         if (!options?.silentOnDenied) {
@@ -310,9 +489,17 @@ export default function HomeScreen() {
     return true;
   }
 
-  function openEatInScanner(branchToUse?: Sucursal | null) {
-    if (resumeSavedTableSession()) {
+  async function openEatInScanner(branchToUse?: Sucursal | null, options?: { requestCamera?: boolean; forceScanner?: boolean }) {
+    if (!options?.forceScanner && resumeSavedTableSession()) {
       return;
+    }
+
+    if (options?.requestCamera) {
+      const cameraPermission = await ensureCameraPermission();
+      if (!cameraPermission.granted) {
+        toast.info('Necesitamos la camara para escanear el QR de tu mesa.');
+        return;
+      }
     }
 
     const branchForScanner = branchToUse ?? branch ?? getFirstEatInBranch();
@@ -346,7 +533,7 @@ export default function HomeScreen() {
   }, [setTipoPedido, tableScanDeferred]);
 
   useEffect(() => {
-    if (tipoPedido || sucursales.length === 0) {
+    if (!isPermissionsResolved || tipoPedido || sucursales.length === 0) {
       return;
     }
 
@@ -368,9 +555,11 @@ export default function HomeScreen() {
 
       if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
         const nearbyBranch = await evaluateNearbyBranch();
-        if (nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near') {
-          openEatInScanner(nearbyBranch.branch);
+        if (nearbyBranch.kind === 'inside') {
+          await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
           return;
+        } else if (nearbyBranch.kind === 'near') {
+          setDetectedBranchMessage('Estas cerca de una sucursal. Acercate al restaurante para escanear el QR de tu mesa.');
         } else if (nearbyBranch.kind === 'far') {
           setDetectedBranchMessage('Para pedir en restaurante, acercate a una sucursal y escanea el QR de tu mesa.');
         } else {
@@ -386,13 +575,13 @@ export default function HomeScreen() {
         const nearbyBranch = await evaluateNearbyBranch();
 
         if (nearbyBranch.kind === 'inside') {
-          openEatInScanner(nearbyBranch.branch);
+          await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
           return;
         }
 
         else if (nearbyBranch.kind === 'near') {
-          openEatInScanner(nearbyBranch.branch);
-          return;
+          modalTypes = getTypesWithoutEatIn(enabledTypes);
+          setDetectedBranchMessage('Estas cerca de una sucursal. Acercate al restaurante para escanear el QR de tu mesa.');
         } else if (nearbyBranch.kind === 'far') {
           modalTypes = getTypesWithoutEatIn(enabledTypes);
           setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
@@ -414,9 +603,13 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [tipoPedido, sucursales, branch, seleccionar, setTipoPedido, tableSession, router]);
+  }, [isPermissionsResolved, tipoPedido, sucursales, branch, seleccionar, setTipoPedido, tableSession, router]);
 
   async function openDeliveryFlow(prefetchLocation = true) {
+    if (!isPermissionsResolved) {
+      return;
+    }
+
     const enabledTypes = getEnabledOrderTypes(sucursales);
     let nextAvailableTypes: TipoPedido[] = enabledTypes.length ? enabledTypes : ['delivery', 'pickup'];
 
@@ -485,22 +678,64 @@ export default function HomeScreen() {
 
   async function handleInitialTypeSelect(tipo: TipoPedido) {
     if (tipo === 'delivery') {
-      setShowTypeModal(false);
-      setSelectingPickupBranch(false);
-      setPickupListExpanded(true);
-      setShowDeliveryAddressModal(true);
+      try {
+        setSelectingPickupBranch(false);
+        setPickupListExpanded(true);
+        setDetectedBranchMessage(null);
+        setShowTypeModal(false);
+        setShowDeliveryAddressModal(true);
+      } catch (error) {
+        console.error('Error preparando domicilio:', error);
+        setShowDeliveryAddressModal(false);
+        closeDeliveryFlow();
+        Alert.alert(
+          'No pudimos abrir domicilio',
+          'Intenta nuevamente en un momento. Si el problema continua, puedes elegir una sucursal manualmente.'
+        );
+      }
       return;
     }
 
     if (tipo === 'pickup') {
-      setTipoPedido('pickup');
-      setSelectingPickupBranch(true);
-      setPickupListExpanded(true);
+      try {
+        let permission = await Location.getForegroundPermissionsAsync();
+
+        if (!permission.granted) {
+          permission = await Location.requestForegroundPermissionsAsync();
+        }
+
+        if (permission.granted) {
+          await getDetectedCoords({ silentOnDenied: true });
+        } else {
+          toast.info('Puedes elegir la sucursal manualmente. Activa tu ubicacion para ordenar por cercania.');
+        }
+
+        setTipoPedido('pickup');
+        setSelectingPickupBranch(true);
+        setPickupListExpanded(true);
+      } catch (error) {
+        console.error('Error preparando pickup:', error);
+        Alert.alert('No pudimos preparar recoger', 'No pudimos obtener tu ubicacion, intentalo de nuevo.');
+      }
       return;
     }
 
     if (tipo === 'eat_in') {
-      openEatInScanner(branch);
+      try {
+        const nearbyBranch = await evaluateNearbyBranch();
+        if (nearbyBranch.kind !== 'inside') {
+          Alert.alert(
+            'Acercate a una sucursal',
+            'Para escanear el QR de tu mesa necesitamos confirmar que estas dentro del restaurante.'
+          );
+          return;
+        }
+
+        await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
+      } catch (error) {
+        console.error('Error preparando escaner en restaurante:', error);
+        Alert.alert('No pudimos abrir el escaner', 'No pudimos validar tu ubicacion, intentalo de nuevo.');
+      }
       return;
     }
 
@@ -665,8 +900,7 @@ export default function HomeScreen() {
   }
 
   function getPickupSelectionLabel() {
-    const pickupBranches = getPickupBranches();
-    const selectedPickupBranch = pickupBranches.find((item) => item.id === branch?.id) ?? pickupBranches[0] ?? null;
+    const selectedPickupBranch = getSelectedPickupBranch();
 
     if (!selectedPickupBranch) {
       return 'Selecciona una sucursal';
@@ -675,13 +909,25 @@ export default function HomeScreen() {
     return selectedPickupBranch.nombre;
   }
 
-  function getPickupMapRegion() {
-    const pickupWithCoords = getPickupBranches().find((item) => item.lat != null && item.lng != null);
+  function getSelectedPickupBranch(): Sucursal | null {
+    const pickupBranches = getPickupBranches();
+    return pickupBranches.find((item) => item.id === branch?.id) ?? pickupBranches[0] ?? null;
+  }
+
+  function getPickupPreviewRegion() {
+    const selectedPickupBranch = getSelectedPickupBranch();
+    const latitude = Number(selectedPickupBranch?.lat);
+    const longitude = Number(selectedPickupBranch?.lng);
+
+    if (!selectedPickupBranch || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
     return {
-      latitude: detectedCoords?.lat ?? pickupWithCoords?.lat ?? 20.591403,
-      longitude: detectedCoords?.lng ?? pickupWithCoords?.lng ?? -100.396631,
-      latitudeDelta: 0.08,
-      longitudeDelta: 0.08,
+      latitude,
+      longitude,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
     };
   }
 
@@ -718,6 +964,9 @@ export default function HomeScreen() {
   const firstName = user?.nombre?.split(' ')[0] ?? '';
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Buenos días' : currentHour < 19 ? 'Buenas tardes' : 'Buenas noches';
+
+  const selectedPickupBranch = getSelectedPickupBranch();
+  const pickupPreviewRegion = getPickupPreviewRegion();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -822,6 +1071,23 @@ export default function HomeScreen() {
         </Animated.View>
 
         {/* CATEGORÍAS */}
+        {canShowReservations() ? (
+          <View style={styles.reservationSection}>
+            <LinearGradient colors={['#141414', '#25221D']} style={styles.reservationCard}>
+              <View style={styles.reservationKickerRow}>
+                <Ionicons name="calendar-outline" size={14} color="#D6B77A" />
+                <Text style={styles.reservationKicker}>SISTEMA DE RESERVACIONES</Text>
+              </View>
+              <Text style={styles.reservationTitle}>Reserva tu mesa</Text>
+              <Text style={styles.reservationText}>Consulta disponibilidad y separa una mesa antes de llegar.</Text>
+              <TouchableOpacity style={styles.reservationButton} activeOpacity={0.86} onPress={openReservationModal}>
+                <Text style={styles.reservationButtonText}>Seleccionar una mesa</Text>
+                <Ionicons name="arrow-forward" size={17} color="#111111" />
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        ) : null}
+
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionKicker}>DESCUBRE</Text>
@@ -931,7 +1197,7 @@ export default function HomeScreen() {
       <StoreFAB />
 
       {/* MODAL DE SELECCIÓN INICIAL */}
-      <Modal visible={showTypeModal} transparent animationType="fade" onRequestClose={closeDeliveryFlow}>
+      <Modal visible={isPermissionsResolved && showTypeModal} transparent animationType="fade" onRequestClose={closeDeliveryFlow}>
         <Pressable style={styles.modalOverlay} onPress={selectingPickupBranch ? undefined : closeDeliveryFlow}>
           <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
             <Ionicons
@@ -962,36 +1228,6 @@ export default function HomeScreen() {
                 <View style={styles.pickupCard}>
                   <Text style={styles.pickupCardTitle}>Pick Up</Text>
                   <Text style={styles.pickupCardSubtitle}>Elige la sucursal donde pasarás por tu pedido.</Text>
-
-                  {getPickupBranches().some((item) => item.lat != null && item.lng != null) ? (
-                    <MapView
-                      style={styles.pickupMap}
-                      initialRegion={getPickupMapRegion()}
-                      zoomEnabled
-                      zoomTapEnabled
-                      scrollEnabled
-                      rotateEnabled={false}
-                      pitchEnabled={false}
-                      toolbarEnabled={false}
-                    >
-                      {getPickupBranches()
-                        .filter((item) => item.lat != null && item.lng != null)
-                        .map((item) => (
-                          <Marker
-                            key={item.id}
-                            coordinate={{ latitude: item.lat!, longitude: item.lng! }}
-                            title={item.nombre}
-                            description={item.direccion || item.descripcion || 'Sucursal'}
-                            onPress={() => selectBranchForType(item, 'pickup')}
-                          />
-                        ))}
-                    </MapView>
-                  ) : (
-                    <View style={styles.pickupMapFallback}>
-                      <Ionicons name="map-outline" size={28} color={Colors.primary} />
-                      <Text style={styles.pickupMapFallbackText}>No hay coordenadas disponibles para mostrar el mapa.</Text>
-                    </View>
-                  )}
 
                   <View style={styles.pickupDropdownWrap}>
                     <TouchableOpacity
@@ -1046,6 +1282,31 @@ export default function HomeScreen() {
                       </ScrollView>
                     ) : null}
                   </View>
+
+                  <View style={styles.pickupMapWrap}>
+                    {pickupPreviewRegion ? (
+                      <View style={styles.pickupMapCard}>
+                        <SafeMapView
+                          style={styles.pickupMap}
+                          region={pickupPreviewRegion}
+                          fallbackText="Mapa no disponible por el momento."
+                        />
+                        <View style={styles.pickupMapPin} pointerEvents="none">
+                          <Ionicons name="location" size={32} color={Colors.primary} style={{ marginTop: -32 }} />
+                          <View style={styles.pickupMapPinShadow} />
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.pickupMapEmpty}>
+                        <Ionicons name="map-outline" size={18} color="#6B7280" />
+                        <Text style={styles.pickupMapEmptyText}>Mapa no disponible por el momento.</Text>
+                      </View>
+                    )}
+
+                    <Text style={styles.pickupMapCaption} numberOfLines={2}>
+                      {selectedPickupBranch?.direccion || selectedPickupBranch?.descripcion || 'Confirma la sucursal para recoger.'}
+                    </Text>
+                  </View>
                 </View>
 
                 <TouchableOpacity style={styles.modalBackButton} onPress={() => setSelectingPickupBranch(false)}>
@@ -1097,6 +1358,133 @@ export default function HomeScreen() {
         onDismiss={() => setShowDeliveryAddressModal(false)}
         onConfirm={handleDeliveryAddressConfirm}
       />
+
+      <Modal visible={reservationVisible} transparent animationType="slide" onRequestClose={() => setReservationVisible(false)}>
+        <View style={styles.reservationModalOverlay}>
+          <View style={styles.reservationModal}>
+            <View style={styles.reservationModalHeader}>
+              <View>
+                <Text style={styles.reservationModalKicker}>SISTEMA DE RESERVACIONES</Text>
+                <Text style={styles.reservationModalTitle}>Reserva tu mesa</Text>
+              </View>
+              <TouchableOpacity style={styles.reservationCloseButton} onPress={() => setReservationVisible(false)}>
+                <Ionicons name="close" size={20} color="#F7F1E7" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.reservationForm}>
+              <TextInput
+                style={styles.reservationInput}
+                value={reservationName}
+                onChangeText={setReservationName}
+                placeholder="Tu nombre completo"
+                placeholderTextColor="#8A8276"
+              />
+              <View style={styles.reservationFormRow}>
+                <TextInput
+                  style={[styles.reservationInput, styles.reservationHalfInput]}
+                  value={reservationPhone}
+                  onChangeText={setReservationPhone}
+                  placeholder="Telefono"
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#8A8276"
+                />
+                <TextInput
+                  style={[styles.reservationInput, styles.reservationHalfInput]}
+                  value={reservationEmail}
+                  onChangeText={setReservationEmail}
+                  placeholder="Correo"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  placeholderTextColor="#8A8276"
+                />
+              </View>
+              <View style={styles.reservationFormRow}>
+                <TextInput
+                  style={[styles.reservationInput, styles.reservationHalfInput]}
+                  value={reservationDate}
+                  onChangeText={setReservationDate}
+                  placeholder="aaaa-mm-dd"
+                  placeholderTextColor="#8A8276"
+                />
+                <TextInput
+                  style={[styles.reservationInput, styles.reservationHalfInput]}
+                  value={reservationTime}
+                  onChangeText={setReservationTime}
+                  placeholder="hh:mm"
+                  placeholderTextColor="#8A8276"
+                />
+              </View>
+
+              <View style={styles.peopleSelector}>
+                <Text style={styles.reservationLabel}>Numero de personas</Text>
+                <View style={styles.peopleStepper}>
+                  <TouchableOpacity style={styles.peopleStepButton} onPress={() => setReservationPeople((value) => Math.max(1, value - 1))}>
+                    <Ionicons name="remove" size={16} color="#E9DDC8" />
+                  </TouchableOpacity>
+                  <Text style={styles.peopleValue}>{reservationPeople} personas</Text>
+                  <TouchableOpacity style={styles.peopleStepButton} onPress={() => setReservationPeople((value) => Math.min(20, value + 1))}>
+                    <Ionicons name="add" size={16} color="#E9DDC8" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.checkTablesButton} onPress={() => void refreshReservationTables()} disabled={reservationLoading}>
+                {reservationLoading ? (
+                  <ActivityIndicator color="#111111" />
+                ) : (
+                  <Text style={styles.checkTablesButtonText}>Consultar mesas disponibles</Text>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.availableTablesBox}>
+                <Text style={styles.reservationLabel}>Mesa disponible</Text>
+                {reservationTables.length > 0 ? (
+                  <View style={styles.availableTablesList}>
+                    {reservationTables.map((item) => {
+                      const selected = selectedReservationTableId === item.id;
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={[styles.availableTableChip, selected && styles.availableTableChipActive]}
+                          onPress={() => setSelectedReservationTableId(item.id)}
+                        >
+                          <Text style={[styles.availableTableText, selected && styles.availableTableTextActive]}>
+                            {item.label}{item.capacity ? ` · ${item.capacity}p` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={styles.availableTablesEmpty}>Elige fecha, hora y personas para consultar mesas.</Text>
+                )}
+              </View>
+
+              <TextInput
+                style={[styles.reservationInput, styles.reservationNotesInput]}
+                value={reservationNotes}
+                onChangeText={setReservationNotes}
+                placeholder="Alergias, ocasion especial o preferencias"
+                multiline
+                placeholderTextColor="#8A8276"
+              />
+
+              <TouchableOpacity
+                style={[styles.submitReservationButton, (!selectedReservationTableId || reservationSubmitting) && styles.submitReservationButtonDisabled]}
+                onPress={() => void submitReservation()}
+                disabled={!selectedReservationTableId || reservationSubmitting}
+              >
+                {reservationSubmitting ? (
+                  <ActivityIndicator color="#111111" />
+                ) : (
+                  <Text style={styles.submitReservationButtonText}>Reservar mesa</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1182,6 +1570,56 @@ const styles = StyleSheet.create({
   horizontalList: {
     paddingVertical: 10, // Importante: Da aire para que las sombras no se corten
   },
+  reservationSection: {
+    paddingHorizontal: 20,
+    marginTop: 18,
+  },
+  reservationCard: {
+    borderRadius: 24,
+    padding: 18,
+    overflow: 'hidden',
+  },
+  reservationKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  reservationKicker: {
+    color: '#D6B77A',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+  },
+  reservationTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 27,
+    color: '#F7F1E7',
+  },
+  reservationText: {
+    color: '#C7BFB1',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  reservationButton: {
+    minHeight: 46,
+    borderRadius: 16,
+    backgroundColor: '#D6B77A',
+    marginTop: 16,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  reservationButtonText: {
+    color: '#111111',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+  },
   pagination: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1211,6 +1649,177 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 24,
+  },
+  reservationModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'flex-end',
+  },
+  reservationModal: {
+    maxHeight: '88%',
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+  },
+  reservationModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 10,
+  },
+  reservationModalKicker: {
+    color: '#D6B77A',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.8,
+  },
+  reservationModalTitle: {
+    fontFamily: 'PlayfairDisplay_700Bold',
+    fontSize: 30,
+    color: '#F7F1E7',
+    marginTop: 4,
+  },
+  reservationCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#242424',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reservationForm: {
+    gap: 12,
+    paddingBottom: 20,
+  },
+  reservationInput: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+    backgroundColor: '#171717',
+    color: '#F7F1E7',
+    paddingHorizontal: 14,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  reservationFormRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  reservationHalfInput: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reservationLabel: {
+    color: '#D6B77A',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  peopleSelector: {
+    gap: 8,
+  },
+  peopleStepper: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+    backgroundColor: '#171717',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+  },
+  peopleStepButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#252525',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  peopleValue: {
+    color: '#F7F1E7',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  checkTablesButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#D6B77A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkTablesButtonText: {
+    color: '#111111',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  availableTablesBox: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+    padding: 12,
+    gap: 10,
+  },
+  availableTablesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  availableTableChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#343434',
+    backgroundColor: '#181818',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  availableTableChipActive: {
+    backgroundColor: '#D6B77A',
+    borderColor: '#D6B77A',
+  },
+  availableTableText: {
+    color: '#D8D1C7',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  availableTableTextActive: {
+    color: '#111111',
+  },
+  availableTablesEmpty: {
+    color: '#8A8276',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  reservationNotesInput: {
+    minHeight: 88,
+    paddingTop: 12,
+    textAlignVertical: 'top',
+  },
+  submitReservationButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: '#D6B77A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitReservationButtonDisabled: {
+    opacity: 0.5,
+  },
+  submitReservationButtonText: {
+    color: '#111111',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   modalOverlay: {
     flex: 1,
@@ -1335,30 +1944,6 @@ const styles = StyleSheet.create({
   pickupCardSubtitle: {
     display: 'none',
   },
-  pickupMap: {
-    width: '100%',
-    height: 220,
-    borderRadius: 18,
-    overflow: 'hidden',
-  },
-  pickupMapFallback: {
-    width: '100%',
-    height: 160,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    gap: 10,
-  },
-  pickupMapFallbackText: {
-    fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
   pickupDropdownWrap: {
     width: '100%',
     borderRadius: 18,
@@ -1436,6 +2021,59 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: Colors.primary,
+  },
+  pickupMapWrap: {
+    gap: 10,
+  },
+  pickupMapCard: {
+    height: 156,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+  },
+  pickupMap: {
+    flex: 1,
+  },
+  pickupMapPin: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -16,
+    marginTop: -6,
+    alignItems: 'center',
+  },
+  pickupMapPinShadow: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(17,24,39,0.18)',
+    marginTop: -4,
+  },
+  pickupMapEmpty: {
+    minHeight: 84,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  pickupMapEmptyText: {
+    color: '#6B7280',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pickupMapCaption: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#4B5563',
   },
   modalBackButton: {
     flexDirection: 'row',

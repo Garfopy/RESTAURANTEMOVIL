@@ -10,6 +10,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\User;
+use Amare\Api\Services\FirebaseMessagingService;
 use Amare\Api\Services\RewardsService;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
@@ -951,12 +952,13 @@ class SocialController
         $restaurantId = (int)($input['restaurant_id'] ?? 0);
         $paymentMode = strtolower(trim((string)($input['payment_mode'] ?? 'account')));
         $requestKey = trim((string)($input['request_key'] ?? ''));
+        $usePoints = false;
 
         $errors = [];
         if ($restaurantId <= 0) $errors['restaurant_id'] = ['Selecciona una sucursal valida'];
         if ($targetUserId <= 0) $errors['recipient_user_id'] = ['Selecciona un comensal valido'];
         if ($targetUserId === (int)$user->id) $errors['recipient_user_id'] = ['No puedes cubrir tu propia cuenta desde social'];
-        if (!in_array($paymentMode, ['account', 'stripe'], true)) $errors['payment_mode'] = ['Selecciona una forma de pago valida'];
+        if (!in_array($paymentMode, ['account', 'stripe', 'wallet'], true)) $errors['payment_mode'] = ['Selecciona una forma de pago valida'];
         if (!preg_match('/^[A-Za-z0-9_-]{16,80}$/', $requestKey)) $errors['request_key'] = ['La clave de solicitud no es valida'];
         if ($errors) Response::validationError($errors);
 
@@ -973,6 +975,13 @@ class SocialController
         $summary = $this->socialConsumptionSummary($consumption);
         if ((float)$summary['total_mxn'] <= 0) {
             Response::error('La cuenta del comensal no tiene importe pendiente.', 409);
+        }
+        $walletQuote = null;
+        if ($paymentMode === 'wallet') {
+            $walletQuote = (new RewardsService())->quote((int)$user->id, (float)$summary['total_mxn'], $usePoints, 'food', [], 'wallet');
+            if (empty($walletQuote['can_pay'])) {
+                Response::error('Tu Saldo Amare no alcanza para enviar esta solicitud de pago.', 409);
+            }
         }
 
         $existing = Database::queryOne(
@@ -1055,6 +1064,8 @@ class SocialController
                     'payment_mode' => $paymentMode,
                     'amount_mxn' => (float)$summary['total_mxn'],
                     'covered_mesa' => $recipientMesaLabel,
+                    'wallet_quote' => $walletQuote,
+                    'use_points' => $usePoints,
                 ]
             );
             $pdo->commit();
@@ -1063,6 +1074,7 @@ class SocialController
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'account' => $summary,
                 'approval_required' => true,
+                'wallet_quote' => $walletQuote,
             ], 'Solicitud enviada. El comensal debe aceptar antes de cobrar.', 201);
         } catch (\DomainException $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -1130,7 +1142,8 @@ class SocialController
                 throw new \DomainException('La cuenta original ya no esta disponible.');
             }
 
-            if ((string)$cover['payment_mode'] === 'stripe') {
+            $paymentMode = (string)$cover['payment_mode'];
+            if ($paymentMode === 'stripe') {
                 $this->updateSocialAccountCover($pdo, $coverId, ['status' => 'approved']);
                 $this->recordSocialAccountNotification(
                     $pdo,
@@ -1153,6 +1166,66 @@ class SocialController
                 Response::success(['cover' => $this->socialAccountCoverResponse($cover)], 'Aceptaste la solicitud. Le avisamos para terminar el pago.');
             }
 
+            if ($paymentMode === 'wallet') {
+                $reward = (new RewardsService())->charge(
+                    $pdo,
+                    (int)$cover['payer_user_id'],
+                    (float)$cover['amount_mxn'],
+                    false,
+                    'food',
+                    'social_account_cover',
+                    $coverId,
+                    'Pago social de cuenta con Saldo Amare'
+                );
+                $paymentResult = $this->processDirectSocialCoverPayment($pdo, $cover, $consumption, 'social_cover');
+                $this->updateSocialAccountCover($pdo, $coverId, [
+                    'status' => 'paid',
+                    'paid_at' => date('Y-m-d H:i:s'),
+                ]);
+                $payload = [
+                    'cover_id' => $coverId,
+                    'amount_mxn' => (float)$cover['amount_mxn'],
+                    'payment_mode' => 'wallet',
+                    'covered_order_id' => $paymentResult['covered_order_id'],
+                    'covered_visit_id' => $paymentResult['covered_visit_id'],
+                    'post_payment_action_required' => true,
+                    'wallet' => $reward,
+                ];
+                $this->recordSocialAccountNotification(
+                    $pdo,
+                    (int)$cover['covered_user_id'],
+                    (int)$cover['payer_user_id'],
+                    'social_account_paid',
+                    'Tu cuenta fue pagada',
+                    $this->buildCoverMessage((string)($payer['nombre'] ?? 'Alguien'), (float)$cover['amount_mxn'], 'wallet'),
+                    $payload
+                );
+                $this->recordSocialAccountNotification(
+                    $pdo,
+                    (int)$cover['payer_user_id'],
+                    (int)$cover['covered_user_id'],
+                    'social_account_cover_paid',
+                    'Cuenta pagada',
+                    'El comensal acepto y pagaste su cuenta con Saldo Amare.',
+                    [
+                        'cover_id' => $coverId,
+                        'amount_mxn' => (float)$cover['amount_mxn'],
+                        'payment_mode' => 'wallet',
+                    ]
+                );
+                $pdo->commit();
+
+                $cover['status'] = 'paid';
+                $cover['paid_at'] = date('Y-m-d H:i:s');
+                Response::success([
+                    'cover' => $this->socialAccountCoverResponse($cover),
+                    'covered_order_id' => $paymentResult['covered_order_id'],
+                    'covered_visit_id' => $paymentResult['covered_visit_id'],
+                    'post_payment_action_required' => true,
+                    'wallet' => $reward,
+                ], 'Aceptaste la solicitud. Tu cuenta fue pagada.');
+            }
+
             $payerOrderId = $this->createCoveredConsumptionOrder(
                 $pdo,
                 (int)$cover['restaurante_id'],
@@ -1168,6 +1241,7 @@ class SocialController
                 null
             );
             $this->markConsumptionCovered($pdo, $consumption, 'social_cover');
+            $accountCoverVisit = $this->markSocialCoverTicketsPaid($pdo, $consumption, 'social_cover');
             $pendingGiftCharges = $this->pendingSocialGiftChargesForConsumption(
                 $consumption,
                 (int)$cover['covered_user_id'],
@@ -1186,6 +1260,8 @@ class SocialController
                 'payment_mode' => 'account',
                 'exit_pass' => $coveredExitPass,
                 'covered_order_id' => $coveredOrderId,
+                'covered_visit_id' => $accountCoverVisit['visit_id'],
+                'post_payment_action_required' => true,
                 'pending_social_gifts' => $pendingGiftCharges,
             ];
             $this->recordSocialAccountNotification(
@@ -1218,6 +1294,8 @@ class SocialController
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'covered_exit_pass' => $coveredExitPass,
                 'covered_order_id' => $coveredOrderId,
+                'covered_visit_id' => $accountCoverVisit['visit_id'],
+                'post_payment_action_required' => true,
                 'pending_social_gifts' => $pendingGiftCharges,
             ], 'Aceptaste la solicitud. Tu cuenta fue cubierta.');
         } catch (\DomainException $exception) {
@@ -1362,30 +1440,15 @@ class SocialController
                 throw new \DomainException('Esta cuenta ya fue cubierta por otra solicitud.');
             }
 
-            $payerOrderId = $this->createCoveredConsumptionOrder(
-                $pdo,
-                (int)$cover['restaurante_id'],
-                (int)$user->id,
-                (string)($user->nombre ?? 'Comensal'),
-                (int)($cover['payer_mesa_id'] ?? 0),
-                (string)($cover['payer_mesa'] ?? ''),
-                $recipient,
-                (string)($cover['covered_mesa'] ?? ''),
-                $consumption,
-                false,
-                $intentId,
-                'tarjeta'
-            );
-            $this->markConsumptionCovered($pdo, $consumption, 'tarjeta');
+            $paymentResult = $this->processDirectSocialCoverPayment($pdo, $cover, $consumption, 'social_cover');
             $pendingGiftCharges = $this->pendingSocialGiftChargesForConsumption(
                 $consumption,
                 (int)$cover['covered_user_id'],
                 (int)$cover['restaurante_id']
             );
             $coveredExitPass = null;
-            $coveredOrderId = (int)($consumption['order_ids'][0] ?? 0);
+            $coveredOrderId = (int)$paymentResult['covered_order_id'];
             $this->updateSocialAccountCover($pdo, $coverId, [
-                'payer_pedido_id' => $payerOrderId,
                 'status' => 'paid',
                 'paid_at' => date('Y-m-d H:i:s'),
             ]);
@@ -1401,18 +1464,22 @@ class SocialController
                     'amount_mxn' => (float)$cover['amount_mxn'],
                     'exit_pass' => $coveredExitPass,
                     'covered_order_id' => $coveredOrderId,
+                    'covered_visit_id' => $paymentResult['covered_visit_id'],
+                    'payment_mode' => 'stripe',
+                    'post_payment_action_required' => true,
                     'pending_social_gifts' => $pendingGiftCharges,
                 ]
             );
             $pdo->commit();
 
-            $cover['payer_pedido_id'] = $payerOrderId;
             $cover['status'] = 'paid';
             $cover['paid_at'] = date('Y-m-d H:i:s');
             Response::success([
                 'cover' => $this->socialAccountCoverResponse($cover),
                 'covered_exit_pass' => $coveredExitPass,
                 'covered_order_id' => $coveredOrderId,
+                'covered_visit_id' => $paymentResult['covered_visit_id'],
+                'post_payment_action_required' => true,
                 'pending_social_gifts' => $pendingGiftCharges,
             ], 'Cuenta pagada y comensal avisado.');
         } catch (\DomainException $exception) {
@@ -3060,6 +3127,116 @@ class SocialController
         $statement->execute($params);
     }
 
+    private function processDirectSocialCoverPayment(\PDO $pdo, array $cover, array $consumption, string $method): array
+    {
+        $this->markConsumptionCovered($pdo, $consumption, $method);
+        return $this->markSocialCoverTicketsPaid($pdo, $consumption, $method);
+    }
+
+    private function markSocialCoverTicketsPaid(\PDO $pdo, array $consumption, string $method): array
+    {
+        if (!$this->tableExists('rest_tickets') || !$this->tableExists('rest_visitas')) {
+            return [
+                'covered_order_id' => (int)($consumption['order_ids'][0] ?? 0),
+                'covered_visit_id' => null,
+                'visit_id' => null,
+            ];
+        }
+
+        $visitIds = [];
+        foreach (($consumption['orders'] ?? []) as $order) {
+            $visitId = (int)($order['visita_id'] ?? 0);
+            if ($visitId > 0) {
+                $visitIds[$visitId] = true;
+            }
+        }
+
+        $firstVisitId = null;
+        foreach (array_keys($visitIds) as $visitId) {
+            $firstVisitId = $firstVisitId ?? (int)$visitId;
+            $summary = $this->visitOrderTotal($visitId);
+            if ($summary['total'] <= 0) {
+                continue;
+            }
+
+            $ticket = Database::queryOne(
+                'SELECT * FROM rest_tickets WHERE visita_id = :visit_id ORDER BY id DESC LIMIT 1 FOR UPDATE',
+                [':visit_id' => $visitId]
+            );
+
+            if ($ticket) {
+                $pdo->prepare(
+                    "UPDATE rest_tickets
+                        SET subtotal = :subtotal,
+                            total = :total,
+                            estado = 'pagado',
+                            metodo_pago = :method,
+                            pagado_at = COALESCE(pagado_at, NOW())
+                      WHERE id = :id"
+                )->execute([
+                    ':subtotal' => $summary['subtotal'],
+                    ':total' => $summary['total'],
+                    ':method' => $method,
+                    ':id' => (int)$ticket['id'],
+                ]);
+            } else {
+                $this->insertDynamicRow($pdo, 'rest_tickets', [
+                    'restaurante_id' => $summary['restaurante_id'],
+                    'visita_id' => $visitId,
+                    'mesa_id' => $summary['mesa_id'],
+                    'folio' => 'SC-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)),
+                    'subtotal' => $summary['subtotal'],
+                    'propina' => 0,
+                    'total' => $summary['total'],
+                    'estado' => 'pagado',
+                    'metodo_pago' => $method,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'pagado_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+
+            $pdo->prepare(
+                "UPDATE rest_visitas
+                    SET subtotal = :subtotal,
+                        total = :total,
+                        estado = 'pagada',
+                        pagada_at = COALESCE(pagada_at, NOW())
+                  WHERE id = :id"
+            )->execute([
+                ':subtotal' => $summary['subtotal'],
+                ':total' => $summary['total'],
+                ':id' => $visitId,
+            ]);
+        }
+
+        return [
+            'covered_order_id' => (int)($consumption['order_ids'][0] ?? 0),
+            'covered_visit_id' => $firstVisitId,
+            'visit_id' => $firstVisitId,
+        ];
+    }
+
+    private function visitOrderTotal(int $visitId): array
+    {
+        $summary = Database::queryOne(
+            "SELECT
+                COALESCE(MAX(restaurante_id), 0) AS restaurante_id,
+                COALESCE(MAX(mesa_id), 0) AS mesa_id,
+                COALESCE(SUM(CASE WHEN estado <> 'cancelado' THEN subtotal ELSE 0 END), 0) AS subtotal,
+                COALESCE(SUM(CASE WHEN estado <> 'cancelado' THEN total ELSE 0 END), 0) AS total
+               FROM rest_pedidos
+              WHERE visita_id = :visit_id",
+            [':visit_id' => $visitId]
+        ) ?? [];
+
+        return [
+            'restaurante_id' => (int)($summary['restaurante_id'] ?? 0),
+            'mesa_id' => (int)($summary['mesa_id'] ?? 0) ?: null,
+            'subtotal' => round((float)($summary['subtotal'] ?? 0), 2),
+            'total' => round((float)($summary['total'] ?? 0), 2),
+        ];
+    }
+
     private function ensureCoveredConsumptionExitPass(array $consumption, int $coveredUserId): ?array
     {
         $orderIds = array_values(array_filter(array_map('intval', $consumption['order_ids'] ?? [])));
@@ -3150,6 +3327,7 @@ class SocialController
         if (!$this->tableExists('social_account_notifications')) {
             return;
         }
+        $payload = $this->withSocialNotificationDeepLink($type, $payload);
         $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE);
         $this->insertDynamicRow($pdo, 'social_account_notifications', [
             'user_id' => $userId,
@@ -3160,6 +3338,45 @@ class SocialController
             'payload_json' => $payloadJson === false ? null : $payloadJson,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+
+        $this->sendSocialPushNotification($userId, $type, $title, $body, $payload);
+    }
+
+    private function withSocialNotificationDeepLink(string $type, array $payload): array
+    {
+        if (!empty($payload['deep_link'])) {
+            return $payload;
+        }
+
+        $params = ['notificationType' => $type];
+        if (isset($payload['gift_id'])) {
+            $params['giftId'] = (string)$payload['gift_id'];
+        }
+        if (isset($payload['cover_id'])) {
+            $params['coverId'] = (string)$payload['cover_id'];
+        }
+        if (isset($payload['payment_mode'])) {
+            $params['paymentMode'] = (string)$payload['payment_mode'];
+        }
+
+        $payload['deep_link'] = '/social?' . http_build_query($params);
+        return $payload;
+    }
+
+    private function sendSocialPushNotification(int $userId, string $type, string $title, string $body, array $payload): void
+    {
+        if (strpos($type, 'social_') !== 0) {
+            return;
+        }
+
+        try {
+            (new FirebaseMessagingService())->sendToUser($userId, $title, $body, array_merge($payload, [
+                'type' => $type,
+                'deep_link' => $payload['deep_link'] ?? '/social',
+            ]));
+        } catch (\Throwable $exception) {
+            error_log('SocialController::sendSocialPushNotification ERROR: ' . $exception->getMessage());
+        }
     }
 
     private function markGiftNotificationsRead(\PDO $pdo, int $giftId, int $userId): void
@@ -3308,13 +3525,15 @@ class SocialController
 
     private function buildCoverRequestMessage(string $payerName, float $amount, string $mode): string
     {
-        $method = $mode === 'stripe' ? 'con tarjeta' : 'agregandola a su cuenta';
+        $method = $mode === 'stripe'
+            ? 'con tarjeta'
+            : ($mode === 'wallet' ? 'con Saldo Amare' : 'agregandola a su cuenta');
         return sprintf('%s quiere cubrir tu consumo por $%.2f MXN %s. Acepta o rechaza la solicitud.', $payerName, $amount, $method);
     }
 
     private function buildCoverMessage(string $payerName, float $amount, string $mode): string
     {
-        $verb = $mode === 'stripe' ? 'pago' : 'agrego a su cuenta';
+        $verb = $mode === 'account' ? 'agrego a su cuenta' : 'pago';
         return sprintf('%s %s tu consumo por $%.2f MXN.', $payerName, $verb, $amount);
     }
 

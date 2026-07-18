@@ -23,7 +23,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Amare necesita tu ubicacion para encontrar la sucursal mas cercana.",
         "NSLocationAlwaysUsageDescription": "Amare necesita tu ubicacion para el seguimiento de entregas.",
-        "NSCameraUsageDescription": "Amare necesita la camara para foto de perfil.",
+        "NSCameraUsageDescription": "Amare necesita la camara para escanear codigos QR y actualizar tu perfil.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "remote-notification"
