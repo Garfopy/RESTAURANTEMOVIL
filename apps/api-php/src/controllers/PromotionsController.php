@@ -8,6 +8,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\Promotion;
+use Amare\Api\Models\User;
 use Amare\Api\Services\FirebaseMessagingService;
 
 class PromotionsController
@@ -531,6 +532,11 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
         $userId = (int)($promotion['usuario_id'] ?? 0);
         if ($userId <= 0) {
+            return;
+        }
+
+        $recipient = User::findById($userId);
+        if (!$recipient || !(bool)($recipient['marketing_opt_in'] ?? false)) {
             return;
         }
 

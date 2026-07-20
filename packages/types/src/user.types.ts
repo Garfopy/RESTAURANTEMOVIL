@@ -12,6 +12,7 @@ export interface MobileUser {
   foto_url: string | null;
   social_photos?: string[];
   google_id: string | null;
+  apple_id?: string | null;
   activo: boolean;
   created_at: string;
   // Social profile fields (frontend names)
@@ -75,4 +76,11 @@ export interface RegisterPayload {
   password: string;
   telefono: string;
   fecha_nacimiento: string;
+}
+
+export interface AppleLoginPayload {
+  identity_token: string;
+  authorization_code?: string | null;
+  full_name?: string | null;
+  platform?: 'ios';
 }

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   PanResponder,
   Animated,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -17,8 +18,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
 import { apiClient } from '../../services/api';
-import { deleteAccount, logout } from '../../services/auth.service';
+import { deleteAccount, logout, updateProfileSettings } from '../../services/auth.service';
+import { ensureNotificationPermission } from '../../services/app-permissions.service';
+import { registerPushNotifications } from '../../services/push-notifications.service';
 import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
+import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { Colors, Shadows } from '../../theme';
 
 export default function ProfileScreen() {
@@ -30,6 +34,7 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
+  const [savingMarketing, setSavingMarketing] = useState(false);
   const swipeTranslateX = React.useRef(new Animated.Value(0)).current;
   const returningHomeRef = React.useRef(false);
   const returnHomePanResponder = React.useMemo(
@@ -98,6 +103,28 @@ export default function ProfileScreen() {
       console.warn('No se pudo cargar Saldo Amare', error);
     } finally {
       setWalletLoading(false);
+    }
+  }
+
+  async function handleMarketingPreference(enabled: boolean) {
+    if (!user || savingMarketing) return;
+
+    try {
+      setSavingMarketing(true);
+      if (enabled) {
+        const permission = await ensureNotificationPermission({ explainIfBlocked: true });
+        if (!permission.granted) return;
+      }
+
+      const updated = await updateProfileSettings({ marketing_opt_in: enabled });
+      setUser(updated);
+      if (enabled) {
+        void registerPushNotifications({ force: true, reason: 'marketing-opt-in', userId: updated.id });
+      }
+    } catch {
+      Alert.alert('No se pudo guardar', 'Intenta nuevamente en un momento.');
+    } finally {
+      setSavingMarketing(false);
     }
   }
 

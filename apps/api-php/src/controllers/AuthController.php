@@ -8,6 +8,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\User;
+use Amare\Api\Services\AppleIdentityService;
 
 class AuthController
 {
@@ -287,7 +288,7 @@ class AuthController
             ]);
 
             unset($user['password_hash']);
-            $user['requires_onboarding'] = $this->requiresGoogleOnboarding($user);
+            $user['requires_onboarding'] = $this->requiresExternalOnboarding($user);
 
             Response::success([
                 'user' => $user,
@@ -296,6 +297,70 @@ class AuthController
         } catch (\Throwable $e) {
             error_log('AuthController::google ERROR: ' . $e->getMessage());
             Response::serverError('Error al verificar token de Google');
+        }
+    }
+
+    public function apple(): void
+    {
+        $input = ValidationMiddleware::getAllInput();
+        $identityToken = trim((string)($input['identity_token'] ?? ''));
+        if ($identityToken === '') {
+            Response::validationError(['identity_token' => ['El token de Apple es requerido']]);
+        }
+
+        try {
+            $identity = AppleIdentityService::verifyIdentityToken($identityToken);
+            $appleId = $identity['sub'];
+            $email = $identity['email'];
+            $name = trim((string)($input['full_name'] ?? ''));
+
+            $user = User::findByAppleId($appleId);
+            if (!$user && $email !== null) {
+                $user = User::findByEmail($email);
+                if ($user) {
+                    User::updateAppleId((int)$user['id'], $appleId);
+                    $user = User::findById((int)$user['id']);
+                }
+            }
+
+            if (!$user) {
+                if ($email === null || !$identity['email_verified']) {
+                    Response::error(
+                        'Apple no compartio un correo verificable. Revoca el acceso de Amare en los ajustes de Apple e intenta nuevamente.',
+                        422,
+                        'APPLE_EMAIL_REQUIRED'
+                    );
+                }
+
+                $userId = User::create([
+                    'nombre' => $name !== '' ? substr($name, 0, 100) : 'Usuario Amare',
+                    'email' => $email,
+                    'password_hash' => password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT),
+                    'apple_id' => $appleId,
+                ]);
+                $user = User::findById($userId);
+            }
+
+            if (!$user) {
+                Response::serverError('No se pudo preparar la cuenta de Apple.');
+            }
+
+            $token = AuthMiddleware::generateToken([
+                'id' => $user['id'],
+                'email' => $user['email'],
+                'nombre' => $user['nombre'],
+                'rol' => $user['rol'] ?? 'user',
+                'auth_source' => 'mobile',
+            ]);
+
+            unset($user['password_hash']);
+            $user['requires_onboarding'] = $this->requiresExternalOnboarding($user);
+            Response::success(['user' => $user, 'token' => $token], 'Inicio de sesion con Apple exitoso');
+        } catch (\InvalidArgumentException $exception) {
+            Response::error($exception->getMessage(), 400, 'APPLE_TOKEN_INVALID');
+        } catch (\Throwable $exception) {
+            error_log('AuthController::apple ERROR: ' . $exception->getMessage());
+            Response::error('No se pudo validar el inicio con Apple.', 401, 'APPLE_AUTH_FAILED');
         }
     }
 
@@ -527,9 +592,12 @@ class AuthController
         return $env !== 'production' || filter_var($debugValue, FILTER_VALIDATE_BOOLEAN);
     }
 
-    private function requiresGoogleOnboarding(array $user): bool
+    private function requiresExternalOnboarding(array $user): bool
     {
-        return trim((string)($user['google_id'] ?? '')) !== ''
+        return (
+            trim((string)($user['google_id'] ?? '')) !== '' ||
+            trim((string)($user['apple_id'] ?? '')) !== ''
+        )
             && (
                 trim((string)($user['telefono'] ?? '')) === ''
                 || trim((string)($user['fecha_nacimiento'] ?? '')) === ''

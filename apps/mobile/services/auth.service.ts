@@ -2,6 +2,7 @@ import { apiClient } from './api';
 import type {
   Sesion,
   MobileUser,
+  AppleLoginPayload,
   GoogleLoginPayload,
   EmailLoginPayload,
   RegisterPayload,
@@ -48,9 +49,9 @@ function hasMeEnvelope(response: MeResponse): response is Extract<MeResponse, { 
 }
 
 export function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
-  const requiresGoogleOnboarding = Boolean(
+  const requiresExternalOnboarding = Boolean(
     user?.requires_onboarding ??
-      (user?.google_id && (!user?.telefono || !user?.fecha_nacimiento || !user?.terms_accepted_at))
+      ((user?.google_id || user?.apple_id) && (!user?.telefono || !user?.fecha_nacimiento || !user?.terms_accepted_at))
   );
 
   return {
@@ -63,10 +64,11 @@ export function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
     onboarding_completed_at: user?.onboarding_completed_at ?? null,
     terms_accepted_at: user?.terms_accepted_at ?? null,
     marketing_opt_in: user?.marketing_opt_in ?? false,
-    requires_onboarding: requiresGoogleOnboarding,
+    requires_onboarding: requiresExternalOnboarding,
     foto_url: user?.foto_url ?? null,
     social_photos: user?.social_photos ?? [],
     google_id: user?.google_id ?? null,
+    apple_id: user?.apple_id ?? null,
     activo: user?.activo ?? true,
     created_at: user?.created_at ?? '',
     edad: user?.edad ?? null,
@@ -122,6 +124,16 @@ export async function loginWithGoogle(payload: GoogleLoginPayload): Promise<Sesi
   return parseSesion(data);
 }
 
+export async function loginWithApple(payload: AppleLoginPayload): Promise<Sesion> {
+  const { data } = await apiClient.post<AuthResponse>('/auth/apple', {
+    identity_token: payload.identity_token,
+    authorization_code: payload.authorization_code,
+    full_name: payload.full_name,
+    platform: payload.platform ?? 'ios',
+  });
+  return parseSesion(data);
+}
+
 export async function register(payload: RegisterPayload): Promise<Sesion> {
   const { data } = await apiClient.post<AuthResponse>('/auth/register', {
     name: payload.nombre,
@@ -165,6 +177,11 @@ type ProfileResponse =
     };
 
 export async function completeProfile(payload: ProfileUpdatePayload): Promise<MobileUser> {
+  const profile = await updateProfileSettings(payload);
+  return normalizeUser({ ...profile, requires_onboarding: false });
+}
+
+export async function updateProfileSettings(payload: ProfileUpdatePayload): Promise<MobileUser> {
   const { data } = await apiClient.put<ProfileResponse>('/profile', payload);
   const profile = 'data' in data && data.data?.profile
     ? data.data.profile
@@ -174,7 +191,7 @@ export async function completeProfile(payload: ProfileUpdatePayload): Promise<Mo
     throw new Error('No se pudo actualizar el perfil.');
   }
 
-  return normalizeUser({ ...profile, requires_onboarding: false });
+  return normalizeUser(profile);
 }
 
 export async function cancelProfileOnboarding(): Promise<void> {

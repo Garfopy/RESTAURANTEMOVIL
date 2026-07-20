@@ -27,6 +27,12 @@ class User
             $params[':fecha_nacimiento'] = $data['fecha_nacimiento'] ?? null;
         }
 
+        if (self::columnExists('mobile_usuarios', 'apple_id')) {
+            $columns[] = 'apple_id';
+            $values[] = ':apple_id';
+            $params[':apple_id'] = $data['apple_id'] ?? null;
+        }
+
         if (self::columnExists('mobile_usuarios', 'terms_accepted_at') && !empty($data['terms_accepted_at'])) {
             $columns[] = 'terms_accepted_at';
             $values[] = ':terms_accepted_at';
@@ -105,9 +111,12 @@ class User
         $marketingOptInField = self::columnExists('mobile_usuarios', 'marketing_opt_in')
             ? 'marketing_opt_in'
             : '0 AS marketing_opt_in';
+        $appleIdField = self::columnExists('mobile_usuarios', 'apple_id')
+            ? 'apple_id'
+            : 'NULL AS apple_id';
 
         $sql = "SELECT id, nombre, email, rol, telefono, {$fechaNacimientoField}, {$onboardingCompletedField},
-                       {$termsAcceptedField}, {$marketingOptInField}, foto_url, google_id, activo, created_at, updated_at,
+                       {$termsAcceptedField}, {$marketingOptInField}, foto_url, google_id, {$appleIdField}, activo, created_at, updated_at,
                        edad, genero, sexualidad, descripcion AS biografia, intereses AS gustos,
                        que_busca, redes_sociales, is_social_active, current_restaurante_id, mesa
                 FROM mobile_usuarios WHERE id = :id LIMIT 1";
@@ -233,6 +242,18 @@ class User
         return Database::queryOne($sql, [':google_id' => $googleId]);
     }
 
+    public static function findByAppleId(string $appleId): ?array
+    {
+        if (!self::columnExists('mobile_usuarios', 'apple_id')) {
+            return null;
+        }
+
+        return Database::queryOne(
+            'SELECT * FROM mobile_usuarios WHERE apple_id = :apple_id LIMIT 1',
+            [':apple_id' => $appleId]
+        );
+    }
+
     public static function update(int $id, array $data): bool
     {
         $setClause = [];
@@ -336,6 +357,18 @@ class User
             ':google_id' => $googleId,
             ':id' => $id
         ]) > 0;
+    }
+
+    public static function updateAppleId(int $id, string $appleId): bool
+    {
+        if (!self::columnExists('mobile_usuarios', 'apple_id')) {
+            return false;
+        }
+
+        return Database::rowCount(
+            'UPDATE mobile_usuarios SET apple_id = :apple_id, updated_at = NOW() WHERE id = :id',
+            [':apple_id' => $appleId, ':id' => $id]
+        ) > 0;
     }
 
     public static function verifyPassword(string $password, string $hash): bool

@@ -296,6 +296,7 @@ class ProfileController
                 'telefono = NULL',
                 'foto_url = NULL',
                 'google_id = NULL',
+                'apple_id = NULL',
                 'activo = 0',
                 'updated_at = NOW()',
             ];

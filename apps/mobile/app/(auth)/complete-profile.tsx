@@ -133,7 +133,7 @@ export default function CompleteProfileScreen() {
     return clampMonth(selected ?? getAgeBounds().max);
   });
   const [termsAccepted, setTermsAccepted] = useState(Boolean(user?.terms_accepted_at));
-  const [marketingOptIn, setMarketingOptIn] = useState(true);
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [canceling, setCanceling] = useState(false);

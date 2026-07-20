@@ -11,6 +11,7 @@ $routes = [
     ['POST', '/auth/register', ['Amare\Api\Controllers\AuthController', 'register']],
     ['POST', '/auth/login', ['Amare\Api\Controllers\AuthController', 'login']],
     ['POST', '/auth/google', ['Amare\Api\Controllers\AuthController', 'google']],
+    ['POST', '/auth/apple', ['Amare\Api\Controllers\AuthController', 'apple']],
     ['GET', '/auth/me', ['Amare\Api\Controllers\AuthController', 'me']],
     ['PUT', '/auth/update-password', ['Amare\Api\Controllers\AuthController', 'updatePassword']],
     ['POST', '/auth/password-reset/request', ['Amare\Api\Controllers\AuthController', 'requestPasswordReset']],

@@ -16,6 +16,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.amare.app",
       "buildNumber": "2",
+      "icon": "./assets/amare_icon_store.png",
+      "usesAppleSignIn": true,
       "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
         "aps-environment": "production"
@@ -80,6 +82,7 @@
         }
       ],
       "expo-notifications",
+      "expo-apple-authentication",
       [
         "expo-build-properties",
         {

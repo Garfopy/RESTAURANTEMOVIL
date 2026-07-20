@@ -8,6 +8,7 @@ import {
   Image,
   Platform,
   StatusBar,
+  ScrollView,
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
+import { AppleSignInButton } from '../../components/auth/AppleSignInButton';
 
 const BENEFITS = [
   { icon: 'sparkles-outline' as const, label: 'Experiencias' },
@@ -69,6 +71,11 @@ export default function LoginScreen() {
           <View style={styles.fineLine} />
         </View>
 
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
         <View style={[styles.container, compact && styles.containerCompact]}>
           <Animated.View
             style={[
@@ -127,6 +134,8 @@ export default function LoginScreen() {
               </TouchableOpacity>
             ) : null}
 
+            <AppleSignInButton />
+
             <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
               <View style={styles.primaryIcon}>
                 <Ionicons name="mail-outline" size={19} color="#24272D" />
@@ -149,6 +158,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </Animated.View>
         </View>
+        </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -157,6 +167,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   safe: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
   glow: { position: 'absolute', borderRadius: 999, backgroundColor: '#C6A97B' },
   glowTop: { width: 340, height: 340, top: -210, right: -100 },

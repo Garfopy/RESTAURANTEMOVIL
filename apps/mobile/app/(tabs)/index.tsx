@@ -24,7 +24,6 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import * as Notifications from 'expo-notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserStore } from '../../store/user.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
@@ -49,7 +48,6 @@ import { useToast } from '../../context/ToastContext';
 import { DeliveryAddressModal } from '../../components/modals/DeliveryAddressModal';
 import type { Platillo, Categoria, TipoPedido, Sucursal } from '@amare/types';
 import type { DeliveryAddressSelection } from '../../store/cart.store';
-import { hasGrantedNotificationPermission, registerPushNotifications } from '../../services/push-notifications.service';
 
 const HOME_BANNERS = [
   {
@@ -109,7 +107,7 @@ export default function HomeScreen() {
   const [pickupListExpanded, setPickupListExpanded] = useState(true);
   const [search, setSearch] = useState('');
   const [refreshingHome, setRefreshingHome] = useState(false);
-  const [isPermissionsResolved, setIsPermissionsResolved] = useState(false);
+  const isPermissionsResolved = true;
   const [reservationVisible, setReservationVisible] = useState(false);
   const [reservationName, setReservationName] = useState('');
   const [reservationPhone, setReservationPhone] = useState('');
@@ -123,7 +121,6 @@ export default function HomeScreen() {
   const [reservationLoading, setReservationLoading] = useState(false);
   const [reservationSubmitting, setReservationSubmitting] = useState(false);
   const initialFlowStartedRef = useRef(false);
-  const runtimePermissionsRequestedRef = useRef(false);
   const homeIntro = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0)).current;
 
@@ -136,46 +133,6 @@ export default function HomeScreen() {
       ])
     ).start();
   }, [heroGlow, homeIntro]);
-
-  useEffect(() => {
-    if (runtimePermissionsRequestedRef.current) {
-      return;
-    }
-
-    runtimePermissionsRequestedRef.current = true;
-    let cancelled = false;
-
-    async function requestInitialNativePermissions() {
-      try {
-        await Location.requestForegroundPermissionsAsync();
-        const notificationPermission = await Notifications.requestPermissionsAsync();
-
-        if (hasGrantedNotificationPermission(notificationPermission) && user?.id) {
-          void registerPushNotifications({
-            force: true,
-            reason: 'permission-accepted',
-            userId: user.id,
-          }).catch((error) => {
-            if (__DEV__) {
-              console.warn('[Push] No se pudo sincronizar el token tras aceptar permisos:', error);
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error solicitando permisos nativos iniciales:', error);
-      } finally {
-        if (!cancelled) {
-          setIsPermissionsResolved(true);
-        }
-      }
-    }
-
-    void requestInitialNativePermissions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
 
   // 🎞️ Animación para los indicadores (dots)
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -553,49 +510,11 @@ export default function HomeScreen() {
 
     async function bootstrapOrderFlow() {
       const enabledTypes = getEnabledOrderTypes(sucursales);
-      let modalTypes = enabledTypes;
-
-      if (enabledTypes.length === 1 && enabledTypes[0] === 'eat_in') {
-        const nearbyBranch = await evaluateNearbyBranch();
-        if (nearbyBranch.kind === 'inside') {
-          await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
-          return;
-        } else if (nearbyBranch.kind === 'near') {
-          setDetectedBranchMessage('Estas cerca de una sucursal. Acercate al restaurante para escanear el QR de tu mesa.');
-        } else if (nearbyBranch.kind === 'far') {
-          setDetectedBranchMessage('Para pedir en restaurante, acercate a una sucursal y escanea el QR de tu mesa.');
-        } else {
-          setDetectedBranchMessage('No pudimos confirmar que estes en restaurante. Acercate a una sucursal para comer en mesa.');
-        }
-        setAvailableTypes([]);
-        setSelectingPickupBranch(false);
-        setShowTypeModal(true);
-        return;
-      }
-
-      if (enabledTypes.includes('eat_in')) {
-        const nearbyBranch = await evaluateNearbyBranch();
-
-        if (nearbyBranch.kind === 'inside') {
-          await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
-          return;
-        }
-
-        else if (nearbyBranch.kind === 'near') {
-          modalTypes = getTypesWithoutEatIn(enabledTypes);
-          setDetectedBranchMessage('Estas cerca de una sucursal. Acercate al restaurante para escanear el QR de tu mesa.');
-        } else if (nearbyBranch.kind === 'far') {
-          modalTypes = getTypesWithoutEatIn(enabledTypes);
-          setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
-        } else {
-          modalTypes = getTypesWithoutEatIn(enabledTypes);
-          setDetectedBranchMessage('No pudimos confirmar que estés en restaurante. Te mostramos las opciones para pedir fuera.');
-        }
-      }
 
       if (!cancelled) {
-        setAvailableTypes(modalTypes.length ? modalTypes : getTypesWithoutEatIn(enabledTypes));
+        setAvailableTypes(enabledTypes);
         setSelectingPickupBranch(false);
+        setDetectedBranchMessage(null);
         setShowTypeModal(true);
       }
     }
