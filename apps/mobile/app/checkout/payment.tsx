@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -648,7 +649,12 @@ export default function PaymentScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView behavior={isIOS ? 'padding' : 'height'} style={styles.flex}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         <Text style={styles.sectionLabel}>Selecciona cómo quieres pagar</Text>
 
         <View style={[styles.methodsContainer, count === 1 && styles.methodsContainerCentered]}>
@@ -914,6 +920,7 @@ export default function PaymentScreen() {
           testID="payment-confirm-btn"
         />
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -937,6 +944,7 @@ function normalizePhone(value: string): string {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+  flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

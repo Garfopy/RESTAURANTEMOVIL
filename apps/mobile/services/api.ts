@@ -1,6 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '../constants/api';
 import { useUserStore } from '../store/user.store';
+import { extractAccountSuspension } from './account-suspension.service';
 
 // Ensure URL ends with /
 const normalizedBaseURL = API_BASE_URL.endsWith('/') ? API_BASE_URL : API_BASE_URL + '/';
@@ -98,7 +99,10 @@ apiClient.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401 && useUserStore.getState().token) {
+    const accountSuspension = extractAccountSuspension(error);
+    if (accountSuspension && useUserStore.getState().token) {
+      await useUserStore.getState().logout({ accountSuspension });
+    } else if (error.response?.status === 401 && useUserStore.getState().token) {
       await useUserStore.getState().logout();
     }
 

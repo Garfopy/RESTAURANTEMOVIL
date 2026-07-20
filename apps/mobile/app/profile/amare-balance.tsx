@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Keyboard,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -132,7 +134,12 @@ export default function AmareBalanceScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         <View style={styles.heroCard}>
           <Text style={styles.heroLabel}>Disponible</Text>
           <Text style={styles.heroValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
@@ -219,12 +226,14 @@ export default function AmareBalanceScreen() {
         </View>
 
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background || '#F9FAFB' },
+  flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

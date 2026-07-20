@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../../store/user.store';
 import { loginWithGoogle } from '../../services/auth.service';
 import { getApiError } from '../../services/api';
+import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { Colors, Typography } from '../../theme';
 import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
 import { registerPushNotifications } from '../../services/push-notifications.service';
@@ -39,6 +40,7 @@ const WEB_CLIENT_ID =
 export default function GoogleAuthScreen() {
   const router = useRouter();
   const login = useUserStore((state) => state.login);
+  const setAccountSuspension = useUserStore((state) => state.setAccountSuspension);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -103,6 +105,12 @@ export default function GoogleAuthScreen() {
     } catch (authError: unknown) {
       if (isGoogleSignInCancelled(authError)) {
         goToLogin();
+        return;
+      }
+
+      const accountSuspension = extractAccountSuspension(authError);
+      if (accountSuspension) {
+        setAccountSuspension(accountSuspension);
         return;
       }
 

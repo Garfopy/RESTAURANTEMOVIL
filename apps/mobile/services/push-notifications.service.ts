@@ -25,6 +25,9 @@ const PUSH_TOKEN_ENDPOINTS = [
   '/api/v1/notification-tokens',
   '/profile/push-token',
 ] as const;
+const DEFAULT_ANDROID_NOTIFICATION_CHANNEL_ID = 'default';
+const LEGACY_PROMOTIONS_ANDROID_NOTIFICATION_CHANNEL_ID = 'promotions';
+const ALERTS_ANDROID_NOTIFICATION_CHANNEL_ID = 'amare_alerts_v2';
 
 export function isPushRegistrationEnabled(): boolean {
   return process.env.EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION === 'true';
@@ -109,12 +112,7 @@ export async function registerPushNotifications(options?: {
     }
 
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('promotions', {
-        name: 'Promociones',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#E8A020',
-      });
+      await ensureAndroidNotificationChannels(Notifications);
     }
 
     const permissions = await getNotificationPermissions(Notifications, Boolean(options?.requestPermissions));
@@ -237,8 +235,16 @@ export function subscribeForegroundFirebaseMessages() {
           title: title ?? 'Amare',
           body: body ?? '',
           data: remoteMessage.data ?? {},
+          sound: 'default',
         },
-        trigger: null,
+        trigger: Platform.OS === 'android'
+          ? {
+              channelId:
+                stringValue(remoteMessage.data?.channel_id ?? remoteMessage.data?.channelId) ??
+                ALERTS_ANDROID_NOTIFICATION_CHANNEL_ID,
+              seconds: 1,
+            }
+          : null,
       });
     });
   } catch (error) {
@@ -247,6 +253,34 @@ export function subscribeForegroundFirebaseMessages() {
     }
     return () => undefined;
   }
+}
+
+async function ensureAndroidNotificationChannels(Notifications: ExpoNotificationsModule): Promise<void> {
+  if (Platform.OS !== 'android') return;
+
+  const commonChannelOptions = {
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#E8A020',
+    sound: 'default',
+    enableVibrate: true,
+    enableLights: true,
+  };
+
+  await Notifications.setNotificationChannelAsync(DEFAULT_ANDROID_NOTIFICATION_CHANNEL_ID, {
+    name: 'General',
+    ...commonChannelOptions,
+  });
+
+  await Notifications.setNotificationChannelAsync(ALERTS_ANDROID_NOTIFICATION_CHANNEL_ID, {
+    name: 'Alertas de Amare',
+    ...commonChannelOptions,
+  });
+
+  await Notifications.setNotificationChannelAsync(LEGACY_PROMOTIONS_ANDROID_NOTIFICATION_CHANNEL_ID, {
+    name: 'Promociones anteriores',
+    ...commonChannelOptions,
+  });
 }
 
 export function subscribeNotificationResponses(onDeepLink: (deepLink: string) => void) {

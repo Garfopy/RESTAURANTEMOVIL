@@ -1288,6 +1288,11 @@ export default function WaiterTableScreen() {
       </Modal>
 
       <Modal visible={closeVisible} transparent animationType="fade" onRequestClose={() => setCloseVisible(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+          style={styles.closeKeyboard}
+        >
         <Pressable style={styles.closeOverlay} onPress={() => setCloseVisible(false)}>
           <Pressable
             style={[
@@ -1296,7 +1301,12 @@ export default function WaiterTableScreen() {
             ]}
             onPress={(event) => event.stopPropagation()}
           >
-            <ScrollView contentContainerStyle={styles.closeModalContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.closeModalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            >
             <View style={styles.sheetHandle} />
             <Text style={styles.closeTitle}>Cerrar cuenta</Text>
             <Text style={styles.closeText}>Selecciona el método de pago para liberar {tableLabel}.</Text>
@@ -1389,6 +1399,7 @@ export default function WaiterTableScreen() {
             </ScrollView>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1402,6 +1413,9 @@ const styles = StyleSheet.create({
   modalSafe: {
     flex: 1,
     backgroundColor: '#F4F6F8',
+  },
+  closeKeyboard: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 18,

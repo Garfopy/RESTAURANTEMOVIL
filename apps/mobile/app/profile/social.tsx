@@ -1172,7 +1172,7 @@ export default function SocialProfileScreen() {
 
     const refreshTimer = setInterval(() => {
       void refreshAccountNotifications();
-    }, 2500);
+    }, 10000);
 
     return () => clearInterval(refreshTimer);
   }, [modoSocial]);
@@ -1502,7 +1502,7 @@ export default function SocialProfileScreen() {
       void refreshMatches(false);
       void refreshReceivedLikes();
       void refreshSentLikes();
-    }, 7000);
+    }, 12000);
 
     return () => clearInterval(refreshTimer);
   }, [user?.id]);
@@ -2050,10 +2050,21 @@ export default function SocialProfileScreen() {
   }
 
   function handleReportDiner(diner: SocialDiner) {
-    setReportDiner(diner);
-    setReportReason('');
-    setReportDetails('');
-    setReportModalVisible(true);
+    const openReport = () => {
+      setReportDiner(diner);
+      setReportReason('');
+      setReportDetails('');
+      setReportModalVisible(true);
+    };
+
+    if (detailsVisible) {
+      setDetailsVisible(false);
+      setFocusedDiner(null);
+      setTimeout(openReport, Platform.OS === 'ios' ? 320 : 160);
+      return;
+    }
+
+    openReport();
   }
 
   function closeReportModal() {
@@ -2353,9 +2364,27 @@ export default function SocialProfileScreen() {
     });
   }
 
+  function promptScanTableForSocial() {
+    Alert.alert(
+      'Escanea tu mesa',
+      'Para activar el modo social primero debes escanear el QR de tu mesa. Despues podras aparecer y descubrir otros comensales.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Escanear mesa', onPress: openSocialScanner },
+      ]
+    );
+  }
+
   async function updateSocialStatus(nextValue: boolean) {
+    const currentMesaValue = tableSession?.mesaValue ?? null;
+
     if (nextValue && !selectedBranch?.id && !deferredBranch?.id) {
-      openSocialScanner();
+      promptScanTableForSocial();
+      return;
+    }
+
+    if (nextValue && !currentMesaValue) {
+      promptScanTableForSocial();
       return;
     }
 
@@ -2374,12 +2403,12 @@ export default function SocialProfileScreen() {
     }
 
     if (nextValue) {
-      if (tableSession?.mesaValue) {
-        await requestSocialActivation(tableSession.mesaValue);
+      const mesaValue = currentMesaValue;
+      if (!mesaValue) {
+        promptScanTableForSocial();
         return;
       }
-
-      openSocialScanner();
+      await requestSocialActivation(mesaValue);
       return;
     }
 
@@ -4218,7 +4247,7 @@ export default function SocialProfileScreen() {
       <Modal visible={reportModalVisible} transparent animationType="slide" onRequestClose={closeReportModal}>
         <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <Pressable style={styles.modalBackdrop} onPress={closeReportModal} />
 
@@ -4241,7 +4270,12 @@ export default function SocialProfileScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.reportModalContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.reportModalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+            >
               <Text style={styles.reportFieldLabel}>Motivo</Text>
               <View style={styles.reportReasonList}>
                 {SOCIAL_REPORT_REASONS.map((reason) => {

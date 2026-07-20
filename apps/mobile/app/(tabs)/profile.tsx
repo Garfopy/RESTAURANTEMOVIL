@@ -16,7 +16,6 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
-import { useTableSessionStore } from '../../store/table-session.store';
 import { apiClient } from '../../services/api';
 import { deleteAccount, logout } from '../../services/auth.service';
 import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
@@ -27,8 +26,6 @@ export default function ProfileScreen() {
   const user = useUserStore((s) => s.user);
   const setUser = useUserStore((s) => s.setUser);
   const logoutStore = useUserStore((s) => s.logout);
-  const tableSession = useTableSessionStore((s) => s.session);
-  const canShowSocialProfile = Boolean(tableSession?.restauranteId || user?.current_restaurante_id);
 
   const [uploading, setUploading] = useState(false);
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
@@ -313,15 +310,13 @@ export default function ProfileScreen() {
               onPress={() => router.push('/profile/activity' as any)}
               showDivider
             />
-            {canShowSocialProfile ? (
-              <MenuItem
-                icon="people"
-                label="Perfil social"
-                color="#8B5CF6"
-                onPress={() => router.push('/profile/social' as any)}
-                showDivider
-              />
-            ) : null}
+            <MenuItem
+              icon="people"
+              label="Perfil social"
+              color="#8B5CF6"
+              onPress={() => router.push('/profile/social' as any)}
+              showDivider
+            />
             <MenuItem
               icon="heart"
               label="Favoritos"

@@ -21,6 +21,7 @@ import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
 import { mapErrorToFriendly, validateLoginIdentifier, validatePassword } from '../../services/error.service';
 import { registerPushNotifications } from '../../services/push-notifications.service';
+import { extractAccountSuspension } from '../../services/account-suspension.service';
 
 const AuthColors = {
   bg: '#24272D',
@@ -40,6 +41,7 @@ const AuthColors = {
 export default function EmailLoginScreen() {
   const router = useRouter();
   const login = useUserStore((s) => s.login);
+  const setAccountSuspension = useUserStore((s) => s.setAccountSuspension);
   const toast = useToast();
 
   const [email, setEmail] = useState('');
@@ -103,12 +105,17 @@ export default function EmailLoginScreen() {
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
       const identifier = email.trim();
       const sesion = await loginWithEmail({ email: identifier.includes('@') ? identifier.toLowerCase() : identifier, password });
       await login(sesion);
       void registerPushNotifications({ force: true, reason: 'login-success', userId: sesion.user.id });
     } catch (err: unknown) {
+      const accountSuspension = extractAccountSuspension(err);
+      if (accountSuspension) {
+        setAccountSuspension(accountSuspension);
+        return;
+      }
+
       const friendlyError = mapErrorToFriendly(err);
       toast.error(friendlyError.message, { icon: friendlyError.icon });
     } finally {
@@ -129,6 +136,7 @@ export default function EmailLoginScreen() {
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
         >
           <Animated.View style={[styles.header, { opacity: intro }]}>

@@ -24,6 +24,7 @@ import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
+import { extractAccountSuspension } from '../services/account-suspension.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
@@ -59,12 +60,14 @@ if (__DEV__ && !STRIPE_PUBLISHABLE_KEY) {
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading, user } = useUserStore();
-  const inAuth = segments[0] === '(auth)';
-  const inPublicLegal = segments[0] === 'legal';
+  const { isAuthenticated, isLoading, user, accountSuspension } = useUserStore();
+  const firstSegment = String(segments[0] ?? '');
+  const inAuth = firstSegment === '(auth)';
+  const inPublicLegal = firstSegment === 'legal';
+  const inAccountSuspended = firstSegment === 'account-suspended';
   const inCompleteProfile = inAuth && segments[1] === 'complete-profile';
-  const inWaiter = segments[0] === '(waiter)';
-  const inHostess = segments[0] === '(hostess)';
+  const inWaiter = firstSegment === '(waiter)';
+  const inHostess = firstSegment === '(hostess)';
   const isWaiter = user?.rol === 'mesero';
   const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
     String(user?.rol ?? '').toLowerCase()
@@ -77,7 +80,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       (user.requires_onboarding || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
   );
   const redirectTo =
-    !isLoading && !isAuthenticated && !inAuth && !inPublicLegal
+    !isLoading && accountSuspension && !inAccountSuspended
+      ? '/account-suspended'
+      : !isLoading && !isAuthenticated && !inAuth && !inPublicLegal && !inAccountSuspended
       ? '/(auth)/login'
       : !isLoading && needsOnboarding && !inCompleteProfile
         ? '/(auth)/complete-profile'
@@ -252,6 +257,43 @@ function PushNotificationRuntime() {
   return null;
 }
 
+function AccountStatusRuntime() {
+  const isAuthenticated = useUserStore((state) => state.isAuthenticated);
+  const setUser = useUserStore((state) => state.setUser);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let disposed = false;
+
+    const checkAccount = async () => {
+      if (disposed || AppState.currentState !== 'active') return;
+
+      try {
+        const user = await getMe();
+        if (!disposed) setUser(user);
+      } catch {
+        // El interceptor global convierte una cuenta suspendida en logout + pantalla dedicada.
+      }
+    };
+
+    const interval = setInterval(checkAccount, 30_000);
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void checkAccount();
+      }
+    });
+
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [isAuthenticated, setUser]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const { hydrateFromStorage, setUser, logout } = useUserStore();
   const hydrateTheme = useThemeStore((s) => s.hydrateTheme);
@@ -284,9 +326,9 @@ export default function RootLayout() {
         try {
           const user = await getMe();
           setUser(user);
-        } catch {
+        } catch (error: unknown) {
           // Token inválido o expirado — cerrar sesión
-          await logout();
+          await logout({ accountSuspension: extractAccountSuspension(error) });
         }
       }
 
@@ -312,6 +354,7 @@ export default function RootLayout() {
             <ToastProvider>
               <BranchConfigRuntime />
               <PushNotificationRuntime />
+              <AccountStatusRuntime />
               <TableSessionRuntime />
               <GlobalSocialNotifications />
               <AuthGuard>
@@ -329,6 +372,7 @@ export default function RootLayout() {
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="(waiter)" />
                     <Stack.Screen name="(hostess)" />
+                    <Stack.Screen name="account-suspended" />
                     <Stack.Screen name="branch-selector" options={{ presentation: 'modal', gestureEnabled: true }} />
                     <Stack.Screen name="table-scanner" options={{ presentation: 'modal', gestureEnabled: true }} />
                     <Stack.Screen name="product/[id]" />

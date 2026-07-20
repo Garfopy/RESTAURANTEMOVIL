@@ -51,7 +51,7 @@ export default function LoginScreen() {
   }
 
   const compact = height < 740;
-  const showGoogleSignIn = Platform.OS !== 'ios';
+  const showGoogleSignIn = true;
 
   return (
     <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>

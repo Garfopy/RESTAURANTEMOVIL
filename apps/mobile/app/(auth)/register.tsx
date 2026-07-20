@@ -306,7 +306,6 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
       const sesion = await register({
         nombre: nombre.trim(),
         telefono: fullPhone,
@@ -333,10 +332,11 @@ export default function RegisterScreen() {
         <View style={styles.glowTop} />
         <View style={styles.glowBottom} />
       </View>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
         >
           <TouchableOpacity

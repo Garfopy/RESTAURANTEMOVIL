@@ -10,6 +10,8 @@ import {
   StatusBar,
   Animated,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
@@ -1361,6 +1363,7 @@ export default function HomeScreen() {
 
       <Modal visible={reservationVisible} transparent animationType="slide" onRequestClose={() => setReservationVisible(false)}>
         <View style={styles.reservationModalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.reservationKeyboard}>
           <View style={styles.reservationModal}>
             <View style={styles.reservationModalHeader}>
               <View>
@@ -1372,7 +1375,12 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.reservationForm}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.reservationForm}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+            >
               <TextInput
                 style={styles.reservationInput}
                 value={reservationName}
@@ -1483,6 +1491,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -1653,6 +1662,10 @@ const styles = StyleSheet.create({
   reservationModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'flex-end',
+  },
+  reservationKeyboard: {
+    flex: 1,
     justifyContent: 'flex-end',
   },
   reservationModal: {

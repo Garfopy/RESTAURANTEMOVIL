@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Amare\Api\Middleware;
 
+use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Models\User;
 use Firebase\JWT\JWT;
@@ -11,6 +12,8 @@ use Firebase\JWT\Key;
 
 class AuthMiddleware
 {
+    private const ACCOUNT_SUSPENDED_CODE = 'ACCOUNT_SUSPENDED';
+
     /**
      * Obtiene la clave secreta JWT de forma segura con fallbacks alternativos
      */
@@ -77,6 +80,11 @@ class AuthMiddleware
         }
 
         $authSource = isset($user->auth_source) ? (string)$user->auth_source : null;
+        $storedUser = $authSource === 'staff' ? null : User::findById($userId);
+        if ($storedUser && array_key_exists('activo', $storedUser) && (int)$storedUser['activo'] !== 1) {
+            self::accountSuspendedResponse($userId, 401);
+        }
+
         if (!User::findAuthenticated($userId, $authSource)) {
             Response::unauthorized('Cuenta desactivada o no disponible');
         }
@@ -148,7 +156,7 @@ class AuthMiddleware
             $userId = isset($data['id']) ? (int)$data['id'] : 0;
             $user = $userId > 0 ? User::findById($userId) : null;
             if (!$user || (array_key_exists('activo', $user) && (int)$user['activo'] !== 1)) {
-                Response::error('Tu cuenta fue desactivada. Contacta al restaurante para revisar tu caso.', 403);
+                self::accountSuspendedResponse($userId, 403);
             }
         }
 
@@ -168,5 +176,74 @@ class AuthMiddleware
         ];
 
         return JWT::encode($payload, $secret, 'HS256');
+    }
+
+    private static function accountSuspendedResponse(int $userId, int $statusCode): void
+    {
+        $notice = self::buildSuspensionNotice($userId);
+
+        Response::json([
+            'success' => false,
+            'message' => $notice['explanation'],
+            'code' => self::ACCOUNT_SUSPENDED_CODE,
+            'data' => $notice,
+        ], $statusCode);
+    }
+
+    private static function buildSuspensionNotice(int $userId): array
+    {
+        $report = self::latestReportForSuspendedUser($userId);
+        $reasonCode = is_array($report) ? (string)($report['reason'] ?? '') : '';
+        $reason = self::formatSuspensionReason($reasonCode);
+        $details = is_array($report) ? trim((string)($report['details'] ?? '')) : '';
+
+        if ($reason === '') {
+            $reason = 'Cuenta desactivada por moderacion';
+        }
+
+        $explanation = 'Tu cuenta fue suspendida y no puede acceder a la app en este momento. ';
+        $explanation .= 'Si consideras que fue un error, contacta al restaurante para solicitar una revision.';
+
+        return [
+            'title' => 'Cuenta suspendida',
+            'reason_code' => $reasonCode !== '' ? $reasonCode : null,
+            'reason' => $reason,
+            'details' => $details !== '' ? substr($details, 0, 600) : null,
+            'explanation' => $explanation,
+            'support_hint' => 'Contacta al restaurante para revisar tu caso.',
+        ];
+    }
+
+    private static function latestReportForSuspendedUser(int $userId): ?array
+    {
+        if ($userId <= 0) {
+            return null;
+        }
+
+        try {
+            return Database::queryOne(
+                "SELECT reason, details, status, created_at
+                   FROM social_reports
+                  WHERE reported_user_id = :user_id
+                  ORDER BY created_at DESC
+                  LIMIT 1",
+                [':user_id' => $userId]
+            );
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private static function formatSuspensionReason(string $reasonCode): string
+    {
+        return match ($reasonCode) {
+            'harassment' => 'Acoso o conducta ofensiva',
+            'inappropriate_content' => 'Contenido inapropiado',
+            'fake_profile' => 'Perfil falso o suplantacion',
+            'safety' => 'Riesgo de seguridad',
+            'spam' => 'Spam o uso indebido',
+            'other' => 'Otro motivo reportado',
+            default => '',
+        };
     }
 }
