@@ -20,7 +20,6 @@ import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
 import { mapErrorToFriendly, validateLoginIdentifier, validatePassword } from '../../services/error.service';
-import { registerPushNotifications } from '../../services/push-notifications.service';
 
 const AuthColors = {
   bg: '#24272D',
@@ -107,7 +106,6 @@ export default function EmailLoginScreen() {
       const identifier = email.trim();
       const sesion = await loginWithEmail({ email: identifier.includes('@') ? identifier.toLowerCase() : identifier, password });
       await login(sesion);
-      void registerPushNotifications({ force: true, reason: 'login-success', userId: sesion.user.id });
     } catch (err: unknown) {
       const friendlyError = mapErrorToFriendly(err);
       toast.error(friendlyError.message, { icon: friendlyError.icon });

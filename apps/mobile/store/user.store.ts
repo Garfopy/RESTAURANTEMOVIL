@@ -30,14 +30,18 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   login: async (sesion: Sesion) => {
     clearSessionState();
-    await SecureStore.setItemAsync(TOKEN_KEY, sesion.token);
-    await SecureStore.setItemAsync(API_SOURCE_KEY, normalizeApiBase(API_BASE_URL));
+    await Promise.all([
+      SecureStore.setItemAsync(TOKEN_KEY, sesion.token),
+      SecureStore.setItemAsync(API_SOURCE_KEY, normalizeApiBase(API_BASE_URL)),
+    ]);
     set({ user: sesion.user, token: sesion.token, isAuthenticated: true });
   },
 
   logout: async () => {
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await SecureStore.deleteItemAsync(API_SOURCE_KEY);
+    await Promise.all([
+      SecureStore.deleteItemAsync(TOKEN_KEY),
+      SecureStore.deleteItemAsync(API_SOURCE_KEY),
+    ]);
     clearSessionState();
     set({ user: null, token: null, isAuthenticated: false, isLoading: false });
   },
@@ -53,8 +57,10 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   hydrateFromStorage: async () => {
     try {
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      const storedApiBase = await SecureStore.getItemAsync(API_SOURCE_KEY);
+      const [token, storedApiBase] = await Promise.all([
+        SecureStore.getItemAsync(TOKEN_KEY),
+        SecureStore.getItemAsync(API_SOURCE_KEY),
+      ]);
 
       if (token && storedApiBase && storedApiBase !== normalizeApiBase(API_BASE_URL)) {
         await SecureStore.deleteItemAsync(TOKEN_KEY);

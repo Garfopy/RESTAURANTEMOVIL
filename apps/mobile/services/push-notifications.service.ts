@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import axios from 'axios';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import * as SecureStore from 'expo-secure-store';
 import type { DevicePushToken, NotificationPermissionsStatus, NotificationResponse } from 'expo-notifications';
 import type { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
@@ -17,17 +18,19 @@ type FirebaseMessaging = FirebaseMessagingModule['default'];
 let expoNotifications: ExpoNotificationsModule | null | undefined;
 let firebaseMessaging: FirebaseMessaging | null | undefined;
 let lastPushSyncSignature: string | null = null;
+let pushRegistrationInFlight: { userId: number; promise: Promise<string | null> } | null = null;
 
 const DEVICE_ID_KEY = 'amare_push_device_id';
 const PUSH_TOKEN_ENDPOINTS = [
+  '/profile/push-token',
   '/api/v1/push-tokens',
   '/api/v1/mobile-push-tokens',
   '/api/v1/notification-tokens',
-  '/profile/push-token',
 ] as const;
 
 export function isPushRegistrationEnabled(): boolean {
-  return process.env.EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION === 'true';
+  // Push queda activo en builds nativos salvo que se desactive explicitamente.
+  return process.env.EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION !== 'false';
 }
 
 function logPushDiagnostic(message: string, extra?: Record<string, unknown>) {
@@ -91,7 +94,6 @@ if (isPushRegistrationEnabled()) {
 }
 
 export async function registerPushNotifications(options?: {
-  force?: boolean;
   requestPermissions?: boolean;
   reason?: string;
   userId?: number | null;
@@ -100,6 +102,44 @@ export async function registerPushNotifications(options?: {
     return null;
   }
 
+  const userId = Number(options?.userId ?? useUserStore.getState().user?.id ?? 0);
+  if (!userId) {
+    logPushDiagnostic('No hay usuario autenticado; se omite sincronizacion push', {
+      platform: Platform.OS,
+      reason: options?.reason ?? 'unspecified',
+    });
+    return null;
+  }
+
+  if (pushRegistrationInFlight) {
+    if (pushRegistrationInFlight.userId === userId) {
+      return pushRegistrationInFlight.promise;
+    }
+
+    await pushRegistrationInFlight.promise.catch(() => null);
+    return registerPushNotifications(options);
+  }
+
+  const promise = performPushRegistration(userId, options);
+  pushRegistrationInFlight = { userId, promise };
+
+  try {
+    return await promise;
+  } finally {
+    if (pushRegistrationInFlight?.promise === promise) {
+      pushRegistrationInFlight = null;
+    }
+  }
+}
+
+async function performPushRegistration(
+  userId: number,
+  options?: {
+    requestPermissions?: boolean;
+    reason?: string;
+    userId?: number | null;
+  }
+): Promise<string | null> {
   try {
     const Notifications = getExpoNotifications();
     const messaging = getFirebaseMessaging();
@@ -126,15 +166,6 @@ export async function registerPushNotifications(options?: {
       return null;
     }
 
-    const userId = Number(options?.userId ?? useUserStore.getState().user?.id ?? 0);
-    if (!userId) {
-      logPushDiagnostic('No hay usuario autenticado; se omite sincronizacion push', {
-        platform: Platform.OS,
-        reason: options?.reason ?? 'unspecified',
-      });
-      return null;
-    }
-
     const token = await getBestPushToken(Notifications, messaging);
     if (!token) {
       logPushDiagnostic('No se obtuvo token push nativo', {
@@ -147,7 +178,7 @@ export async function registerPushNotifications(options?: {
     const deviceId = await getOrCreateDeviceId();
     const signature = `${userId}:${Platform.OS}:${deviceId}:${token}`;
 
-    if (!options?.force && lastPushSyncSignature === signature) {
+    if (lastPushSyncSignature === signature) {
       return token;
     }
 
@@ -177,21 +208,13 @@ export function subscribePushTokenRefresh() {
     return () => undefined;
   }
 
-  const Notifications = getExpoNotifications();
   const messaging = getFirebaseMessaging();
   const unsubscribers: Array<() => void> = [];
-
-  if (Notifications?.addPushTokenListener) {
-    const subscription = Notifications.addPushTokenListener(() => {
-      void registerPushNotifications({ force: true, reason: 'expo-token-refresh' });
-    });
-    unsubscribers.push(() => subscription.remove());
-  }
 
   if (messaging) {
     try {
       const unsubscribeMessaging = messaging().onTokenRefresh(() => {
-        void registerPushNotifications({ force: true, reason: 'firebase-token-refresh' });
+        void registerPushNotifications({ reason: 'firebase-token-refresh' });
       });
       unsubscribers.push(unsubscribeMessaging);
     } catch (error) {
@@ -296,6 +319,22 @@ export async function unregisterPushNotifications(fcmToken: string): Promise<voi
   }
 }
 
+export async function unregisterCurrentDevicePushNotifications(): Promise<void> {
+  if (Platform.OS === 'web' || !isPushRegistrationEnabled()) return;
+
+  const Notifications = getExpoNotifications();
+  if (!Notifications) return;
+
+  const permissions = await getNotificationPermissions(Notifications, false);
+  if (!permissions.granted) return;
+
+  const token = await getBestPushToken(Notifications, getFirebaseMessaging());
+  if (!token) return;
+
+  await unregisterPushNotifications(token);
+  lastPushSyncSignature = null;
+}
+
 export function getNotificationDeepLink(response: NotificationResponse): string | null {
   const data = response.notification.request.content.data ?? {};
   return getNotificationDataDeepLink(data);
@@ -387,11 +426,20 @@ async function getBestPushToken(
   Notifications: ExpoNotificationsModule,
   messaging: FirebaseMessaging | null
 ): Promise<string | null> {
+  if (messaging && !messaging().isDeviceRegisteredForRemoteMessages) {
+    try {
+      await messaging().registerDeviceForRemoteMessages();
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('[Push] No se pudo registrar el dispositivo en Firebase:', error);
+      }
+    }
+  }
+
   const nativeToken = await getNativeDevicePushToken(Notifications);
 
   if (Platform.OS === 'ios' && messaging) {
     try {
-      await messaging().registerDeviceForRemoteMessages();
       const fcmToken = await messaging().getToken();
       if (fcmToken) {
         return fcmToken;
@@ -459,6 +507,11 @@ function extractPushTokenString(devicePushToken: DevicePushToken | null | undefi
 }
 
 async function getOrCreateDeviceId(): Promise<string> {
+  const nativeDeviceId = await getStableNativeDeviceId();
+  if (nativeDeviceId) {
+    return `${Platform.OS}:${nativeDeviceId}`;
+  }
+
   try {
     const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
     if (existing?.trim()) {
@@ -474,6 +527,24 @@ async function getOrCreateDeviceId(): Promise<string> {
     }
     return Constants.sessionId ?? `${Platform.OS}-session`;
   }
+}
+
+async function getStableNativeDeviceId(): Promise<string | null> {
+  try {
+    if (Platform.OS === 'android') {
+      return Application.getAndroidId()?.trim() || null;
+    }
+
+    if (Platform.OS === 'ios') {
+      return (await Application.getIosIdForVendorAsync())?.trim() || null;
+    }
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[Push] No se pudo obtener el identificador estable del dispositivo:', error);
+    }
+  }
+
+  return null;
 }
 
 async function syncPushTokenWithBackend(payload: {

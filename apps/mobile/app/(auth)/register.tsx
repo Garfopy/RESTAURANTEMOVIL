@@ -24,7 +24,6 @@ import { useUserStore } from '../../store/user.store';
 import { Button } from '../../components/ui/Button';
 import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
-import { registerPushNotifications } from '../../services/push-notifications.service';
 import {
   mapErrorToFriendly,
   validateName,
@@ -315,7 +314,6 @@ export default function RegisterScreen() {
         password,
       });
       await loginStore(sesion);
-      void registerPushNotifications({ force: true, reason: 'login-success', userId: sesion.user.id });
       toast.success('Cuenta creada exitosamente');
     } catch (err: unknown) {
       const friendlyError = mapErrorToFriendly(err);

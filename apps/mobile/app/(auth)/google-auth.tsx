@@ -10,7 +10,6 @@ import { loginWithGoogle } from '../../services/auth.service';
 import { getApiError } from '../../services/api';
 import { Colors, Typography } from '../../theme';
 import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
-import { registerPushNotifications } from '../../services/push-notifications.service';
 
 type GoogleSignInModule = {
   configure: (options: { webClientId: string; iosClientId?: string; offlineAccess?: boolean; scopes?: string[] }) => void;
@@ -99,7 +98,6 @@ export default function GoogleAuthScreen() {
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
       });
       await login(sesion);
-      void registerPushNotifications({ force: true, reason: 'login-success', userId: sesion.user.id });
     } catch (authError: unknown) {
       if (isGoogleSignInCancelled(authError)) {
         goToLogin();

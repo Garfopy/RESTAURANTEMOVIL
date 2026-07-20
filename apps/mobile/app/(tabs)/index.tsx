@@ -29,7 +29,7 @@ import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useCartStore } from '../../store/cart.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranches } from '../../hooks/useBranches';
-import { useFeaturedDishes, useCategories, useDishes } from '../../hooks/useMenu';
+import { useCategories, useDishes } from '../../hooks/useMenu';
 import { getNearestBranches } from '../../services/branches.service';
 import { ensureCameraPermission, ensureLocationPermission } from '../../services/app-permissions.service';
 import { createReservation, getReservationAvailability, type ReservationTable } from '../../services/reservations.service';
@@ -150,7 +150,6 @@ export default function HomeScreen() {
 
         if (hasGrantedNotificationPermission(notificationPermission) && user?.id) {
           void registerPushNotifications({
-            force: true,
             reason: 'permission-accepted',
             userId: user.id,
           }).catch((error) => {
@@ -195,7 +194,6 @@ export default function HomeScreen() {
     null;
   const restauranteId = menuBranch?.id ?? user?.current_restaurante_id ?? undefined;
   const { data: categories, isLoading: loadingCats, refetch: refetchCategories } = useCategories(restauranteId);
-  const { data: featured, isLoading: loadingFeatured, refetch: refetchFeatured } = useFeaturedDishes(restauranteId);
   const { data: allDishes, isLoading: loadingAllDishes, refetch: refetchAllDishes } = useDishes(restauranteId);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
   const visibleCategories =
@@ -219,8 +217,8 @@ export default function HomeScreen() {
               ])
           ).values()
         );
-  const visibleFeatured = featured && featured.length > 0 ? featured : (allDishes ?? []).slice(0, 8);
-  const loadingMenuItems = loadingFeatured || ((featured?.length ?? 0) === 0 && loadingAllDishes);
+  const visibleFeatured = (allDishes ?? []).slice(0, 8);
+  const loadingMenuItems = loadingAllDishes;
 
   useEffect(() => {
     if (tipoPedido === 'eat_in' && !tableSession && !deferredBranch) {
@@ -234,7 +232,6 @@ export default function HomeScreen() {
       await Promise.all([
         restauranteId ? refreshBranchConfig(restauranteId, { force: true }) : Promise.resolve(),
         refetchCategories(),
-        refetchFeatured(),
         refetchAllDishes(),
       ]);
     } catch {

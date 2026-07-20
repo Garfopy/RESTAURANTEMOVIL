@@ -24,6 +24,8 @@ import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
+import { apiClient } from '../services/api';
+import { getOrders } from '../services/orders.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
@@ -234,13 +236,36 @@ function PushNotificationRuntime() {
       return;
     }
 
-    registeredForUserRef.current = userId;
-    void registerPushNotifications({ reason: 'app-start' }).catch((error) => {
-      registeredForUserRef.current = null;
-      if (__DEV__) {
-        console.warn('[Push] No se pudo registrar el token:', error);
+    const syncToken = (reason: string) => {
+      if (!userId) return;
+
+      registeredForUserRef.current = userId;
+      void registerPushNotifications({ reason, userId })
+        .then((token) => {
+          if (!token) {
+            registeredForUserRef.current = null;
+          }
+        })
+        .catch((error) => {
+          registeredForUserRef.current = null;
+          if (__DEV__) {
+            console.warn('[Push] No se pudo registrar el token:', error);
+          }
+        });
+    };
+
+    // Un userId nuevo siempre reasigna el token aunque el permiso ya estuviera concedido.
+    syncToken('authenticated-user-changed');
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncToken('app-resume');
       }
     });
+
+    return () => {
+      subscription.remove();
+    };
   }, [isAuthenticated, userId]);
 
   useEffect(() => {
@@ -248,6 +273,53 @@ function PushNotificationRuntime() {
       registeredForUserRef.current = null;
     }
   }, [isAuthenticated]);
+
+  return null;
+}
+
+function AuthenticatedDataWarmupRuntime() {
+  const userId = useUserStore((state) => state.user?.id ?? null);
+  const previousUserIdRef = useRef<number | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (previousUserIdRef.current !== userId) {
+      for (const queryKey of [['favorites'], ['orders'], ['addresses'], ['social'], ['rewards']]) {
+        queryClient.removeQueries({ queryKey });
+      }
+      previousUserIdRef.current = userId;
+    }
+
+    if (!userId) return;
+
+    // Se difiere para no competir con los datos y animaciones de la pantalla inicial.
+    const timer = setTimeout(() => {
+      void Promise.allSettled([
+        queryClient.prefetchQuery({
+          queryKey: ['promotions'],
+          queryFn: async () => {
+            const response = await apiClient.get('/promotions');
+            return response.data.data ?? [];
+          },
+          staleTime: 5 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ['favorites'],
+          queryFn: async () => {
+            const response = await apiClient.get('/favorites');
+            return response.data.data ?? [];
+          },
+          staleTime: 2 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ['orders'],
+          queryFn: getOrders,
+          staleTime: 15 * 1000,
+        }),
+      ]);
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [userId]);
 
   return null;
 }
@@ -272,11 +344,13 @@ export default function RootLayout() {
     let cancelled = false;
 
     async function init() {
-      await hydrateTheme();
-      await hydrateFromStorage();
-      await hydrateBranchSelection();
-      await hydrateCart();
-      await hydrateTableSession();
+      await Promise.all([
+        hydrateTheme(),
+        hydrateFromStorage(),
+        hydrateBranchSelection(),
+        hydrateCart(),
+        hydrateTableSession(),
+      ]);
 
       // Si se restauró un token, validarlo con el servidor
       const { isAuthenticated, token } = useUserStore.getState();
@@ -312,6 +386,7 @@ export default function RootLayout() {
             <ToastProvider>
               <BranchConfigRuntime />
               <PushNotificationRuntime />
+              <AuthenticatedDataWarmupRuntime />
               <TableSessionRuntime />
               <GlobalSocialNotifications />
               <AuthGuard>

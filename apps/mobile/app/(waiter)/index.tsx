@@ -22,6 +22,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { getApiError } from '../../services/api';
+import { logout as unregisterSessionPush } from '../../services/auth.service';
 import {
   claimWaiterTable,
   getWaiterBranches,
@@ -479,6 +480,7 @@ export default function WaiterHomeScreen() {
   }
 
   async function handleLogout() {
+    await unregisterSessionPush().catch(() => undefined);
     await logout();
     router.replace('/(auth)/login');
   }
