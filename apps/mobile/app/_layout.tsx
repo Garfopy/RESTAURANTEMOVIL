@@ -25,6 +25,8 @@ import { hydrateCart } from '../store/cart.store';
 import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
 import { extractAccountSuspension } from '../services/account-suspension.service';
+import { apiClient } from '../services/api';
+import { getOrders } from '../services/orders.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
@@ -51,6 +53,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+const ACCOUNT_STATUS_INTERVAL_MS = 5 * 60 * 1000;
+const ACCOUNT_STATUS_RESUME_STALE_MS = 60 * 1000;
 
 // Guard para detectar configuración incorrecta de Stripe
 if (__DEV__ && !STRIPE_PUBLISHABLE_KEY) {
@@ -239,13 +244,40 @@ function PushNotificationRuntime() {
       return;
     }
 
-    registeredForUserRef.current = userId;
-    void registerPushNotifications({ reason: 'app-start' }).catch((error) => {
-      registeredForUserRef.current = null;
-      if (__DEV__) {
-        console.warn('[Push] No se pudo registrar el token:', error);
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const syncToken = (reason: string, retryOnce = false) => {
+      registeredForUserRef.current = userId;
+      void registerPushNotifications({ reason, userId })
+        .then((token) => {
+          if (!token) {
+            registeredForUserRef.current = null;
+            if (retryOnce && !retryTimer) {
+              retryTimer = setTimeout(() => syncToken('bounded-retry'), 10_000);
+            }
+          }
+        })
+        .catch((error) => {
+          registeredForUserRef.current = null;
+          if (__DEV__) {
+            console.warn('[Push] No se pudo registrar el token:', error);
+          }
+        });
+    };
+
+    syncToken('authenticated-user-changed', true);
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        // El servicio deduplica la firma y solo escribe si usuario, dispositivo o token cambiaron.
+        syncToken('app-resume');
       }
     });
+
+    return () => {
+      subscription.remove();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [isAuthenticated, userId]);
 
   useEffect(() => {
@@ -260,24 +292,38 @@ function PushNotificationRuntime() {
 function AccountStatusRuntime() {
   const isAuthenticated = useUserStore((state) => state.isAuthenticated);
   const setUser = useUserStore((state) => state.setUser);
+  const lastCheckedAtRef = useRef(Date.now());
+  const checkInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!isAuthenticated) return;
 
     let disposed = false;
 
-    const checkAccount = async () => {
-      if (disposed || AppState.currentState !== 'active') return;
+    const checkAccount = async (force = false) => {
+      const now = Date.now();
+      if (
+        disposed ||
+        checkInFlightRef.current ||
+        AppState.currentState !== 'active' ||
+        (!force && now - lastCheckedAtRef.current < ACCOUNT_STATUS_RESUME_STALE_MS)
+      ) {
+        return;
+      }
 
+      checkInFlightRef.current = true;
+      lastCheckedAtRef.current = now;
       try {
         const user = await getMe();
         if (!disposed) setUser(user);
       } catch {
         // El interceptor global convierte una cuenta suspendida en logout + pantalla dedicada.
+      } finally {
+        checkInFlightRef.current = false;
       }
     };
 
-    const interval = setInterval(checkAccount, 30_000);
+    const interval = setInterval(() => void checkAccount(true), ACCOUNT_STATUS_INTERVAL_MS);
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         void checkAccount();
@@ -290,6 +336,52 @@ function AccountStatusRuntime() {
       subscription.remove();
     };
   }, [isAuthenticated, setUser]);
+
+  return null;
+}
+
+function AuthenticatedDataWarmupRuntime() {
+  const userId = useUserStore((state) => state.user?.id ?? null);
+  const previousUserIdRef = useRef<number | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (previousUserIdRef.current !== userId) {
+      for (const queryKey of [['promotions'], ['favorites'], ['orders'], ['addresses'], ['social'], ['rewards']]) {
+        queryClient.removeQueries({ queryKey });
+      }
+      previousUserIdRef.current = userId;
+    }
+
+    if (!userId) return;
+
+    const timer = setTimeout(() => {
+      void Promise.allSettled([
+        queryClient.prefetchQuery({
+          queryKey: ['promotions'],
+          queryFn: async () => {
+            const response = await apiClient.get('/promotions');
+            return response.data.data ?? [];
+          },
+          staleTime: 5 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ['favorites'],
+          queryFn: async () => {
+            const response = await apiClient.get('/favorites');
+            return response.data.data ?? [];
+          },
+          staleTime: 2 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ['orders'],
+          queryFn: getOrders,
+          staleTime: 15 * 1000,
+        }),
+      ]);
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [userId]);
 
   return null;
 }
@@ -314,11 +406,13 @@ export default function RootLayout() {
     let cancelled = false;
 
     async function init() {
-      await hydrateTheme();
-      await hydrateFromStorage();
-      await hydrateBranchSelection();
-      await hydrateCart();
-      await hydrateTableSession();
+      await Promise.all([
+        hydrateTheme(),
+        hydrateFromStorage(),
+        hydrateBranchSelection(),
+        hydrateCart(),
+        hydrateTableSession(),
+      ]);
 
       // Si se restauró un token, validarlo con el servidor
       const { isAuthenticated, token } = useUserStore.getState();
@@ -355,6 +449,7 @@ export default function RootLayout() {
               <BranchConfigRuntime />
               <PushNotificationRuntime />
               <AccountStatusRuntime />
+              <AuthenticatedDataWarmupRuntime />
               <TableSessionRuntime />
               <GlobalSocialNotifications />
               <AuthGuard>

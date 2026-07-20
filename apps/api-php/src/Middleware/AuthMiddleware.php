@@ -80,14 +80,20 @@ class AuthMiddleware
         }
 
         $authSource = isset($user->auth_source) ? (string)$user->auth_source : null;
-        $storedUser = $authSource === 'staff' ? null : User::findById($userId);
-        if ($storedUser && array_key_exists('activo', $storedUser) && (int)$storedUser['activo'] !== 1) {
-            self::accountSuspendedResponse($userId, 401);
+        if (User::findAuthenticated($userId, $authSource)) {
+            return;
         }
 
-        if (!User::findAuthenticated($userId, $authSource)) {
-            Response::unauthorized('Cuenta desactivada o no disponible');
+        // Solo hacemos la consulta adicional cuando la autenticacion fallo para
+        // distinguir una cuenta suspendida de un usuario inexistente.
+        if ($authSource !== 'staff') {
+            $storedUser = User::findById($userId);
+            if ($storedUser && array_key_exists('activo', $storedUser) && (int)$storedUser['activo'] !== 1) {
+                self::accountSuspendedResponse($userId, 401);
+            }
         }
+
+        Response::unauthorized('Cuenta desactivada o no disponible');
     }
 
     /**
