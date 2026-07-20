@@ -192,27 +192,40 @@ export default function TableScannerScreen() {
     Alert.alert('Cuenta activa', message, buttons);
   }
 
+  async function resolveDeferredEatInBranch() {
+    const parsedBranchId = Number(branchId);
+
+    if (Number.isFinite(parsedBranchId) && parsedBranchId > 0) {
+      const localBranch =
+        sucursales.find((item) => Number(item.id) === parsedBranchId) ??
+        (Number(currentBranch?.id) === parsedBranchId ? currentBranch : null);
+
+      if (localBranch) {
+        return localBranch;
+      }
+
+      try {
+        return await getBranchById(parsedBranchId);
+      } catch (error) {
+        console.error('Error cargando sucursal para escanear mas tarde:', error);
+      }
+    }
+
+    return (
+      currentBranch ??
+      sucursales.find((item) => item.tipos_entrega?.includes('eat_in')) ??
+      sucursales[0] ??
+      null
+    );
+  }
+
   async function handleScanLater() {
     if (hasNavigatedRef.current) return;
     hasNavigatedRef.current = true;
 
     if (mode === 'eat_in') {
       clearTableSession();
-
-      let selectedBranch = branchId
-        ? sucursales.find((item) => String(item.id) === String(branchId))
-        : null;
-
-      if (!selectedBranch && branchId && Number(branchId) > 0) {
-        selectedBranch = await getBranchById(Number(branchId)).catch(() => null);
-      }
-
-      const fallbackBranch =
-        selectedBranch ??
-        currentBranch ??
-        sucursales.find((item) => item.tipos_entrega?.includes('eat_in')) ??
-        sucursales[0] ??
-        null;
+      const fallbackBranch = await resolveDeferredEatInBranch();
 
       if (fallbackBranch) {
         seleccionar(fallbackBranch);
@@ -370,7 +383,7 @@ export default function TableScannerScreen() {
           <TouchableOpacity style={styles.primaryButton} onPress={handleCameraPermissionRequest}>
             <Text style={styles.primaryButtonText}>Permitir cámara</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater}>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleScanLater()}>
             <Ionicons name="time-outline" size={17} color={Colors.primary || '#111827'} />
             <Text style={styles.secondaryButtonText}>Escanear más tarde</Text>
           </TouchableOpacity>
@@ -412,7 +425,7 @@ export default function TableScannerScreen() {
             <Text style={styles.processingText}>Validando mesa...</Text>
           </View>
         ) : null}
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleScanLater} disabled={isProcessing}>
+        <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleScanLater()} disabled={isProcessing}>
           <Ionicons name="time-outline" size={17} color={Colors.primary || '#111827'} />
           <Text style={styles.secondaryButtonText}>Escanear más tarde</Text>
         </TouchableOpacity>
