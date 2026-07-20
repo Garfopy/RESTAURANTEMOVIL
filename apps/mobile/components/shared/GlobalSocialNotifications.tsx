@@ -37,10 +37,10 @@ export function GlobalSocialNotifications() {
     queryKey: QUERY_KEY,
     queryFn: getSocialAccountNotifications,
     enabled,
-    refetchInterval: enabled ? 2500 : false,
+    refetchInterval: enabled ? 10000 : false,
     refetchIntervalInBackground: false,
     refetchOnMount: 'always',
-    staleTime: 500,
+    staleTime: 5000,
   });
 
   useEffect(() => {

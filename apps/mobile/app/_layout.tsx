@@ -24,8 +24,7 @@ import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
-import { apiClient } from '../services/api';
-import { getOrders } from '../services/orders.service';
+import { extractAccountSuspension } from '../services/account-suspension.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
 import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
@@ -61,12 +60,14 @@ if (__DEV__ && !STRIPE_PUBLISHABLE_KEY) {
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading, user } = useUserStore();
-  const inAuth = segments[0] === '(auth)';
-  const inPublicLegal = segments[0] === 'legal';
+  const { isAuthenticated, isLoading, user, accountSuspension } = useUserStore();
+  const firstSegment = String(segments[0] ?? '');
+  const inAuth = firstSegment === '(auth)';
+  const inPublicLegal = firstSegment === 'legal';
+  const inAccountSuspended = firstSegment === 'account-suspended';
   const inCompleteProfile = inAuth && segments[1] === 'complete-profile';
-  const inWaiter = segments[0] === '(waiter)';
-  const inHostess = segments[0] === '(hostess)';
+  const inWaiter = firstSegment === '(waiter)';
+  const inHostess = firstSegment === '(hostess)';
   const isWaiter = user?.rol === 'mesero';
   const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
     String(user?.rol ?? '').toLowerCase()
@@ -79,7 +80,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       (user.requires_onboarding || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
   );
   const redirectTo =
-    !isLoading && !isAuthenticated && !inAuth && !inPublicLegal
+    !isLoading && accountSuspension && !inAccountSuspended
+      ? '/account-suspended'
+      : !isLoading && !isAuthenticated && !inAuth && !inPublicLegal && !inAccountSuspended
       ? '/(auth)/login'
       : !isLoading && needsOnboarding && !inCompleteProfile
         ? '/(auth)/complete-profile'
@@ -236,36 +239,13 @@ function PushNotificationRuntime() {
       return;
     }
 
-    const syncToken = (reason: string) => {
-      if (!userId) return;
-
-      registeredForUserRef.current = userId;
-      void registerPushNotifications({ reason, userId })
-        .then((token) => {
-          if (!token) {
-            registeredForUserRef.current = null;
-          }
-        })
-        .catch((error) => {
-          registeredForUserRef.current = null;
-          if (__DEV__) {
-            console.warn('[Push] No se pudo registrar el token:', error);
-          }
-        });
-    };
-
-    // Un userId nuevo siempre reasigna el token aunque el permiso ya estuviera concedido.
-    syncToken('authenticated-user-changed');
-
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        syncToken('app-resume');
+    registeredForUserRef.current = userId;
+    void registerPushNotifications({ reason: 'app-start' }).catch((error) => {
+      registeredForUserRef.current = null;
+      if (__DEV__) {
+        console.warn('[Push] No se pudo registrar el token:', error);
       }
     });
-
-    return () => {
-      subscription.remove();
-    };
   }, [isAuthenticated, userId]);
 
   useEffect(() => {
@@ -277,49 +257,39 @@ function PushNotificationRuntime() {
   return null;
 }
 
-function AuthenticatedDataWarmupRuntime() {
-  const userId = useUserStore((state) => state.user?.id ?? null);
-  const previousUserIdRef = useRef<number | null | undefined>(undefined);
+function AccountStatusRuntime() {
+  const isAuthenticated = useUserStore((state) => state.isAuthenticated);
+  const setUser = useUserStore((state) => state.setUser);
 
   useEffect(() => {
-    if (previousUserIdRef.current !== userId) {
-      for (const queryKey of [['favorites'], ['orders'], ['addresses'], ['social'], ['rewards']]) {
-        queryClient.removeQueries({ queryKey });
+    if (!isAuthenticated) return;
+
+    let disposed = false;
+
+    const checkAccount = async () => {
+      if (disposed || AppState.currentState !== 'active') return;
+
+      try {
+        const user = await getMe();
+        if (!disposed) setUser(user);
+      } catch {
+        // El interceptor global convierte una cuenta suspendida en logout + pantalla dedicada.
       }
-      previousUserIdRef.current = userId;
-    }
+    };
 
-    if (!userId) return;
+    const interval = setInterval(checkAccount, 30_000);
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void checkAccount();
+      }
+    });
 
-    // Se difiere para no competir con los datos y animaciones de la pantalla inicial.
-    const timer = setTimeout(() => {
-      void Promise.allSettled([
-        queryClient.prefetchQuery({
-          queryKey: ['promotions'],
-          queryFn: async () => {
-            const response = await apiClient.get('/promotions');
-            return response.data.data ?? [];
-          },
-          staleTime: 5 * 60 * 1000,
-        }),
-        queryClient.prefetchQuery({
-          queryKey: ['favorites'],
-          queryFn: async () => {
-            const response = await apiClient.get('/favorites');
-            return response.data.data ?? [];
-          },
-          staleTime: 2 * 60 * 1000,
-        }),
-        queryClient.prefetchQuery({
-          queryKey: ['orders'],
-          queryFn: getOrders,
-          staleTime: 15 * 1000,
-        }),
-      ]);
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, [userId]);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [isAuthenticated, setUser]);
 
   return null;
 }
@@ -344,13 +314,11 @@ export default function RootLayout() {
     let cancelled = false;
 
     async function init() {
-      await Promise.all([
-        hydrateTheme(),
-        hydrateFromStorage(),
-        hydrateBranchSelection(),
-        hydrateCart(),
-        hydrateTableSession(),
-      ]);
+      await hydrateTheme();
+      await hydrateFromStorage();
+      await hydrateBranchSelection();
+      await hydrateCart();
+      await hydrateTableSession();
 
       // Si se restauró un token, validarlo con el servidor
       const { isAuthenticated, token } = useUserStore.getState();
@@ -358,9 +326,9 @@ export default function RootLayout() {
         try {
           const user = await getMe();
           setUser(user);
-        } catch {
+        } catch (error: unknown) {
           // Token inválido o expirado — cerrar sesión
-          await logout();
+          await logout({ accountSuspension: extractAccountSuspension(error) });
         }
       }
 
@@ -386,7 +354,7 @@ export default function RootLayout() {
             <ToastProvider>
               <BranchConfigRuntime />
               <PushNotificationRuntime />
-              <AuthenticatedDataWarmupRuntime />
+              <AccountStatusRuntime />
               <TableSessionRuntime />
               <GlobalSocialNotifications />
               <AuthGuard>
@@ -404,6 +372,7 @@ export default function RootLayout() {
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="(waiter)" />
                     <Stack.Screen name="(hostess)" />
+                    <Stack.Screen name="account-suspended" />
                     <Stack.Screen name="branch-selector" options={{ presentation: 'modal', gestureEnabled: true }} />
                     <Stack.Screen name="table-scanner" options={{ presentation: 'modal', gestureEnabled: true }} />
                     <Stack.Screen name="product/[id]" />
@@ -415,6 +384,7 @@ export default function RootLayout() {
                     <Stack.Screen name="checkout/exit-pass" />
                     <Stack.Screen name="order/[id]" />
                     <Stack.Screen name="legal/terms" />
+                    <Stack.Screen name="legal/privacy" />
                   </Stack>
                   <GlobalCartButton />
                 </View>

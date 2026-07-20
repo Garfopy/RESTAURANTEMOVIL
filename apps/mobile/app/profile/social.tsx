@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Linking,
@@ -12,6 +13,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
@@ -72,6 +74,42 @@ type SelectOption = {
   value: string;
   description?: string;
 };
+
+const SOCIAL_REPORT_REASONS: SelectOption[] = [
+  {
+    label: 'Acoso o amenaza',
+    value: 'harassment',
+    description: 'Insultos, intimidacion, presion o contacto no deseado.',
+  },
+  {
+    label: 'Contenido inapropiado',
+    value: 'inappropriate_content',
+    description: 'Fotos, texto o datos que no deberian estar en modo social.',
+  },
+  {
+    label: 'Perfil falso',
+    value: 'fake_profile',
+    description: 'Suplantacion, informacion falsa o fotos que no corresponden.',
+  },
+  {
+    label: 'Seguridad',
+    value: 'safety',
+    description: 'Comportamiento riesgoso dentro del restaurante o la app.',
+  },
+  {
+    label: 'Spam',
+    value: 'spam',
+    description: 'Promociones, enlaces o mensajes repetitivos.',
+  },
+  {
+    label: 'Otro motivo',
+    value: 'other',
+    description: 'Algo distinto que el equipo debe revisar.',
+  },
+];
+
+const MIN_REPORT_DETAILS_LENGTH = 10;
+const MAX_REPORT_DETAILS_LENGTH = 600;
 
 type MesaApiItem = {
   id: number;
@@ -677,6 +715,7 @@ export default function SocialProfileScreen() {
   const [consentModalVisible, setConsentModalVisible] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
   const [giftsVisible, setGiftsVisible] = useState(false);
   const [likeGiftPromptVisible, setLikeGiftPromptVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -687,6 +726,7 @@ export default function SocialProfileScreen() {
   const [matchesLoading, setMatchesLoading] = useState(false);
   const [likesLoading, setLikesLoading] = useState(false);
   const [likingUserId, setLikingUserId] = useState<number | null>(null);
+  const [moderatingUserId, setModeratingUserId] = useState<number | null>(null);
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
   const [giftSending, setGiftSending] = useState(false);
   const [giftCheckoutMode, setGiftCheckoutMode] = useState<GiftCheckoutMode>('account');
@@ -723,6 +763,9 @@ export default function SocialProfileScreen() {
   const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
   const [dinerDetails, setDinerDetails] = useState<Record<number, SocialDiner>>({});
   const [focusedDiner, setFocusedDiner] = useState<SocialDiner | null>(null);
+  const [reportDiner, setReportDiner] = useState<SocialDiner | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [reportDetails, setReportDetails] = useState('');
   const [likeGiftPromptDiner, setLikeGiftPromptDiner] = useState<SocialDiner | null>(null);
   const [likeGiftPromptMatched, setLikeGiftPromptMatched] = useState(false);
   const [giftProducts, setGiftProducts] = useState<GiftProduct[]>([]);
@@ -1129,7 +1172,7 @@ export default function SocialProfileScreen() {
 
     const refreshTimer = setInterval(() => {
       void refreshAccountNotifications();
-    }, 2500);
+    }, 10000);
 
     return () => clearInterval(refreshTimer);
   }, [modoSocial]);
@@ -1459,7 +1502,7 @@ export default function SocialProfileScreen() {
       void refreshMatches(false);
       void refreshReceivedLikes();
       void refreshSentLikes();
-    }, 7000);
+    }, 12000);
 
     return () => clearInterval(refreshTimer);
   }, [user?.id]);
@@ -1990,6 +2033,114 @@ export default function SocialProfileScreen() {
     }
   }
 
+  function removeDinerFromSocialLists(userId: number) {
+    setDiners((current) => current.filter((item) => item.user_id !== userId));
+    setMatches((current) => current.filter((item) => item.user_id !== userId));
+    setReceivedLikes((current) => current.filter((item) => item.user_id !== userId));
+    setSentLikes((current) => current.filter((item) => item.user_id !== userId));
+    setDinerDetails((current) => {
+      const next = { ...current };
+      delete next[userId];
+      return next;
+    });
+    if (focusedDiner?.user_id === userId) {
+      setFocusedDiner(null);
+      setDetailsVisible(false);
+    }
+  }
+
+  function handleReportDiner(diner: SocialDiner) {
+    const openReport = () => {
+      setReportDiner(diner);
+      setReportReason('');
+      setReportDetails('');
+      setReportModalVisible(true);
+    };
+
+    if (detailsVisible) {
+      setDetailsVisible(false);
+      setFocusedDiner(null);
+      setTimeout(openReport, Platform.OS === 'ios' ? 320 : 160);
+      return;
+    }
+
+    openReport();
+  }
+
+  function closeReportModal() {
+    if (moderatingUserId !== null) return;
+    setReportModalVisible(false);
+    setReportDiner(null);
+    setReportReason('');
+    setReportDetails('');
+  }
+
+  async function submitSocialReport() {
+    const diner = reportDiner;
+    const details = reportDetails.trim();
+    if (!diner || moderatingUserId !== null) return;
+    if (!reportReason) {
+      Alert.alert('Falta el motivo', 'Selecciona un motivo para enviar el reporte.');
+      return;
+    }
+    if (details.length < MIN_REPORT_DETAILS_LENGTH) {
+      Alert.alert('Agrega una descripcion', `Escribe al menos ${MIN_REPORT_DETAILS_LENGTH} caracteres para que podamos revisar el caso.`);
+      return;
+    }
+
+    try {
+      setModeratingUserId(diner.user_id);
+      await apiClient.post('/social/reports', {
+        reported_user_id: diner.user_id,
+        reason: reportReason,
+        details,
+      });
+      setReportModalVisible(false);
+      setReportDiner(null);
+      setReportReason('');
+      setReportDetails('');
+      Alert.alert('Reporte recibido', 'Gracias. Revisaremos este perfil. Tambien puedes bloquearlo para que deje de aparecer.', [
+        { text: 'Listo', style: 'cancel' },
+        { text: 'Bloquear', style: 'destructive', onPress: () => handleBlockDiner(diner, false) },
+      ]);
+    } catch (error) {
+      Alert.alert('No se pudo reportar', getApiError(error));
+    } finally {
+      setModeratingUserId(null);
+    }
+  }
+
+  function confirmBlockDiner(diner: SocialDiner) {
+    Alert.alert(
+      'Bloquear perfil',
+      `${diner.nombre} dejara de aparecer en tu modo social. Tambien se eliminaran likes o matches entre ustedes.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Bloquear', style: 'destructive', onPress: () => handleBlockDiner(diner) },
+      ]
+    );
+  }
+
+  async function handleBlockDiner(diner: SocialDiner, showConfirmation = true) {
+    if (moderatingUserId !== null) return;
+
+    try {
+      setModeratingUserId(diner.user_id);
+      await apiClient.post('/social/blocks', {
+        blocked_user_id: diner.user_id,
+        reason: 'user_request',
+      });
+      removeDinerFromSocialLists(diner.user_id);
+      if (showConfirmation) {
+        Alert.alert('Perfil bloqueado', 'Ya no veras este perfil en modo social.');
+      }
+    } catch (error) {
+      Alert.alert('No se pudo bloquear', getApiError(error));
+    } finally {
+      setModeratingUserId(null);
+    }
+  }
+
   function applyPhotoResponse(payload: SocialPhotoResponse) {
     const hasGalleryPayload = Array.isArray(payload.social_photos);
     const photos = normalizePhotoList(
@@ -2213,9 +2364,27 @@ export default function SocialProfileScreen() {
     });
   }
 
+  function promptScanTableForSocial() {
+    Alert.alert(
+      'Escanea tu mesa',
+      'Para activar el modo social primero debes escanear el QR de tu mesa. Despues podras aparecer y descubrir otros comensales.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Escanear mesa', onPress: openSocialScanner },
+      ]
+    );
+  }
+
   async function updateSocialStatus(nextValue: boolean) {
+    const currentMesaValue = tableSession?.mesaValue ?? null;
+
     if (nextValue && !selectedBranch?.id && !deferredBranch?.id) {
-      openSocialScanner();
+      promptScanTableForSocial();
+      return;
+    }
+
+    if (nextValue && !currentMesaValue) {
+      promptScanTableForSocial();
       return;
     }
 
@@ -2234,12 +2403,12 @@ export default function SocialProfileScreen() {
     }
 
     if (nextValue) {
-      if (tableSession?.mesaValue) {
-        await requestSocialActivation(tableSession.mesaValue);
+      const mesaValue = currentMesaValue;
+      if (!mesaValue) {
+        promptScanTableForSocial();
         return;
       }
-
-      openSocialScanner();
+      await requestSocialActivation(mesaValue);
       return;
     }
 
@@ -2959,6 +3128,33 @@ export default function SocialProfileScreen() {
             <Ionicons name="receipt-outline" size={20} color={Colors.primary} />
             <Text style={styles.coverAccountButtonText}>Cubrir su cuenta</Text>
           </TouchableOpacity>
+        ) : null}
+
+        {diner.user_id !== user?.id ? (
+          <View style={styles.moderationRow}>
+            <TouchableOpacity
+              activeOpacity={0.86}
+              onPress={() => handleReportDiner(diner)}
+              style={styles.reportButton}
+              disabled={moderatingUserId === diner.user_id}
+            >
+              {moderatingUserId === diner.user_id ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <Ionicons name="flag-outline" size={18} color={Colors.primary} />
+              )}
+              <Text style={styles.reportButtonText}>Reportar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.86}
+              onPress={() => confirmBlockDiner(diner)}
+              style={styles.blockButton}
+              disabled={moderatingUserId === diner.user_id}
+            >
+              <Ionicons name="ban-outline" size={18} color="#991B1B" />
+              <Text style={styles.blockButtonText}>Bloquear</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
       </View>
     );
@@ -4046,6 +4242,119 @@ export default function SocialProfileScreen() {
             ) : null}
           </View>
         </View>
+      </Modal>
+
+      <Modal visible={reportModalVisible} transparent animationType="slide" onRequestClose={closeReportModal}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={closeReportModal} />
+
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View style={styles.reportHeaderCopy}>
+                <Text style={styles.modalTitle}>Reportar perfil</Text>
+                <Text style={styles.reportSubtitle} numberOfLines={1}>
+                  {reportDiner ? reportDiner.nombre : 'Comensal'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={closeReportModal}
+                style={styles.closeButton}
+                activeOpacity={0.8}
+                disabled={moderatingUserId !== null}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.reportModalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+            >
+              <Text style={styles.reportFieldLabel}>Motivo</Text>
+              <View style={styles.reportReasonList}>
+                {SOCIAL_REPORT_REASONS.map((reason) => {
+                  const selected = reportReason === reason.value;
+                  return (
+                    <TouchableOpacity
+                      key={reason.value}
+                      activeOpacity={0.84}
+                      onPress={() => setReportReason(reason.value)}
+                      style={[styles.reportReasonOption, selected && styles.reportReasonOptionActive]}
+                      disabled={moderatingUserId !== null}
+                    >
+                      <View style={[styles.reportReasonIcon, selected && styles.reportReasonIconActive]}>
+                        <Ionicons
+                          name={selected ? 'checkmark' : 'flag-outline'}
+                          size={16}
+                          color={selected ? Colors.white : Colors.primary}
+                        />
+                      </View>
+                      <View style={styles.reportReasonCopy}>
+                        <Text style={[styles.reportReasonTitle, selected && styles.reportReasonTitleActive]}>
+                          {reason.label}
+                        </Text>
+                        <Text style={styles.reportReasonDescription}>{reason.description}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={styles.reportDescriptionHeader}>
+                <Text style={styles.reportFieldLabel}>Descripcion</Text>
+                <Text style={styles.reportCounter}>
+                  {reportDetails.trim().length}/{MAX_REPORT_DETAILS_LENGTH}
+                </Text>
+              </View>
+              <TextInput
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                editable={moderatingUserId === null}
+                maxLength={MAX_REPORT_DETAILS_LENGTH}
+                multiline
+                textAlignVertical="top"
+                placeholder="Describe que paso, donde lo viste o por que debe revisarse."
+                placeholderTextColor={Colors.textMuted}
+                style={styles.reportDetailsInput}
+              />
+              {reportDetails.trim().length > 0 && reportDetails.trim().length < MIN_REPORT_DETAILS_LENGTH ? (
+                <Text style={styles.reportValidationText}>
+                  Escribe al menos {MIN_REPORT_DETAILS_LENGTH} caracteres.
+                </Text>
+              ) : null}
+
+              <TouchableOpacity
+                activeOpacity={0.88}
+                style={[
+                  styles.reportSubmitButton,
+                  (!reportReason ||
+                    reportDetails.trim().length < MIN_REPORT_DETAILS_LENGTH ||
+                    moderatingUserId !== null) &&
+                    styles.saveButtonDisabled,
+                ]}
+                disabled={
+                  !reportReason || reportDetails.trim().length < MIN_REPORT_DETAILS_LENGTH || moderatingUserId !== null
+                }
+                onPress={submitSocialReport}
+              >
+                {moderatingUserId !== null ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <>
+                    <Ionicons name="flag-outline" size={18} color={Colors.white} />
+                    <Text style={styles.reportSubmitText}>Enviar reporte</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={coverAccountVisible} transparent animationType="slide" onRequestClose={closeCoverAccountModal}>
@@ -5515,6 +5824,45 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.primary,
   },
+  moderationRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  reportButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#BFD7D0',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  reportButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  blockButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  blockButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
   detailHeroCard: {
     borderRadius: 28,
     borderWidth: 1,
@@ -6046,6 +6394,118 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
     color: Colors.white,
+  },
+  reportHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reportSubtitle: {
+    marginTop: 2,
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  reportModalContent: {
+    paddingBottom: 12,
+    gap: 12,
+  },
+  reportFieldLabel: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  reportReasonList: {
+    gap: 8,
+  },
+  reportReasonOption: {
+    minHeight: 68,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#E0E6EF',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  reportReasonOptionActive: {
+    borderColor: Colors.primary,
+    backgroundColor: '#F0FAF7',
+  },
+  reportReasonIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5F3',
+  },
+  reportReasonIconActive: {
+    backgroundColor: Colors.primary,
+  },
+  reportReasonCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reportReasonTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  reportReasonTitleActive: {
+    color: Colors.primary,
+  },
+  reportReasonDescription: {
+    marginTop: 3,
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  reportDescriptionHeader: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reportCounter: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reportDetailsInput: {
+    minHeight: 118,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D8DDE8',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: Colors.text,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  reportValidationText: {
+    marginTop: -6,
+    color: '#B91C1C',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  reportSubmitButton: {
+    minHeight: 54,
+    borderRadius: 18,
+    backgroundColor: '#B91C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    ...Shadows.md,
+  },
+  reportSubmitText: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '900',
   },
   modalOverlay: {
     flex: 1,

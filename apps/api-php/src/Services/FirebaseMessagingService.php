@@ -64,7 +64,7 @@ class FirebaseMessagingService
                 'android' => [
                     'priority' => 'HIGH',
                     'notification' => [
-                        'channel_id' => 'promotions',
+                        'channel_id' => 'amare_alerts_v2',
                         'sound' => 'default',
                     ],
                 ],

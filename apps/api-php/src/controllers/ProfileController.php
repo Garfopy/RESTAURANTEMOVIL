@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Amare\Api\Controllers;
 
+use Amare\Api\Config\Database;
 use Amare\Api\Helpers\ImageUploadHelper;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
@@ -237,6 +238,138 @@ class ProfileController
         ]);
     }
 
+    public function deleteAccount(): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if (($user->auth_source ?? 'mobile') === 'staff') {
+            Response::error('Las cuentas de personal se administran desde el panel web.', 400);
+        }
+
+        $userId = (int)$user->id;
+        $currentUser = User::findByIdWithPassword($userId);
+        if (!$currentUser) {
+            Response::notFound('Usuario no encontrado');
+        }
+
+        $photos = $this->collectUserPhotoUrls($currentUser);
+        $pdo = Database::getInstance();
+
+        try {
+            $pdo->beginTransaction();
+
+            $this->deleteRowsIfTableExists('mobile_direcciones', 'usuario_id', $userId);
+            $this->deleteRowsIfTableExists('mobile_favoritos', 'usuario_id', $userId);
+            $this->deleteRowsIfTableExists('mobile_push_tokens', 'usuario_id', $userId);
+            $this->deleteRowsIfTableExists('mobile_datos_fiscales', 'usuario_id', $userId);
+
+            if ($this->tableExists('social_likes')) {
+                Database::rowCount(
+                    'DELETE FROM social_likes WHERE liker_user_id = :liker_id OR liked_user_id = :liked_id',
+                    [
+                        ':liker_id' => $userId,
+                        ':liked_id' => $userId,
+                    ]
+                );
+            }
+            if ($this->tableExists('social_blocks')) {
+                Database::rowCount(
+                    'DELETE FROM social_blocks WHERE blocker_user_id = :blocker_id OR blocked_user_id = :blocked_id',
+                    [
+                        ':blocker_id' => $userId,
+                        ':blocked_id' => $userId,
+                    ]
+                );
+            }
+            if ($this->tableExists('social_reports')) {
+                Database::rowCount(
+                    'DELETE FROM social_reports WHERE reporter_user_id = :id',
+                    [':id' => $userId]
+                );
+            }
+
+            $deletedEmail = sprintf('deleted-user-%d-%d@deleted.amare.local', $userId, time());
+            $set = [
+                'nombre = :nombre',
+                'email = :email',
+                'password_hash = NULL',
+                'telefono = NULL',
+                'foto_url = NULL',
+                'google_id = NULL',
+                'activo = 0',
+                'updated_at = NOW()',
+            ];
+            $params = [
+                ':id' => $userId,
+                ':nombre' => 'Cuenta eliminada',
+                ':email' => $deletedEmail,
+            ];
+
+            foreach ([
+                'fecha_nacimiento',
+                'onboarding_completed_at',
+                'terms_accepted_at',
+                'marketing_opt_in',
+                'social_photos_json',
+                'edad',
+                'sexualidad',
+                'genero',
+                'descripcion',
+                'intereses',
+                'que_busca',
+                'redes_sociales',
+                'is_social_active',
+                'current_restaurante_id',
+                'mesa',
+                'social_updated_at',
+                'social_consent_accepted_at',
+                'social_consent_version',
+                'password_reset_code_hash',
+                'password_reset_expires_at',
+                'password_reset_requested_at',
+            ] as $column) {
+                if (!$this->columnExists('mobile_usuarios', $column)) {
+                    continue;
+                }
+
+                if ($column === 'marketing_opt_in' || $column === 'is_social_active') {
+                    $set[] = "{$column} = 0";
+                } else {
+                    $set[] = "{$column} = NULL";
+                }
+            }
+
+            Database::rowCount(
+                'UPDATE mobile_usuarios SET ' . implode(', ', $set) . ' WHERE id = :id',
+                $params
+            );
+
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log('ProfileController::deleteAccount ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo eliminar la cuenta en este momento.');
+        }
+
+        foreach ($photos as $photoUrl) {
+            ImageUploadHelper::deleteLocalUploadFromUrl($photoUrl, __DIR__ . '/../../uploads/', 'avatar-' . $userId . '-');
+            ImageUploadHelper::deleteLocalUploadFromUrl($photoUrl, __DIR__ . '/../../uploads/', 'social-' . $userId . '-');
+        }
+
+        Response::success([
+            'deleted' => true,
+            'retained_data' => [
+                'orders',
+                'invoice_requests',
+                'payment_records',
+                'moderation_records',
+            ],
+        ], 'Cuenta eliminada');
+    }
+
     private function isPhotoReferencedInSocialGallery(int $userId, ?string $photoUrl): bool
     {
         if ($photoUrl === null || trim($photoUrl) === '') {
@@ -290,5 +423,66 @@ class ProfileController
                 WHERE pi.pedido_id = :pedido_id";
         
         return \Amare\Api\Config\Database::query($sql, [':pedido_id' => $orderId]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function collectUserPhotoUrls(array $user): array
+    {
+        $photos = [];
+        foreach (['foto_url', 'avatar'] as $field) {
+            if (!empty($user[$field]) && is_string($user[$field])) {
+                $photos[] = trim($user[$field]);
+            }
+        }
+
+        if (!empty($user['social_photos_json']) && is_string($user['social_photos_json'])) {
+            $decoded = json_decode($user['social_photos_json'], true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $photo) {
+                    if (is_string($photo) && trim($photo) !== '') {
+                        $photos[] = trim($photo);
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($photos)));
+    }
+
+    private function deleteRowsIfTableExists(string $table, string $column, int $userId): void
+    {
+        if (!$this->tableExists($table) || !$this->columnExists($table, $column)) {
+            return;
+        }
+
+        Database::rowCount(
+            "DELETE FROM `{$table}` WHERE `{$column}` = :id",
+            [':id' => $userId]
+        );
+    }
+
+    private function tableExists(string $tableName): bool
+    {
+        $exists = Database::query("SHOW TABLES LIKE '{$tableName}'");
+        return !empty($exists);
+    }
+
+    private function columnExists(string $tableName, string $columnName): bool
+    {
+        $row = Database::queryOne(
+            'SELECT COUNT(*) AS total
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = :table_name
+                AND COLUMN_NAME = :column_name',
+            [
+                ':table_name' => $tableName,
+                ':column_name' => $columnName,
+            ]
+        );
+
+        return (int)($row['total'] ?? 0) > 0;
     }
 }

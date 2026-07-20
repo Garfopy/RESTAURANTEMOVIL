@@ -128,6 +128,10 @@ class User
 
         $user = self::findById($id);
         if ($user) {
+            if (array_key_exists('activo', $user) && (int)$user['activo'] !== 1) {
+                return null;
+            }
+
             if (self::shouldPreferStaffIdentity($user)) {
                 $staff = self::findStaffByEmail((string)$user['email']);
                 if ($staff) {
