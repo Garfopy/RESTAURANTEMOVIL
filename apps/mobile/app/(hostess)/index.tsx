@@ -28,6 +28,7 @@ import {
 } from '../../services/hostess.service';
 import { scanExitPass } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
+import { logout as unregisterSessionPush } from '../../services/auth.service';
 import { useUserStore } from '../../store/user.store';
 import { Colors, Shadows } from '../../theme';
 
@@ -362,7 +363,10 @@ export default function HostessDashboardScreen() {
               <Ionicons name="person-circle-outline" size={18} color="#FFFFFF" />
               <Text style={styles.operatorBadgeText}>{operatorName}</Text>
             </View>
-            <TouchableOpacity onPress={() => void logout()} style={styles.logoutButton}>
+            <TouchableOpacity
+              onPress={() => void unregisterSessionPush().catch(() => undefined).finally(logout)}
+              style={styles.logoutButton}
+            >
               <Ionicons name="log-out-outline" size={21} color="#FFFFFF" />
             </TouchableOpacity>
           </View>

@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -7,7 +7,7 @@ import {
   Dimensions 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -37,13 +37,8 @@ export default function FavoritesScreen() {
       const res = await apiClient.get('/favorites');
       return res.data.data;
     },
+    staleTime: 2 * 60 * 1000,
   });
-
-  useFocusEffect(
-    useCallback(() => {
-      refetch();
-    }, [refetch])
-  );
 
   useEffect(() => {
     if (favorites) {

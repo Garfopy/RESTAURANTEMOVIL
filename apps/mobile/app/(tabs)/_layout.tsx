@@ -100,6 +100,16 @@ export default function TabsLayout() {
   const socialAvailableInRestaurant = Boolean(tableSession?.restauranteId || user?.current_restaurante_id);
   const showSocialTab = socialActive && socialAvailableInRestaurant;
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      router.prefetch('/(tabs)/orders');
+      router.prefetch('/(tabs)/favorites');
+      router.prefetch('/(tabs)/promotions');
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [router]);
+
   return (
     <Tabs
       screenOptions={{

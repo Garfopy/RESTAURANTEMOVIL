@@ -16,8 +16,8 @@ export function useOrders() {
     queryKey: orderKeys.list,
     queryFn: () => getOrders(),
     enabled: Boolean(token),
-    staleTime: 5 * 1000,
-    refetchOnMount: 'always',
+    staleTime: 15 * 1000,
+    refetchOnMount: true,
     refetchOnReconnect: true,
     refetchInterval: (query) => {
       const orders = query.state.data as Pedido[] | undefined;

@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { unregisterCurrentDevicePushNotifications } from './push-notifications.service';
 import type {
   Sesion,
   MobileUser,
@@ -239,5 +240,7 @@ export async function confirmPasswordReset(payload: {
 }
 
 export async function logout(): Promise<void> {
-  // El cliente limpia el token localmente en el store
+  // Debe ejecutarse antes de borrar el JWT local para que el backend pueda
+  // desactivar el token del dispositivo para la cuenta que esta saliendo.
+  await unregisterCurrentDevicePushNotifications();
 }

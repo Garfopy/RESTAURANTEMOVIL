@@ -52,6 +52,7 @@ export default function PromotionsScreen() {
       const res = await apiClient.get('/promotions');
       return res.data.data ?? [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   // Filtrar los destacados para el carrusel superior
