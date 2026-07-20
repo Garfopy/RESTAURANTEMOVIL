@@ -89,6 +89,7 @@ $routes = [
     // Profile routes
     ['GET', '/profile', ['Amare\Api\Controllers\ProfileController', 'show']],
     ['PUT', '/profile', ['Amare\Api\Controllers\ProfileController', 'update']],
+    ['DELETE', '/profile/account', ['Amare\Api\Controllers\ProfileController', 'deleteAccount']],
     ['DELETE', '/profile/onboarding', ['Amare\Api\Controllers\ProfileController', 'cancelOnboarding']],
     ['GET', '/profile/orders', ['Amare\Api\Controllers\ProfileController', 'orders']],
     ['POST', '/profile/avatar', ['Amare\Api\Controllers\ProfileController', 'updateAvatar']],
@@ -129,6 +130,9 @@ $routes = [
     ['POST', '/restaurants/tables/session-reset-test', ['Amare\Api\Controllers\SocialController', 'resetTableSessionForTesting']],
     ['POST', '/social/likes', ['Amare\Api\Controllers\SocialController', 'likeDiner']],
     ['DELETE', '/social/likes/:id', ['Amare\Api\Controllers\SocialController', 'unlikeDiner']],
+    ['POST', '/social/reports', ['Amare\Api\Controllers\SocialController', 'reportDiner']],
+    ['POST', '/social/blocks', ['Amare\Api\Controllers\SocialController', 'blockDiner']],
+    ['DELETE', '/social/blocks/:id', ['Amare\Api\Controllers\SocialController', 'unblockDiner']],
     ['GET', '/social/likes/received', ['Amare\Api\Controllers\SocialController', 'receivedLikes']],
     ['GET', '/social/likes/sent', ['Amare\Api\Controllers\SocialController', 'sentLikes']],
     ['GET', '/social/matches', ['Amare\Api\Controllers\SocialController', 'matches']],

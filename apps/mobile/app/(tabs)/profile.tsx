@@ -18,7 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useUserStore } from '../../store/user.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { apiClient } from '../../services/api';
-import { logout } from '../../services/auth.service';
+import { deleteAccount, logout } from '../../services/auth.service';
 import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
 
@@ -181,6 +181,45 @@ export default function ProfileScreen() {
     ]);
   }
 
+  function handleDeleteAccount() {
+    Alert.alert(
+      'Eliminar cuenta',
+      'Se borraran tus datos personales, perfil social, direcciones, favoritos y tokens de notificaciones. Conservaremos pedidos, pagos y facturas cuando sea necesario por obligaciones operativas o fiscales.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Continuar',
+          style: 'destructive',
+          onPress: confirmDeleteAccount,
+        },
+      ]
+    );
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Confirmar eliminacion',
+      'Esta accion no se puede deshacer. Tu cuenta dejara de estar disponible inmediatamente.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar cuenta',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAccount();
+            } catch (error) {
+              console.warn('No se pudo eliminar la cuenta:', error);
+              Alert.alert('No se pudo eliminar', 'Intenta de nuevo o contacta a soporte desde los canales oficiales.');
+              return;
+            }
+            await logoutStore();
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <Animated.View
@@ -305,6 +344,20 @@ export default function ProfileScreen() {
               label="Terminos y aviso legal"
               color="#0F766E"
               onPress={() => router.push('/legal/terms' as any)}
+              showDivider
+            />
+            <MenuItem
+              icon="shield-checkmark"
+              label="Privacidad"
+              color="#2563EB"
+              onPress={() => router.push('/legal/privacy' as any)}
+              showDivider
+            />
+            <MenuItem
+              icon="trash"
+              label="Eliminar cuenta"
+              color="#DC2626"
+              onPress={handleDeleteAccount}
             />
           </View>
         </View>

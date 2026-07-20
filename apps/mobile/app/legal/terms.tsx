@@ -11,53 +11,49 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Colors, Typography } from '../../theme';
+import { Typography } from '../../theme';
 
 const TERMS_URL = 'https://amarerestaurant.club/legal/terminos';
+const PRIVACY_URL = 'https://amarerestaurant.club/aviso-de-privacidad';
 
 const TERMS_SECTIONS = [
   {
     title: 'Uso de la cuenta',
     body:
-      'La cuenta Amare es personal. El comensal es responsable de mantener actualizada su información, proteger su acceso y avisar si detecta un uso no autorizado.',
+      'Tu cuenta Amare es personal. Debes mantener tus datos actualizados, cuidar tu acceso y avisarnos si detectas uso no autorizado.',
   },
   {
     title: 'Pedidos, mesa y consumo',
     body:
-      'La app permite consultar menú, hacer pedidos, usar QR de mesa, seleccionar modalidades de consumo y dar seguimiento a órdenes. La disponibilidad de productos, precios y horarios puede variar por sucursal.',
+      'La app permite consultar menu, hacer pedidos, usar QR de mesa, elegir modalidades de consumo y dar seguimiento a ordenes. Productos, precios y horarios pueden variar por sucursal.',
   },
   {
     title: 'Pagos, saldo y recompensas',
     body:
-      'Los pagos se procesan mediante proveedores autorizados. Saldo Amare, puntos, cupones y promociones pueden estar sujetos a vigencia, reglas de uso, disponibilidad por sucursal y validaciones antifraude.',
+      'Los pagos se procesan mediante proveedores autorizados. Saldo Amare, puntos, cupones y promociones pueden tener vigencia, reglas de uso y validaciones antifraude.',
   },
   {
     title: 'Modo social',
     body:
-      'El modo social es opcional. Al activarlo, el comensal decide qué datos mostrar, como nombre, fotos, edad, intereses y preferencias sociales. Puede apagarlo o editar su perfil cuando lo necesite.',
+      'El modo social es opcional. Al activarlo decides que datos mostrar. Puedes apagarlo, editarlo, eliminar tu perfil social, reportar perfiles o bloquear usuarios.',
   },
   {
-    title: 'Promociones de cumpleaños',
+    title: 'Contenido y convivencia',
     body:
-      'La fecha de nacimiento se usa para validar mayoría de edad y preparar beneficios como promociones de cumpleaños. Algunas promociones pueden requerir activación, consumo mínimo o estar limitadas a ciertas sucursales.',
+      'No se permite acosar, amenazar, suplantar, publicar contenido ofensivo o compartir material de otra persona sin autorizacion. Los reportes pueden derivar en moderacion o suspension.',
   },
   {
-    title: 'Privacidad y datos personales',
+    title: 'Eliminacion de cuenta',
     body:
-      'Amare usa los datos de la cuenta para operar la app, procesar pedidos, mejorar la experiencia, enviar avisos relevantes y cumplir obligaciones legales. El comensal puede solicitar acceso, corrección o eliminación conforme a la legislación aplicable.',
-  },
-  {
-    title: 'Cambios del servicio',
-    body:
-      'Amare puede actualizar funciones, condiciones, beneficios o políticas para mejorar el servicio. Cuando el cambio sea relevante, se informará dentro de la app o por los canales disponibles.',
+      'Puedes solicitar la eliminacion de tu cuenta desde Perfil. Eliminaremos o anonimizaremos datos personales; algunos registros de pedidos, pagos o facturacion pueden conservarse por obligaciones legales.',
   },
 ];
 
 export default function LegalTermsScreen() {
   const router = useRouter();
 
-  async function openWebTerms() {
-    await Linking.openURL(TERMS_URL);
+  async function openUrl(url: string) {
+    await Linking.openURL(url);
   }
 
   return (
@@ -69,7 +65,7 @@ export default function LegalTermsScreen() {
           </TouchableOpacity>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>AVISO LEGAL</Text>
-            <Text style={styles.title}>Términos y condiciones</Text>
+            <Text style={styles.title}>Terminos y condiciones</Text>
           </View>
         </View>
 
@@ -80,8 +76,8 @@ export default function LegalTermsScreen() {
             </View>
             <Text style={styles.introTitle}>Resumen para comensales</Text>
             <Text style={styles.introText}>
-              Este aviso resume las reglas principales para usar Amare dentro de la app. La versión web oficial puede
-              complementar o actualizar este contenido.
+              Este resumen cubre las reglas principales para usar Amare. La version web oficial puede complementar
+              o actualizar esta informacion.
             </Text>
           </View>
 
@@ -98,13 +94,17 @@ export default function LegalTermsScreen() {
             <Text style={styles.contactTitle}>Contacto</Text>
             <Text style={styles.contactText}>
               Para dudas sobre tu cuenta, pedidos, privacidad o condiciones del servicio, contacta a Amare desde los
-              canales oficiales del restaurante o la versión web.
+              canales oficiales del restaurante o la version web.
             </Text>
           </View>
 
-          <TouchableOpacity style={styles.webButton} onPress={openWebTerms} activeOpacity={0.88}>
+          <TouchableOpacity style={styles.webButton} onPress={() => openUrl(TERMS_URL)} activeOpacity={0.88}>
             <Ionicons name="open-outline" size={18} color="#24272D" />
-            <Text style={styles.webButtonText}>Abrir versión web oficial</Text>
+            <Text style={styles.webButtonText}>Abrir terminos web</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => openUrl(PRIVACY_URL)} activeOpacity={0.88}>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#E9DDC8" />
+            <Text style={styles.secondaryButtonText}>Abrir aviso de privacidad</Text>
           </TouchableOpacity>
         </ScrollView>
       </SafeAreaView>
@@ -230,6 +230,21 @@ const styles = StyleSheet.create({
   webButtonText: {
     color: '#24272D',
     fontSize: 15,
+    fontWeight: '900',
+  },
+  secondaryButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.18)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+  },
+  secondaryButtonText: {
+    color: '#E9DDC8',
+    fontSize: 14,
     fontWeight: '900',
   },
 });

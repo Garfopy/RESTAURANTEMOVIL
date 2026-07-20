@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
+  Platform,
   StatusBar,
   useWindowDimensions,
 } from 'react-native';
@@ -50,6 +51,7 @@ export default function LoginScreen() {
   }
 
   const compact = height < 740;
+  const showGoogleSignIn = Platform.OS !== 'ios';
 
   return (
     <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
@@ -115,13 +117,15 @@ export default function LoginScreen() {
               },
             ]}
           >
-            <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
-              <View style={styles.googleIcon}>
-                <GoogleGIcon size={20} />
-              </View>
-              <Text style={styles.googleLabel}>Continuar con Google</Text>
-              <Ionicons name="arrow-forward" size={19} color="#24272D" />
-            </TouchableOpacity>
+            {showGoogleSignIn ? (
+              <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
+                <View style={styles.googleIcon}>
+                  <GoogleGIcon size={20} />
+                </View>
+                <Text style={styles.googleLabel}>Continuar con Google</Text>
+                <Ionicons name="arrow-forward" size={19} color="#24272D" />
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
               <View style={styles.primaryIcon}>

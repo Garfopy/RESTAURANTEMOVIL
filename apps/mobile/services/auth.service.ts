@@ -181,6 +181,10 @@ export async function cancelProfileOnboarding(): Promise<void> {
   await apiClient.delete('/profile/onboarding');
 }
 
+export async function deleteAccount(): Promise<void> {
+  await apiClient.delete('/profile/account');
+}
+
 export async function requestPasswordReset(identifier: string): Promise<{
   expiresInMinutes: number;
   resetCode?: string;

@@ -20,6 +20,14 @@ class SocialController
     private const DEFAULT_RESTAURANT_LOGO = 'public/uploads/restaurantes/rest_logo_1_1781280185.png';
     private const MAX_SOCIAL_PHOTOS = 6;
     private const SOCIAL_CONSENT_VERSION = 'social-v1-2026-06-16';
+    private const SOCIAL_REPORT_REASONS = [
+        'harassment',
+        'inappropriate_content',
+        'fake_profile',
+        'safety',
+        'spam',
+        'other',
+    ];
 
     public function updateStatus(): void
     {
@@ -155,6 +163,12 @@ class SocialController
             ':restaurant_id' => $restaurantId,
             ':current_user_id' => $user->id,
         ];
+        $blockedUsersSql = $this->blockedUsersSql('id', ':current_user_id_blocker', ':current_user_id_blocked');
+        if ($blockedUsersSql !== '') {
+            $sql .= $blockedUsersSql;
+            $params[':current_user_id_blocker'] = $user->id;
+            $params[':current_user_id_blocked'] = $user->id;
+        }
 
         if (!empty($_GET['edad_min'])) {
             $sql .= " AND edad >= :edad_min";
@@ -216,6 +230,9 @@ class SocialController
         $target = $this->fetchSocialProfile($likedUserId);
         if (!$target || !$this->hasSocialProfile($target)) {
             Response::notFound('Comensal no encontrado o sin perfil social completo');
+        }
+        if ($this->isBlockedBetween((int)$user->id, $likedUserId)) {
+            Response::error('No puedes interactuar con este perfil.', 403);
         }
 
         $pdo = Database::getInstance();
@@ -324,12 +341,146 @@ class SocialController
         Response::success(['liked' => false, 'matched' => false, 'relationship_status' => 'none'], 'Like eliminado');
     }
 
+    public function reportDiner(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $reportedUserId = isset($input['reported_user_id']) ? (int)$input['reported_user_id'] : 0;
+        $reason = $this->sanitizeNullableString($input['reason'] ?? null);
+        $details = $this->sanitizeNullableString($input['details'] ?? null);
+
+        if ($reportedUserId <= 0 || $reportedUserId === (int)$user->id) {
+            Response::validationError(['reported_user_id' => ['Selecciona un perfil valido para reportar']]);
+        }
+        if ($reason === null) {
+            Response::validationError(['reason' => ['Selecciona un motivo del reporte']]);
+        }
+        if (!in_array($reason, self::SOCIAL_REPORT_REASONS, true)) {
+            Response::validationError(['reason' => ['Selecciona un motivo valido del reporte']]);
+        }
+        if ($details === null || strlen($details) < 10) {
+            Response::validationError(['details' => ['Describe brevemente que paso']]);
+        }
+        if (!$this->tableExists('social_reports')) {
+            Response::serverError('La tabla social_reports aun no existe. Ejecuta la migracion 051.');
+        }
+        if (!$this->fetchSocialProfile($reportedUserId)) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        Database::rowCount(
+            'INSERT INTO social_reports
+                (reporter_user_id, reported_user_id, reason, details, status, created_at)
+             VALUES
+                (:reporter_user_id, :reported_user_id, :reason, :details, :status, NOW())',
+            [
+                ':reporter_user_id' => (int)$user->id,
+                ':reported_user_id' => $reportedUserId,
+                ':reason' => substr($reason, 0, 80),
+                ':details' => $details !== null ? substr($details, 0, 2000) : null,
+                ':status' => 'open',
+            ]
+        );
+
+        Response::success(['reported' => true], 'Reporte recibido');
+    }
+
+    public function blockDiner(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $blockedUserId = isset($input['blocked_user_id']) ? (int)$input['blocked_user_id'] : 0;
+        $reason = $this->sanitizeNullableString($input['reason'] ?? null);
+
+        if ($blockedUserId <= 0 || $blockedUserId === (int)$user->id) {
+            Response::validationError(['blocked_user_id' => ['Selecciona un perfil valido para bloquear']]);
+        }
+        if (!$this->tableExists('social_blocks')) {
+            Response::serverError('La tabla social_blocks aun no existe. Ejecuta la migracion 051.');
+        }
+        if (!$this->fetchSocialProfile($blockedUserId)) {
+            Response::notFound('Perfil social no encontrado');
+        }
+
+        $pdo = Database::getInstance();
+
+        try {
+            $pdo->beginTransaction();
+
+            Database::rowCount(
+                'INSERT INTO social_blocks (blocker_user_id, blocked_user_id, reason, created_at)
+                 VALUES (:blocker_user_id, :blocked_user_id, :reason, NOW())
+                 ON DUPLICATE KEY UPDATE reason = VALUES(reason)',
+                [
+                    ':blocker_user_id' => (int)$user->id,
+                    ':blocked_user_id' => $blockedUserId,
+                    ':reason' => $reason !== null ? substr($reason, 0, 80) : null,
+                ]
+            );
+
+            if ($this->tableExists('social_likes')) {
+                Database::rowCount(
+                    'DELETE FROM social_likes
+                      WHERE (liker_user_id = :current_a AND liked_user_id = :blocked_a)
+                         OR (liker_user_id = :blocked_b AND liked_user_id = :current_b)',
+                    [
+                        ':current_a' => (int)$user->id,
+                        ':blocked_a' => $blockedUserId,
+                        ':blocked_b' => $blockedUserId,
+                        ':current_b' => (int)$user->id,
+                    ]
+                );
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log('SocialController::blockDiner ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo bloquear el perfil en este momento.');
+        }
+
+        Response::success(['blocked' => true], 'Perfil bloqueado');
+    }
+
+    public function unblockDiner(int $blockedUserId): void
+    {
+        $user = AuthMiddleware::authenticate();
+
+        if ($blockedUserId <= 0 || $blockedUserId === (int)$user->id) {
+            Response::validationError(['blocked_user_id' => ['Selecciona un perfil valido para desbloquear']]);
+        }
+        if ($this->tableExists('social_blocks')) {
+            Database::rowCount(
+                'DELETE FROM social_blocks
+                  WHERE blocker_user_id = :blocker_user_id AND blocked_user_id = :blocked_user_id',
+                [
+                    ':blocker_user_id' => (int)$user->id,
+                    ':blocked_user_id' => $blockedUserId,
+                ]
+            );
+        }
+
+        Response::success(['blocked' => false], 'Perfil desbloqueado');
+    }
+
     public function matches(): void
     {
         $user = AuthMiddleware::authenticate();
 
         if (!$this->tableExists('social_likes')) {
             Response::success(['matches' => []]);
+        }
+
+        $blockedUsersSql = $this->blockedUsersSql('mu.id', ':user_id_blocker', ':user_id_blocked');
+        $params = [':user_id' => (int)$user->id];
+        if ($blockedUsersSql !== '') {
+            $params[':user_id_blocker'] = (int)$user->id;
+            $params[':user_id_blocked'] = (int)$user->id;
         }
 
         $rows = Database::query(
@@ -343,8 +494,9 @@ class SocialController
                JOIN mobile_usuarios mu ON mu.id = sl.liked_user_id
               WHERE sl.liker_user_id = :user_id
                 AND sl.matched_at IS NOT NULL
+                " . $blockedUsersSql . "
            ORDER BY sl.matched_at DESC",
-            [':user_id' => (int)$user->id]
+            $params
         );
 
         $matches = array_map(function (array $row): array {
@@ -516,6 +668,16 @@ class SocialController
             Response::success(['likes' => []]);
         }
 
+        $blockedUsersSql = $this->blockedUsersSql('mu.id', ':user_id_blocker', ':user_id_blocked');
+        $params = [
+            ':user_id' => (int)$user->id,
+            ':user_id_for_mine' => (int)$user->id,
+        ];
+        if ($blockedUsersSql !== '') {
+            $params[':user_id_blocker'] = (int)$user->id;
+            $params[':user_id_blocked'] = (int)$user->id;
+        }
+
         $rows = Database::query(
             "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
                     mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
@@ -527,6 +689,7 @@ class SocialController
                JOIN mobile_usuarios mu ON mu.id = sl.liker_user_id
               WHERE sl.liked_user_id = :user_id
                 AND sl.matched_at IS NULL
+                " . $blockedUsersSql . "
                 AND NOT EXISTS (
                     SELECT 1
                       FROM social_likes mine
@@ -535,10 +698,7 @@ class SocialController
                      LIMIT 1
                 )
            ORDER BY sl.created_at DESC",
-            [
-                ':user_id' => (int)$user->id,
-                ':user_id_for_mine' => (int)$user->id,
-            ]
+            $params
         );
 
         $likes = array_map(function (array $row): array {
@@ -561,6 +721,13 @@ class SocialController
             Response::success(['likes' => []]);
         }
 
+        $blockedUsersSql = $this->blockedUsersSql('mu.id', ':user_id_blocker', ':user_id_blocked');
+        $params = [':user_id' => (int)$user->id];
+        if ($blockedUsersSql !== '') {
+            $params[':user_id_blocker'] = (int)$user->id;
+            $params[':user_id_blocked'] = (int)$user->id;
+        }
+
         $rows = Database::query(
             "SELECT mu.id AS user_id, mu.nombre, mu.foto_url, mu.edad, mu.sexualidad, mu.genero,
                     mu.descripcion, mu.intereses, mu.que_busca, mu.redes_sociales,
@@ -568,11 +735,12 @@ class SocialController
                     sl.created_at AS liked_at, sl.restaurante_id AS like_restaurante_id" .
                     ($this->hasSocialPhotosColumn() ? ", mu.social_photos_json" : "") .
                     ($this->hasMesaColumn() ? ", mu.mesa" : "") . "
-               FROM social_likes sl
+              FROM social_likes sl
                JOIN mobile_usuarios mu ON mu.id = sl.liked_user_id
               WHERE sl.liker_user_id = :user_id AND sl.matched_at IS NULL
+                " . $blockedUsersSql . "
            ORDER BY sl.created_at DESC",
-            [':user_id' => (int)$user->id]
+            $params
         );
 
         $likes = array_map(function (array $row): array {
@@ -884,6 +1052,9 @@ class SocialController
     public function publicProfile(int $userId): void
     {
         $user = AuthMiddleware::authenticate();
+        if ($this->isBlockedBetween((int)$user->id, $userId)) {
+            Response::notFound('Usuario no encontrado o sin perfil social publico');
+        }
 
         $profile = Database::queryOne(
             "SELECT id AS user_id, nombre, foto_url, edad, sexualidad, genero, descripcion, intereses, que_busca, redes_sociales" . ($this->hasSocialPhotosColumn() ? ", social_photos_json" : "") . ($this->hasMesaColumn() ? ", mesa" : "") . "
@@ -5173,7 +5344,7 @@ class SocialController
 
     private function getRelationshipStatus(int $currentUserId, int $targetUserId): string
     {
-        if ($currentUserId === $targetUserId || !$this->tableExists('social_likes')) {
+        if ($currentUserId === $targetUserId || $this->isBlockedBetween($currentUserId, $targetUserId) || !$this->tableExists('social_likes')) {
             return 'none';
         }
 
@@ -5194,6 +5365,49 @@ class SocialController
         }
 
         return !empty($like['matched_at']) ? 'matched' : 'liked';
+    }
+
+    private function blockedUsersSql(string $targetColumn, string $blockerPlaceholder, string $blockedPlaceholder): string
+    {
+        if (!$this->tableExists('social_blocks')) {
+            return '';
+        }
+
+        return " AND NOT EXISTS (
+                    SELECT 1
+                      FROM social_blocks sb
+                     WHERE (
+                        sb.blocker_user_id = {$blockerPlaceholder}
+                        AND sb.blocked_user_id = {$targetColumn}
+                     ) OR (
+                        sb.blocker_user_id = {$targetColumn}
+                        AND sb.blocked_user_id = {$blockedPlaceholder}
+                     )
+                     LIMIT 1
+                )";
+    }
+
+    private function isBlockedBetween(int $currentUserId, int $targetUserId): bool
+    {
+        if ($currentUserId <= 0 || $targetUserId <= 0 || !$this->tableExists('social_blocks')) {
+            return false;
+        }
+
+        $row = Database::queryOne(
+            'SELECT id
+               FROM social_blocks
+              WHERE (blocker_user_id = :current_a AND blocked_user_id = :target_a)
+                 OR (blocker_user_id = :target_b AND blocked_user_id = :current_b)
+              LIMIT 1',
+            [
+                ':current_a' => $currentUserId,
+                ':target_a' => $targetUserId,
+                ':target_b' => $targetUserId,
+                ':current_b' => $currentUserId,
+            ]
+        );
+
+        return $row !== null;
     }
 
     private function getMatchDate(int $currentUserId, int $targetUserId): ?string

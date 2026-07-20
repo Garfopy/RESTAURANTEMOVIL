@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Amare\Api\Middleware;
 
 use Amare\Api\Helpers\Response;
+use Amare\Api\Models\User;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
@@ -45,6 +46,8 @@ class AuthMiddleware
                     $user->id = (int)$user->sub;
                 }
 
+                self::assertUserCanUseToken($user);
+
                 return $user;
             }
 
@@ -52,6 +55,8 @@ class AuthMiddleware
             if (isset($decoded->sub) && !isset($decoded->id)) {
                 $decoded->id = (int)$decoded->sub;
             }
+
+            self::assertUserCanUseToken($decoded);
 
             return $decoded;
 
@@ -61,6 +66,19 @@ class AuthMiddleware
             error_log('JWT ERROR MSG: ' . $e->getMessage());
 
             Response::unauthorized('Token inválido o expirado');
+        }
+    }
+
+    private static function assertUserCanUseToken(object $user): void
+    {
+        $userId = isset($user->id) ? (int)$user->id : 0;
+        if ($userId <= 0) {
+            Response::unauthorized('Token invalido');
+        }
+
+        $authSource = isset($user->auth_source) ? (string)$user->auth_source : null;
+        if (!User::findAuthenticated($userId, $authSource)) {
+            Response::unauthorized('Cuenta desactivada o no disponible');
         }
     }
 
@@ -125,6 +143,15 @@ class AuthMiddleware
 
     public static function generateToken(array $data): string
     {
+        $authSource = isset($data['auth_source']) ? (string)$data['auth_source'] : 'mobile';
+        if ($authSource === 'mobile') {
+            $userId = isset($data['id']) ? (int)$data['id'] : 0;
+            $user = $userId > 0 ? User::findById($userId) : null;
+            if (!$user || (array_key_exists('activo', $user) && (int)$user['activo'] !== 1)) {
+                Response::error('Tu cuenta fue desactivada. Contacta al restaurante para revisar tu caso.', 403);
+            }
+        }
+
         $secret = self::getSecret();
         $expiry = (int)($_ENV['JWT_EXPIRY'] ?? 720);
 

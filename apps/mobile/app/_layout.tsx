@@ -340,6 +340,7 @@ export default function RootLayout() {
                     <Stack.Screen name="checkout/exit-pass" />
                     <Stack.Screen name="order/[id]" />
                     <Stack.Screen name="legal/terms" />
+                    <Stack.Screen name="legal/privacy" />
                   </Stack>
                   <GlobalCartButton />
                 </View>
