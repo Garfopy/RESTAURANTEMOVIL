@@ -15,9 +15,7 @@ import {
   PlayfairDisplay_700Bold_Italic,
 } from '@expo-google-fonts/playfair-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import { AppState, Platform, View } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useUserStore } from '../store/user.store';
@@ -33,16 +31,16 @@ import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNoti
 import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
-import { STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
 import {
-  getNotificationDeepLink,
+  getInitialNotificationDeepLink,
   isPushRegistrationEnabled,
   registerPushNotifications,
   subscribeForegroundFirebaseMessages,
+  subscribeNotificationResponses,
   subscribePushTokenRefresh,
 } from '../services/push-notifications.service';
 
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,10 +54,25 @@ const queryClient = new QueryClient({
 
 const ACCOUNT_STATUS_INTERVAL_MS = 5 * 60 * 1000;
 const ACCOUNT_STATUS_RESUME_STALE_MS = 60 * 1000;
+const STARTUP_SESSION_TIMEOUT_MS = 8_000;
+const STARTUP_FONT_TIMEOUT_MS = 4_000;
+const STARTUP_WATCHDOG_MS = 12_000;
+const PUSH_SESSION_STABILIZATION_MS = 5_000;
 
-// Guard para detectar configuración incorrecta de Stripe
-if (__DEV__ && !STRIPE_PUBLISHABLE_KEY) {
-  console.error('ERROR: EXPO_PUBLIC_STRIPE_KEY no está configurada');
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -81,7 +94,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     isAuthenticated &&
       !isWaiter &&
       !isHostess &&
-      user?.google_id &&
+      (user?.google_id || user?.apple_id) &&
       (user.requires_onboarding || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
   );
   const redirectTo =
@@ -201,31 +214,34 @@ function PushNotificationRuntime() {
   const isAuthenticated = useUserStore((state) => state.isAuthenticated);
   const userId = useUserStore((state) => state.user?.id ?? null);
   const registeredForUserRef = useRef<number | null>(null);
-  const handledNotificationIdsRef = useRef(new Set<string>());
+  const [sessionReady, setSessionReady] = useState(false);
 
-  const handleNotificationResponse = React.useCallback((response: Notifications.NotificationResponse | null | undefined) => {
-    if (!response) return;
-
-    const id = response.notification.request.identifier;
-    if (id && handledNotificationIdsRef.current.has(id)) return;
-    if (id) handledNotificationIdsRef.current.add(id);
-
-    const deepLink = getNotificationDeepLink(response);
+  const handleNotificationDeepLink = React.useCallback((deepLink: string | null) => {
     if (deepLink) {
       router.push(deepLink as never);
     }
   }, [router]);
 
   useEffect(() => {
-    if (!isPushRegistrationEnabled()) {
+    setSessionReady(false);
+    if (!isPushRegistrationEnabled() || !isAuthenticated || !userId) {
+      return;
+    }
+
+    const timer = setTimeout(() => setSessionReady(true), PUSH_SESSION_STABILIZATION_MS);
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, userId]);
+
+  useEffect(() => {
+    if (!isPushRegistrationEnabled() || !sessionReady) {
       return;
     }
 
     const unsubscribeForeground = subscribeForegroundFirebaseMessages();
     const unsubscribeTokenRefresh = subscribePushTokenRefresh();
-    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
-    void Notifications.getLastNotificationResponseAsync()
-      .then(handleNotificationResponse)
+    const unsubscribeResponses = subscribeNotificationResponses(handleNotificationDeepLink);
+    void getInitialNotificationDeepLink()
+      .then(handleNotificationDeepLink)
       .catch((error) => {
         if (__DEV__) {
           console.warn('[Push] No se pudo leer la notificacion inicial:', error);
@@ -235,12 +251,12 @@ function PushNotificationRuntime() {
     return () => {
       unsubscribeForeground();
       unsubscribeTokenRefresh();
-      subscription.remove();
+      unsubscribeResponses();
     };
-  }, [handleNotificationResponse]);
+  }, [handleNotificationDeepLink, sessionReady]);
 
   useEffect(() => {
-    if (!isPushRegistrationEnabled() || !isAuthenticated || !userId || registeredForUserRef.current === userId) {
+    if (!isPushRegistrationEnabled() || !sessionReady || !userId || registeredForUserRef.current === userId) {
       return;
     }
 
@@ -278,7 +294,7 @@ function PushNotificationRuntime() {
       subscription.remove();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [isAuthenticated, userId]);
+  }, [sessionReady, userId]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -390,8 +406,11 @@ export default function RootLayout() {
   const { hydrateFromStorage, setUser, logout } = useUserStore();
   const hydrateTheme = useThemeStore((s) => s.hydrateTheme);
   const [appReady, setAppReady] = useState(false);
+  const [fontWaitExpired, setFontWaitExpired] = useState(false);
+  const [splashHidden, setSplashHidden] = useState(false);
+  const [optionalRuntimesReady, setOptionalRuntimesReady] = useState(false);
 
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -399,14 +418,26 @@ export default function RootLayout() {
     PlayfairDisplay_700Bold,
     PlayfairDisplay_700Bold_Italic,
   });
+  const fontsReady = fontsLoaded || Boolean(fontError) || fontWaitExpired;
 
   useEffect(() => {
-    if (!fontsLoaded) return;
+    const timer = setTimeout(() => setFontWaitExpired(true), STARTUP_FONT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      useUserStore.setState({ isLoading: false });
+      setAppReady(true);
+    }, STARTUP_WATCHDOG_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function init() {
-      await Promise.all([
+      await Promise.allSettled([
         hydrateTheme(),
         hydrateFromStorage(),
         hydrateBranchSelection(),
@@ -418,36 +449,73 @@ export default function RootLayout() {
       const { isAuthenticated, token } = useUserStore.getState();
       if (isAuthenticated && token) {
         try {
-          const user = await getMe();
+          const user = await withTimeout(
+            getMe(),
+            STARTUP_SESSION_TIMEOUT_MS,
+            'La validacion de sesion excedio el tiempo de arranque.'
+          );
           setUser(user);
         } catch (error: unknown) {
           // Token inválido o expirado — cerrar sesión
-          await logout({ accountSuspension: extractAccountSuspension(error) });
+          try {
+            await logout({ accountSuspension: extractAccountSuspension(error) });
+          } catch {
+            useUserStore.setState({
+              user: null,
+              token: null,
+              accountSuspension: extractAccountSuspension(error),
+              isAuthenticated: false,
+              isLoading: false,
+            });
+          }
         }
       }
 
       if (!cancelled) {
         setAppReady(true);
-        await SplashScreen.hideAsync();
       }
     }
-    init();
+    void init();
 
     return () => {
       cancelled = true;
     };
-  }, [fontsLoaded, hydrateFromStorage, hydrateTheme, logout, setUser]);
+  }, [hydrateFromStorage, hydrateTheme, logout, setUser]);
 
-  if (!fontsLoaded || !appReady) return null;
+  useEffect(() => {
+    if (!appReady || !fontsReady) return;
+    let active = true;
+    const fallback = setTimeout(() => {
+      if (active) setSplashHidden(true);
+    }, 1_000);
+
+    void SplashScreen.hideAsync()
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setSplashHidden(true);
+      });
+
+    return () => {
+      active = false;
+      clearTimeout(fallback);
+    };
+  }, [appReady, fontsReady]);
+
+  useEffect(() => {
+    if (!splashHidden) return;
+    const timer = setTimeout(() => setOptionalRuntimesReady(true), 1_000);
+    return () => clearTimeout(timer);
+  }, [splashHidden]);
+
+  if (!fontsReady || !appReady || !splashHidden) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
-            <ToastProvider>
+          <ToastProvider>
               <BranchConfigRuntime />
-              <PushNotificationRuntime />
+              {optionalRuntimesReady ? <PushNotificationRuntime /> : null}
               <AccountStatusRuntime />
               <AuthenticatedDataWarmupRuntime />
               <TableSessionRuntime />
@@ -484,8 +552,7 @@ export default function RootLayout() {
                   <GlobalCartButton />
                 </View>
               </AuthGuard>
-            </ToastProvider>
-          </StripeProvider>
+          </ToastProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

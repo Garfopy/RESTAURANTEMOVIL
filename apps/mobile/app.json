@@ -74,13 +74,6 @@
           "locationWhenInUsePermission": "Amare necesita tu ubicacion para encontrar sucursales cercanas y preparar entregas."
         }
       ],
-      [
-        "@stripe/stripe-react-native",
-        {
-          "merchantIdentifier": "merchant.com.amare.app",
-          "enableGooglePay": true
-        }
-      ],
       "expo-notifications",
       "expo-apple-authentication",
       [

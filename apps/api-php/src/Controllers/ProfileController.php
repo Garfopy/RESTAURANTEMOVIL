@@ -296,10 +296,12 @@ class ProfileController
                 'telefono = NULL',
                 'foto_url = NULL',
                 'google_id = NULL',
-                'apple_id = NULL',
                 'activo = 0',
                 'updated_at = NOW()',
             ];
+            if (User::supportsAppleSignIn()) {
+                $set[] = 'apple_id = NULL';
+            }
             $params = [
                 ':id' => $userId,
                 ':nombre' => 'Cuenta eliminada',

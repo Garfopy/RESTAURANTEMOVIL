@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
 import axios from 'axios';
 import Constants from 'expo-constants';
-import * as Application from 'expo-application';
 import * as SecureStore from 'expo-secure-store';
 import type { DevicePushToken, NotificationPermissionsStatus, NotificationResponse } from 'expo-notifications';
 import type { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
@@ -12,6 +11,7 @@ import { useUserStore } from '../store/user.store';
 declare const require: (name: string) => any;
 
 type ExpoNotificationsModule = typeof import('expo-notifications');
+type ExpoApplicationModule = typeof import('expo-application');
 type FirebaseMessagingModule = typeof import('@react-native-firebase/messaging');
 type FirebaseMessaging = FirebaseMessagingModule['default'];
 
@@ -83,17 +83,6 @@ function getFirebaseMessaging(): FirebaseMessaging | null {
   }
 
   return firebaseMessaging;
-}
-
-if (isPushRegistrationEnabled()) {
-  try {
-    getFirebaseMessaging()?.().setBackgroundMessageHandler(async () => undefined);
-  } catch (error) {
-    firebaseMessaging = null;
-    if (__DEV__) {
-      console.warn('[Push] No se pudo configurar background handler:', error);
-    }
-  }
 }
 
 export async function registerPushNotifications(options?: {
@@ -324,6 +313,16 @@ export function subscribeNotificationResponses(onDeepLink: (deepLink: string) =>
   });
 
   return () => subscription.remove();
+}
+
+export async function getInitialNotificationDeepLink(): Promise<string | null> {
+  if (!isPushRegistrationEnabled()) return null;
+
+  const Notifications = getExpoNotifications();
+  if (!Notifications) return null;
+
+  const response = await Notifications.getLastNotificationResponseAsync();
+  return response ? getNotificationDeepLink(response) : null;
 }
 
 export async function unregisterPushNotifications(fcmToken: string): Promise<void> {
@@ -565,6 +564,7 @@ async function getOrCreateDeviceId(): Promise<string> {
 
 async function getStableNativeDeviceId(): Promise<string | null> {
   try {
+    const Application = require('expo-application') as ExpoApplicationModule;
     if (Platform.OS === 'android') {
       return Application.getAndroidId()?.trim() || null;
     }

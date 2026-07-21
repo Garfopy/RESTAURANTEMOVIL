@@ -308,6 +308,14 @@ class AuthController
             Response::validationError(['identity_token' => ['El token de Apple es requerido']]);
         }
 
+        if (!User::supportsAppleSignIn()) {
+            Response::error(
+                'Inicio con Apple aun no esta preparado en el servidor. Ejecuta la migracion 074.',
+                503,
+                'APPLE_MIGRATION_REQUIRED'
+            );
+        }
+
         try {
             $identity = AppleIdentityService::verifyIdentityToken($identityToken);
             $appleId = $identity['sub'];
@@ -318,7 +326,30 @@ class AuthController
             if (!$user && $email !== null) {
                 $user = User::findByEmail($email);
                 if ($user) {
-                    User::updateAppleId((int)$user['id'], $appleId);
+                    if (!$identity['email_verified']) {
+                        Response::error(
+                            'Apple no pudo verificar el correo de esta cuenta.',
+                            422,
+                            'APPLE_EMAIL_NOT_VERIFIED'
+                        );
+                    }
+
+                    $linkedAppleId = trim((string)($user['apple_id'] ?? ''));
+                    if ($linkedAppleId !== '' && !hash_equals($linkedAppleId, $appleId)) {
+                        Response::error(
+                            'Este correo ya esta enlazado con otra cuenta de Apple.',
+                            409,
+                            'APPLE_ACCOUNT_CONFLICT'
+                        );
+                    }
+
+                    if ($linkedAppleId === '' && !User::updateAppleId((int)$user['id'], $appleId)) {
+                        Response::error(
+                            'No se pudo enlazar Apple con tu cuenta existente.',
+                            409,
+                            'APPLE_LINK_FAILED'
+                        );
+                    }
                     $user = User::findById((int)$user['id']);
                 }
             }

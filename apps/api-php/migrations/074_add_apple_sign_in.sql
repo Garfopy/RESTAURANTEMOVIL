@@ -1,5 +1,20 @@
-ALTER TABLE `mobile_usuarios`
-  ADD COLUMN IF NOT EXISTS `apple_id` VARCHAR(191) NULL AFTER `google_id`;
+SET @apple_column_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'mobile_usuarios'
+    AND COLUMN_NAME = 'apple_id'
+);
+
+SET @apple_column_sql := IF(
+  @apple_column_exists = 0,
+  'ALTER TABLE `mobile_usuarios` ADD COLUMN `apple_id` VARCHAR(191) NULL AFTER `google_id`',
+  'SELECT 1'
+);
+
+PREPARE apple_column_statement FROM @apple_column_sql;
+EXECUTE apple_column_statement;
+DEALLOCATE PREPARE apple_column_statement;
 
 SET @apple_index_exists := (
   SELECT COUNT(*)

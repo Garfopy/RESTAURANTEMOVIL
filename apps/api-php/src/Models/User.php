@@ -8,6 +8,11 @@ use Amare\Api\Config\Database;
 
 class User
 {
+    public static function supportsAppleSignIn(): bool
+    {
+        return self::columnExists('mobile_usuarios', 'apple_id');
+    }
+
     public static function create(array $data): int
     {
         $columns = ['nombre', 'email', 'password_hash', 'telefono', 'foto_url', 'google_id', 'created_at'];

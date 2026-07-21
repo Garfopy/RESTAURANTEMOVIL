@@ -29,23 +29,30 @@ export const useThemeStore = create<ThemeState>((set) => ({
         const colors = applyThemeColors(settings);
         set({ colors });
       }
-
-      const remote = await getThemeSettings();
-      const nextSettings: ThemeColorSettings = {
-        primary: normalizeHex(remote.primary) ?? Colors.primary,
-        secondary: normalizeHex(remote.secondary) ?? Colors.accent,
-        background: normalizeHex(remote.background) ?? Colors.background,
-        button: normalizeHex(remote.button) ?? Colors.button,
-        buttonText: normalizeHex(remote.buttonText) ?? Colors.buttonText,
-      };
-
-      const colors = applyThemeColors(nextSettings);
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextSettings));
-      set({ colors, isLoaded: true });
     } catch (error) {
-      console.warn('No se pudo cargar el tema remoto:', error);
-      set({ colors: { ...Colors }, isLoaded: true });
+      console.warn('No se pudo restaurar el tema guardado:', error);
     }
+
+    set({ isLoaded: true });
+
+    void (async () => {
+      try {
+        const remote = await getThemeSettings();
+        const nextSettings: ThemeColorSettings = {
+          primary: normalizeHex(remote.primary) ?? Colors.primary,
+          secondary: normalizeHex(remote.secondary) ?? Colors.accent,
+          background: normalizeHex(remote.background) ?? Colors.background,
+          button: normalizeHex(remote.button) ?? Colors.button,
+          buttonText: normalizeHex(remote.buttonText) ?? Colors.buttonText,
+        };
+
+        const colors = applyThemeColors(nextSettings);
+        set({ colors });
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextSettings));
+      } catch (error) {
+        console.warn('No se pudo actualizar el tema remoto:', error);
+      }
+    })();
   },
 }));
 

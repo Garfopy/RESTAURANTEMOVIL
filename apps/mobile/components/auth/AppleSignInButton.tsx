@@ -1,42 +1,54 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Platform, StyleSheet, View } from 'react-native';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import { useRouter } from 'expo-router';
 import { loginWithApple } from '../../services/auth.service';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { getApiError } from '../../services/api';
-import { registerPushNotifications } from '../../services/push-notifications.service';
 import { useUserStore } from '../../store/user.store';
 
+declare const require: (name: string) => any;
+type AppleAuthenticationModule = typeof import('expo-apple-authentication');
+
 export function AppleSignInButton() {
-  const router = useRouter();
   const login = useUserStore((state) => state.login);
   const setAccountSuspension = useUserStore((state) => state.setAccountSuspension);
+  const [appleAuthentication, setAppleAuthentication] = useState<AppleAuthenticationModule | null>(null);
   const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     let active = true;
-    void AppleAuthentication.isAvailableAsync().then((isAvailable) => {
-      if (active) setAvailable(isAvailable);
-    });
+    try {
+      const module = require('expo-apple-authentication') as AppleAuthenticationModule;
+      setAppleAuthentication(module);
+      void module.isAvailableAsync()
+        .then((isAvailable) => {
+          if (active) setAvailable(isAvailable);
+        })
+        .catch(() => {
+          if (active) setAvailable(false);
+        });
+    } catch {
+      setAvailable(false);
+    }
     return () => {
       active = false;
     };
   }, []);
 
-  if (!available) return null;
+  const AppleModule = appleAuthentication;
+  const AppleButton = AppleModule?.AppleAuthenticationButton;
+  if (!available || !AppleModule || !AppleButton) return null;
 
-  async function handleAppleSignIn() {
+  async function handleAppleSignIn(module: AppleAuthenticationModule) {
     if (busy) return;
 
     try {
       setBusy(true);
-      const credential = await AppleAuthentication.signInAsync({
+      const credential = await module.signInAsync({
         requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          module.AppleAuthenticationScope.FULL_NAME,
+          module.AppleAuthenticationScope.EMAIL,
         ],
       });
 
@@ -55,8 +67,6 @@ export function AppleSignInButton() {
         platform: 'ios',
       });
       await login(session);
-      void registerPushNotifications({ force: true, reason: 'apple-login-success', userId: session.user.id });
-      router.replace('/' as never);
     } catch (error: unknown) {
       if ((error as { code?: string })?.code === 'ERR_REQUEST_CANCELED') return;
 
@@ -74,12 +84,12 @@ export function AppleSignInButton() {
 
   return (
     <View style={[styles.wrapper, busy && styles.disabled]} pointerEvents={busy ? 'none' : 'auto'}>
-      <AppleAuthentication.AppleAuthenticationButton
-        buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-        buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+      <AppleButton
+        buttonType={AppleModule.AppleAuthenticationButtonType.SIGN_IN}
+        buttonStyle={AppleModule.AppleAuthenticationButtonStyle.BLACK}
         cornerRadius={18}
         style={styles.button}
-        onPress={() => void handleAppleSignIn()}
+        onPress={() => void handleAppleSignIn(AppleModule)}
       />
     </View>
   );

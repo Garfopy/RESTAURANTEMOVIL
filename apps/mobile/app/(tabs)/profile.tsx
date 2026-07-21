@@ -119,7 +119,7 @@ export default function ProfileScreen() {
       const updated = await updateProfileSettings({ marketing_opt_in: enabled });
       setUser(updated);
       if (enabled) {
-        void registerPushNotifications({ force: true, reason: 'marketing-opt-in', userId: updated.id });
+        void registerPushNotifications({ reason: 'marketing-opt-in', userId: updated.id });
       }
     } catch {
       Alert.alert('No se pudo guardar', 'Intenta nuevamente en un momento.');
