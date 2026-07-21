@@ -30,7 +30,7 @@ const PRIVACY_SECTIONS = [
   {
     title: 'Proveedores',
     body:
-      'Podemos usar servicios como Stripe para pagos, Google/Firebase para inicio de sesion y notificaciones, mapas/ubicacion del sistema y proveedores fiscales para facturacion.',
+      'Stripe procesa tarjeta, Apple Pay, Google Pay y reembolsos; Amare no almacena numeros completos de tarjeta ni codigos de seguridad. Tambien podemos usar Google/Firebase para inicio de sesion y notificaciones, mapas/ubicacion del sistema y proveedores fiscales para facturacion.',
   },
   {
     title: 'Modo social',

@@ -15,6 +15,7 @@ use Amare\Api\Models\User;
 use Amare\Api\Services\RewardsService;
 use Amare\Api\Services\StripeConfig;
 use Stripe\PaymentIntent;
+use Stripe\Charge;
 use Stripe\Stripe;
 
 class OrderController
@@ -123,7 +124,7 @@ class OrderController
 
         // Actualizar pedido con método de pago
         if (in_array($metodo, ['card', 'apple_pay', 'google_pay'], true)) {
-            $this->assertStripePaymentSucceeded(
+            $metodo = $this->assertStripePaymentSucceeded(
                 trim((string)$paymentIntentId),
                 (int)$user->id,
                 $order,
@@ -135,7 +136,9 @@ class OrderController
         $pdo = Database::getInstance();
         try {
             $pdo->beginTransaction();
-            Order::updatePaymentMethod($id, $metodo, $paymentIntentId);
+            if (!Order::updatePaymentMethod($id, $metodo, $paymentIntentId)) {
+                throw new \RuntimeException('No se pudo actualizar el estado de pago del pedido.');
+            }
             $reward = (new RewardsService())->awardPoints(
                 $pdo,
                 (int)$user->id,
@@ -174,7 +177,17 @@ class OrderController
             }
         }
 
-        $invoiceRequest = $this->createInvoiceRequestForOrder($order ?? [], $input, (int)$user->id, $metodo);
+        if (in_array($metodo, ['card', 'apple_pay', 'google_pay'], true)) {
+            try {
+                (new PaymentController())->fulfillPendingInvoiceRequest($order ?? [], (int)$user->id, $metodo);
+                $invoiceRequest = InvoiceRequest::findByOrder($id);
+            } catch (\Throwable $exception) {
+                error_log('OrderController::confirmPayment invoice ERROR: ' . $exception->getMessage());
+                $invoiceRequest = null;
+            }
+        } else {
+            $invoiceRequest = $this->createInvoiceRequestForOrder($order ?? [], $input, (int)$user->id, $metodo);
+        }
 
         Response::success([
             'ok' => true,
@@ -473,7 +486,7 @@ class OrderController
         int $userId,
         array $order,
         bool $usePoints
-    ): void {
+    ): string {
         if ($paymentIntentId === '') {
             Response::validationError(['payment_intent_id' => ['El intento de pago de Stripe es obligatorio']]);
         }
@@ -519,6 +532,29 @@ class OrderController
         if ((string)$intent->status !== 'succeeded') {
             Response::error('Stripe aun no confirma el pago.', 409, 'PAYMENT_NOT_SUCCEEDED');
         }
+
+        if ((bool)$intent->livemode !== StripeConfig::isLiveMode()) {
+            Response::error('El entorno del pago no coincide con el servidor.', 409, 'PAYMENT_MODE_MISMATCH');
+        }
+
+        return $this->stripePaymentMethod($intent);
+    }
+
+    private function stripePaymentMethod(object $intent): string
+    {
+        try {
+            $charge = $intent->latest_charge ?? null;
+            if (is_string($charge) && $charge !== '') {
+                $charge = Charge::retrieve($charge);
+            }
+            $walletType = strtolower((string)($charge?->payment_method_details?->card?->wallet?->type ?? ''));
+            if ($walletType === 'apple_pay') return 'apple_pay';
+            if ($walletType === 'google_pay') return 'google_pay';
+        } catch (\Stripe\Exception\ApiErrorException $exception) {
+            error_log('OrderController::stripePaymentMethod STRIPE ERROR: ' . $exception->getMessage());
+        }
+
+        return 'card';
     }
 
     private function getStripeSecret(): string

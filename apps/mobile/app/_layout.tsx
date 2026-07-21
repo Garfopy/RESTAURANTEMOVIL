@@ -18,6 +18,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppState, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StripeProvider, useStripe } from '@stripe/stripe-react-native';
+import * as Linking from 'expo-linking';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
 import { hydrateTableSession } from '../store/table-session.store';
@@ -39,6 +41,7 @@ import {
   subscribeNotificationResponses,
   subscribePushTokenRefresh,
 } from '../services/push-notifications.service';
+import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
 
 void SplashScreen.preventAutoHideAsync().catch((error) => {
   console.warn('[Startup] No se pudo mantener visible el splash:', error);
@@ -92,12 +95,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
     String(user?.rol ?? '').toLowerCase()
   );
+  const userName = String(user?.nombre ?? '').trim();
+  const needsName = userName.length < 3 || userName.toLowerCase() === 'usuario amare';
   const needsOnboarding = Boolean(
     isAuthenticated &&
       !isWaiter &&
       !isHostess &&
       (user?.google_id || user?.apple_id) &&
-      (user.requires_onboarding || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
+      (user.requires_onboarding || needsName || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
   );
   const redirectTo =
     !isLoading && accountSuspension && !inAccountSuspended
@@ -408,6 +413,25 @@ function AuthenticatedDataWarmupRuntime() {
   return null;
 }
 
+function StripeUrlRuntime() {
+  const { handleURLCallback } = useStripe();
+
+  useEffect(() => {
+    const handleUrl = ({ url }: { url: string }) => {
+      void handleURLCallback(url).catch((error) => {
+        console.warn('[Stripe] No se pudo procesar el retorno del pago:', error);
+      });
+    };
+    const subscription = Linking.addEventListener('url', handleUrl);
+    void Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+    return () => subscription.remove();
+  }, [handleURLCallback]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const { hydrateFromStorage, setUser, logout } = useUserStore();
   const hydrateTheme = useThemeStore((s) => s.hydrateTheme);
@@ -528,7 +552,7 @@ export default function RootLayout() {
 
   if (!fontsReady || !appReady || !splashHidden) return null;
 
-  return (
+  const content = (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
@@ -575,5 +599,18 @@ export default function RootLayout() {
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+
+  if (!STRIPE_IS_CONFIGURED) return content;
+
+  return (
+    <StripeProvider
+      publishableKey={STRIPE_PUBLISHABLE_KEY}
+      merchantIdentifier="merchant.com.amare.app"
+      urlScheme="amare"
+    >
+      <StripeUrlRuntime />
+      {content}
+    </StripeProvider>
   );
 }

@@ -1579,6 +1579,9 @@ class SocialController
             if ($intent->status !== 'succeeded') {
                 Response::error('Stripe aun no confirma el pago de la cuenta.', 409);
             }
+            if ((bool)$intent->livemode !== StripeConfig::isLiveMode()) {
+                Response::error('El entorno del pago no coincide con el servidor.', 409);
+            }
         } catch (\Stripe\Exception\InvalidRequestException $exception) {
             if (stripos((string)$exception->getMessage(), 'No such payment_intent') !== false) {
                 Response::error('Stripe no encuentra este intento. Reabre la accion e intenta de nuevo.', 409);
@@ -1661,6 +1664,83 @@ class SocialController
             if ($pdo->inTransaction()) $pdo->rollBack();
             error_log('SocialController::confirmAccountCoverPayment ERROR: ' . $exception->getMessage());
             Response::serverError('Stripe cobro la cuenta, pero no pudimos registrar la cobertura.');
+        }
+    }
+
+    public function reconcileAccountCoverFromWebhook(int $coverId, int $payerUserId): void
+    {
+        $this->ensureSocialAccountCoverTables();
+        $cover = Database::queryOne(
+            'SELECT * FROM social_account_covers WHERE id = :id AND payer_user_id = :payer_id LIMIT 1',
+            [':id' => $coverId, ':payer_id' => $payerUserId]
+        );
+        if (!$cover || (string)($cover['payment_mode'] ?? '') !== 'stripe') return;
+        if ((string)($cover['status'] ?? '') === 'paid') return;
+        if ((string)($cover['status'] ?? '') !== 'pending_payment') {
+            throw new \DomainException('La cobertura social no esta lista para pago.');
+        }
+
+        $pdo = Database::getInstance();
+        $pdo->beginTransaction();
+        try {
+            $locked = Database::queryOne(
+                'SELECT * FROM social_account_covers WHERE id = :id AND payer_user_id = :payer_id LIMIT 1 FOR UPDATE',
+                [':id' => $coverId, ':payer_id' => $payerUserId]
+            );
+            if (!$locked || (string)$locked['status'] === 'paid') {
+                $pdo->commit();
+                return;
+            }
+
+            $consumption = $this->findConsumptionById(
+                (int)$locked['restaurante_id'],
+                (int)$locked['covered_user_id'],
+                (string)$locked['covered_consumo_id']
+            );
+            if ($consumption === null) throw new \DomainException('La cuenta original ya no esta disponible.');
+
+            $activeCover = $this->findActiveSocialAccountCover(
+                (int)$locked['restaurante_id'],
+                (int)$locked['covered_user_id'],
+                (string)$locked['covered_consumo_id'],
+                true
+            );
+            if ($activeCover && (int)$activeCover['id'] !== $coverId) {
+                throw new \DomainException('Esta cuenta ya fue cubierta por otra solicitud.');
+            }
+
+            $paymentResult = $this->processDirectSocialCoverPayment($pdo, $locked, $consumption, 'social_cover');
+            $pendingGiftCharges = $this->pendingSocialGiftChargesForConsumption(
+                $consumption,
+                (int)$locked['covered_user_id'],
+                (int)$locked['restaurante_id']
+            );
+            $payer = $this->fetchSocialProfile($payerUserId) ?? [];
+            $this->updateSocialAccountCover($pdo, $coverId, [
+                'status' => 'paid',
+                'paid_at' => date('Y-m-d H:i:s'),
+            ]);
+            $this->recordSocialAccountNotification(
+                $pdo,
+                (int)$locked['covered_user_id'],
+                $payerUserId,
+                'social_account_paid',
+                'Cuenta pagada',
+                $this->buildCoverMessage((string)($payer['nombre'] ?? 'Alguien'), (float)$locked['amount_mxn'], 'stripe'),
+                [
+                    'cover_id' => $coverId,
+                    'amount_mxn' => (float)$locked['amount_mxn'],
+                    'covered_order_id' => (int)$paymentResult['covered_order_id'],
+                    'covered_visit_id' => $paymentResult['covered_visit_id'],
+                    'payment_mode' => 'stripe',
+                    'post_payment_action_required' => true,
+                    'pending_social_gifts' => $pendingGiftCharges,
+                ]
+            );
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $exception;
         }
     }
 
@@ -2472,6 +2552,9 @@ class SocialController
             if ($intent->status !== 'succeeded') {
                 Response::error('Stripe aún no confirma el pago del regalo.', 409);
             }
+            if ((bool)$intent->livemode !== StripeConfig::isLiveMode()) {
+                Response::error('El entorno del pago no coincide con el servidor.', 409);
+            }
             if (empty($gift['pedido_id']) || empty($gift['pedido_item_id'])) {
                 $pdo = Database::getInstance();
                 try {
@@ -2573,6 +2656,108 @@ class SocialController
         } catch (\Stripe\Exception\ApiErrorException $exception) {
             error_log('SocialController::confirmGiftPayment STRIPE ERROR: ' . $exception->getMessage());
             Response::serverError('No se pudo verificar el pago con Stripe.');
+        }
+    }
+
+    public function reconcileGiftFromWebhook(int $giftId, int $senderUserId, string $paymentIntentId): void
+    {
+        $gift = Database::queryOne(
+            'SELECT * FROM social_gift_orders WHERE id = :id AND sender_user_id = :user_id LIMIT 1',
+            [':id' => $giftId, ':user_id' => $senderUserId]
+        );
+        if (!$gift || !hash_equals((string)($gift['stripe_payment_intent_id'] ?? ''), $paymentIntentId)) return;
+
+        $pdo = Database::getInstance();
+        $pdo->beginTransaction();
+        try {
+            $locked = Database::queryOne(
+                'SELECT * FROM social_gift_orders WHERE id = :id AND sender_user_id = :user_id LIMIT 1 FOR UPDATE',
+                [':id' => $giftId, ':user_id' => $senderUserId]
+            );
+            if (!$locked) {
+                $pdo->commit();
+                return;
+            }
+
+            $shouldNotify = empty($locked['pagado_at']);
+            if (empty($locked['pedido_id']) || empty($locked['pedido_item_id'])) {
+                $delivery = $this->chargeGiftToTableAccount(
+                    $pdo,
+                    (int)$locked['restaurante_id'],
+                    (int)($locked['sender_mesa_id'] ?? $locked['mesa_id'] ?? 0),
+                    $senderUserId,
+                    (string)($locked['sender_nombre'] ?? 'Comensal'),
+                    $giftId,
+                    (int)$locked['gift_product_id'],
+                    [
+                        'nombre' => $locked['gift_nombre'] ?? 'Regalo',
+                        'descripcion' => $locked['gift_descripcion'] ?? null,
+                        'imagen' => $locked['gift_imagen'] ?? null,
+                    ],
+                    (float)$locked['gift_precio'],
+                    (string)($locked['recipient_nombre'] ?? 'Comensal'),
+                    (string)($locked['recipient_mesa'] ?? ''),
+                    false,
+                    $paymentIntentId
+                );
+
+                $updateSet = [
+                    'pedido_id = :order_id',
+                    'pedido_item_id = :item_id',
+                ];
+                $updateParams = [
+                    ':order_id' => $delivery['pedido_id'],
+                    ':item_id' => $delivery['pedido_item_id'],
+                    ':id' => $giftId,
+                ];
+                if (!empty($delivery['consumo_id']) && in_array('consumo_id', $this->getTableColumns('social_gift_orders'), true)) {
+                    $updateSet[] = 'consumo_id = :consumo_id';
+                    $updateParams[':consumo_id'] = $delivery['consumo_id'];
+                }
+                $statement = $pdo->prepare(
+                    'UPDATE social_gift_orders SET ' . implode(', ', $updateSet) . ', updated_at = NOW() WHERE id = :id'
+                );
+                $statement->execute($updateParams);
+                $locked['pedido_id'] = $delivery['pedido_id'];
+                $locked['pedido_item_id'] = $delivery['pedido_item_id'];
+            }
+
+            Database::rowCount(
+                "UPDATE social_gift_orders
+                    SET status = IF(status IN ('pendiente_pago','pago_fallido'), 'listo', status),
+                        pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
+                  WHERE id = :id AND stripe_payment_intent_id = :intent_id",
+                [':id' => $giftId, ':intent_id' => $paymentIntentId]
+            );
+            $paidGift = Database::queryOne('SELECT * FROM social_gift_orders WHERE id = :id', [':id' => $giftId]);
+            if ($paidGift) $this->markPaidGiftChargeOrder($pdo, $paidGift, 'tarjeta', $paymentIntentId);
+
+            if ($paidGift && $shouldNotify) {
+                $this->recordSocialAccountNotification(
+                    $pdo,
+                    (int)$paidGift['recipient_user_id'],
+                    $senderUserId,
+                    'social_gift_received',
+                    'Regalo recibido',
+                    sprintf(
+                        '%s te envio %s.',
+                        (string)($paidGift['sender_nombre'] ?? 'Alguien'),
+                        (string)($paidGift['gift_nombre'] ?? 'un regalo')
+                    ),
+                    [
+                        'gift_id' => $giftId,
+                        'folio' => $paidGift['folio'] ?? null,
+                        'gift_nombre' => $paidGift['gift_nombre'] ?? 'Regalo',
+                        'sender_nombre' => $paidGift['sender_nombre'] ?? 'Comensal',
+                        'recipient_mesa' => $paidGift['recipient_mesa'] ?? null,
+                        'payment_mode' => 'stripe',
+                    ]
+                );
+            }
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $exception;
         }
     }
 

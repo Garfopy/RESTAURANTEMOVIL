@@ -10,6 +10,8 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\User;
+use Amare\Api\Services\RewardsService;
+use Amare\Api\Services\PurchasedBalanceRefundService;
 
 class ProfileController
 {
@@ -45,7 +47,12 @@ class ProfileController
         $updateData = [];
         
         if (isset($input['nombre'])) {
-            $updateData['nombre'] = $input['nombre'];
+            $name = preg_replace('/\s+/u', ' ', trim((string)$input['nombre'])) ?? '';
+            $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+            if ($nameLength < 3 || $nameLength > 100 || strcasecmp($name, 'Usuario Amare') === 0) {
+                Response::validationError(['nombre' => ['Escribe un nombre valido de 3 a 100 caracteres']]);
+            }
+            $updateData['nombre'] = $name;
         }
 
         if (isset($input['telefono'])) {
@@ -252,6 +259,22 @@ class ProfileController
             Response::notFound('Usuario no encontrado');
         }
 
+        $refundInitiatedMxn = 0.0;
+        try {
+            $wallet = (new RewardsService())->getWallet($userId);
+            $purchasedBalance = round((float)($wallet['purchased_balance_mxn'] ?? 0), 2);
+            if ($purchasedBalance > 0) {
+                $refundInitiatedMxn = $this->refundPurchasedBalanceBeforeDeletion($userId, $purchasedBalance);
+            }
+        } catch (\Throwable $exception) {
+            error_log('ProfileController::deleteAccount REFUND ERROR: ' . $exception->getMessage());
+            Response::error(
+                'No pudimos iniciar el reembolso de tu saldo comprado. Tu cuenta no fue eliminada; contacta a soporte.',
+                409,
+                'ACCOUNT_REFUND_FAILED'
+            );
+        }
+
         $photos = $this->collectUserPhotoUrls($currentUser);
         $pdo = Database::getInstance();
 
@@ -370,7 +393,19 @@ class ProfileController
                 'payment_records',
                 'moderation_records',
             ],
+            'refund_initiated_mxn' => $refundInitiatedMxn,
         ], 'Cuenta eliminada');
+    }
+
+    private function refundPurchasedBalanceBeforeDeletion(int $userId, float $amountMxn): float
+    {
+        $result = (new PurchasedBalanceRefundService())->refund(
+            $userId,
+            $amountMxn,
+            'account_delete_' . $userId,
+            'account_deletion'
+        );
+        return (float)$result['refunded_mxn'];
     }
 
     private function isPhotoReferencedInSocialGallery(int $userId, ?string $photoUrl): bool

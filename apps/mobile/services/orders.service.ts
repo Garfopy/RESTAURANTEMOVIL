@@ -200,31 +200,24 @@ export async function getOrderTracking(id: number): Promise<{ tracking: Tracking
 }
 
 export async function createPaymentIntent(params: {
-  order_id?: number;
-  amount: number;
+  order_id: number;
   currency?: string;
-  restaurante_id?: number;
-  items?: unknown[];
   promo_code?: string;
   use_points?: boolean;
+  invoice_request?: InvoiceRequestPayload | null;
 }): Promise<PaymentIntent> {
   const payload: Record<string, unknown> = {
-    amount: params.amount,
+    order_id: params.order_id,
     currency: params.currency ?? 'mxn',
   };
-
-  if (typeof params.order_id === 'number' && Number.isInteger(params.order_id) && params.order_id > 0) {
-    payload.order_id = params.order_id;
-  }
-  if (typeof params.restaurante_id === 'number' && Array.isArray(params.items)) {
-    payload.restaurante_id = params.restaurante_id;
-    payload.items = params.items;
-  }
   if (params.promo_code) {
     payload.promo_code = params.promo_code;
   }
   if (params.use_points) {
     payload.use_points = true;
+  }
+  if (params.invoice_request) {
+    payload.invoice_request = params.invoice_request;
   }
 
   const { data } = await apiClient.post<{

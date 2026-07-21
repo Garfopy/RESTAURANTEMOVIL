@@ -172,6 +172,8 @@ $routes = [
 
     // Admin - Users routes (panel web, requiere rol=admin)
     ['GET', '/admin/users', ['Amare\Api\Controllers\AdminController', 'users']],
+    ['POST', '/admin/rewards/refunds', ['Amare\Api\Controllers\AdminController', 'refundPurchasedBalance']],
+    ['POST', '/admin/payments/reconcile', ['Amare\Api\Controllers\PaymentController', 'adminReconcilePayment']],
     
     // Store routes (tienda de productos físicos)
     ['GET', '/store/categories', ['Amare\Api\Controllers\StoreController', 'categories']],

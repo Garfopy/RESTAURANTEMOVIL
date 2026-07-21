@@ -13,8 +13,6 @@ class RewardsService
     private const QUICK_TOPUP_AMOUNTS = [500, 1000, 3000];
     private const WALLET_DISCOUNT_RATE = 0.10;
     private const NON_WALLET_POINTS_RATE = 0.05;
-    private const MAX_CUSTOM_TOPUP_AMOUNT = 50000;
-
     private static bool $schemaChecked = false;
 
     public static function quickTopupAmounts(): array
@@ -60,11 +58,10 @@ class RewardsService
     ): array {
         $this->ensureSchema($pdo);
 
+        $wallet = $this->ensureWallet($pdo, $userId, true);
         if ($this->rewardTransactionExists($pdo, 'wallet_payment', $referenceType, $referenceId)) {
             throw new \DomainException('Este pago con Saldo Amare ya fue procesado.');
         }
-
-        $wallet = $this->ensureWallet($pdo, $userId, true);
         $quote = $this->buildQuote($wallet, $amount, $context, $usePoints, true);
 
         if (!$quote['can_pay']) {
@@ -72,11 +69,19 @@ class RewardsService
         }
 
         $newBalance = round((float)$wallet['balance_mxn'] - (float)$quote['wallet_total'], 2);
+        $promotionalBalance = round((float)($wallet['promotional_balance_mxn'] ?? $wallet['balance_mxn'] ?? 0), 2);
+        $purchasedBalance = round((float)($wallet['purchased_balance_mxn'] ?? 0), 2);
+        $promotionalUsed = min($promotionalBalance, (float)$quote['wallet_total']);
+        $purchasedUsed = round((float)$quote['wallet_total'] - $promotionalUsed, 2);
+        $newPromotionalBalance = round($promotionalBalance - $promotionalUsed, 2);
+        $newPurchasedBalance = round($purchasedBalance - $purchasedUsed, 2);
         $newPoints = max(0, (int)$wallet['points'] - (int)$quote['points_redeemed']);
 
         $stmt = $pdo->prepare(
             'UPDATE amare_wallets
                 SET balance_mxn = :balance,
+                    purchased_balance_mxn = :purchased_balance,
+                    promotional_balance_mxn = :promotional_balance,
                     points = :points,
                     simulated_balance = 0,
                     updated_at = NOW()
@@ -84,6 +89,8 @@ class RewardsService
         );
         $stmt->execute([
             ':balance' => $newBalance,
+            ':purchased_balance' => $newPurchasedBalance,
+            ':promotional_balance' => $newPromotionalBalance,
             ':points' => $newPoints,
             ':id' => (int)$wallet['id'],
         ]);
@@ -92,6 +99,7 @@ class RewardsService
             'wallet_id' => (int)$wallet['id'],
             'user_id' => $userId,
             'type' => 'wallet_payment',
+            'funding_type' => $purchasedUsed > 0 && $promotionalUsed > 0 ? 'mixed' : ($purchasedUsed > 0 ? 'purchased' : 'promotional'),
             'context' => $context,
             'reference_type' => $referenceType,
             'reference_id' => $referenceId,
@@ -100,11 +108,17 @@ class RewardsService
             'balance_after_mxn' => $newBalance,
             'points_after' => $newPoints,
             'description' => $description,
-            'metadata_json' => json_encode(['quote' => $quote], JSON_UNESCAPED_UNICODE),
+            'metadata_json' => json_encode([
+                'quote' => $quote,
+                'promotional_used_mxn' => $promotionalUsed,
+                'purchased_used_mxn' => $purchasedUsed,
+            ], JSON_UNESCAPED_UNICODE),
             'external_reference' => null,
         ]);
 
         $quote['balance_after_mxn'] = $newBalance;
+        $quote['purchased_balance_after_mxn'] = $newPurchasedBalance;
+        $quote['promotional_balance_after_mxn'] = $newPromotionalBalance;
         $quote['points_after'] = $newPoints;
 
         return $quote;
@@ -122,8 +136,8 @@ class RewardsService
     ): array {
         $this->ensureSchema($pdo);
 
+        $wallet = $this->ensureWallet($pdo, $userId, true);
         if ($this->rewardTransactionExists($pdo, 'external_payment', $referenceType, $referenceId)) {
-            $wallet = $this->ensureWallet($pdo, $userId);
             return [
                 'already_applied' => true,
                 'points_earned' => 0,
@@ -133,7 +147,6 @@ class RewardsService
             ];
         }
 
-        $wallet = $this->ensureWallet($pdo, $userId, true);
         $quote = $this->buildQuote($wallet, $amount, $context, $usePoints, false);
         $newPoints = max(0, (int)$wallet['points'] - (int)$quote['points_redeemed'] + (int)$quote['points_earned']);
 
@@ -177,25 +190,25 @@ class RewardsService
             throw new \DomainException('El monto de recarga no es válido.');
         }
 
-        if ($externalReference !== '' && $this->findTransactionByExternalReference($pdo, $externalReference)) {
-            $wallet = $this->ensureWallet($pdo, $userId);
-            $transactions = $this->recentTransactions($pdo, (int)$wallet['id'], 10);
-            return $this->walletResponse($wallet, $transactions);
-        }
-
         $wallet = $this->ensureWallet($pdo, $userId, true);
+        if ($externalReference !== '' && $this->findTransactionByExternalReference($pdo, $externalReference)) {
+            return $this->walletResponse($wallet, $this->recentTransactions($pdo, (int)$wallet['id'], 10));
+        }
         $newBalance = round((float)$wallet['balance_mxn'] + $amount, 2);
+        $newPurchasedBalance = round((float)($wallet['purchased_balance_mxn'] ?? 0) + $amount, 2);
         $points = (int)$wallet['points'];
 
         $stmt = $pdo->prepare(
             'UPDATE amare_wallets
                 SET balance_mxn = :balance,
+                    purchased_balance_mxn = :purchased_balance,
                     simulated_balance = 0,
                     updated_at = NOW()
               WHERE id = :id'
         );
         $stmt->execute([
             ':balance' => $newBalance,
+            ':purchased_balance' => $newPurchasedBalance,
             ':id' => (int)$wallet['id'],
         ]);
 
@@ -203,6 +216,7 @@ class RewardsService
             'wallet_id' => (int)$wallet['id'],
             'user_id' => $userId,
             'type' => 'wallet_topup',
+            'funding_type' => 'purchased',
             'context' => 'topup',
             'reference_type' => 'wallet_topup',
             'reference_id' => null,
@@ -216,11 +230,11 @@ class RewardsService
         ]);
 
         $wallet['balance_mxn'] = $newBalance;
+        $wallet['purchased_balance_mxn'] = $newPurchasedBalance;
         $wallet['points'] = $points;
         $wallet['simulated_balance'] = 0;
-        $transactions = $this->recentTransactions($pdo, (int)$wallet['id'], 10);
 
-        return $this->walletResponse($wallet, $transactions);
+        return $this->walletResponse($wallet, $this->recentTransactions($pdo, (int)$wallet['id'], 10));
     }
 
     public function refundToBalance(
@@ -238,8 +252,8 @@ class RewardsService
             throw new \DomainException('El importe de reembolso no es valido.');
         }
 
+        $wallet = $this->ensureWallet($pdo, $userId, true);
         if ($this->rewardTransactionExists($pdo, 'wallet_refund', $referenceType, $referenceId)) {
-            $wallet = $this->ensureWallet($pdo, $userId);
             return [
                 'already_applied' => true,
                 'refund_amount_mxn' => 0,
@@ -248,19 +262,21 @@ class RewardsService
             ];
         }
 
-        $wallet = $this->ensureWallet($pdo, $userId, true);
         $newBalance = round((float)$wallet['balance_mxn'] + $amount, 2);
+        $newPromotionalBalance = round((float)($wallet['promotional_balance_mxn'] ?? 0) + $amount, 2);
         $points = (int)$wallet['points'];
 
         $stmt = $pdo->prepare(
             'UPDATE amare_wallets
                 SET balance_mxn = :balance,
+                    promotional_balance_mxn = :promotional_balance,
                     simulated_balance = 0,
                     updated_at = NOW()
               WHERE id = :id'
         );
         $stmt->execute([
             ':balance' => $newBalance,
+            ':promotional_balance' => $newPromotionalBalance,
             ':id' => (int)$wallet['id'],
         ]);
 
@@ -268,6 +284,7 @@ class RewardsService
             'wallet_id' => (int)$wallet['id'],
             'user_id' => $userId,
             'type' => 'wallet_refund',
+            'funding_type' => 'promotional',
             'context' => 'gift_refund',
             'reference_type' => $referenceType,
             'reference_id' => $referenceId,
@@ -286,6 +303,77 @@ class RewardsService
             'balance_after_mxn' => $newBalance,
             'points_after' => $points,
         ];
+    }
+
+    public function applyPurchasedRefund(
+        PDO $pdo,
+        int $userId,
+        float $amount,
+        string $externalReference,
+        string $description,
+        bool $allowPartial = false
+    ): array {
+        $this->ensureSchema($pdo);
+        $amount = round(max(0, $amount), 2);
+        $requestedAmount = $amount;
+        if ($amount <= 0) throw new \DomainException('El importe de reembolso no es valido.');
+
+        $wallet = $this->ensureWallet($pdo, $userId, true);
+        if ($this->findTransactionByExternalReference($pdo, $externalReference)) {
+            return $this->walletResponse($wallet, $this->recentTransactions($pdo, (int)$wallet['id'], 10));
+        }
+        $purchasedBalance = round((float)($wallet['purchased_balance_mxn'] ?? 0), 2);
+        if ($amount > $purchasedBalance) {
+            if (!$allowPartial) {
+                throw new \DomainException('El reembolso supera el saldo comprado disponible.');
+            }
+            $amount = $purchasedBalance;
+        }
+        if ($amount <= 0) {
+            $response = $this->walletResponse($wallet, $this->recentTransactions($pdo, (int)$wallet['id'], 10));
+            $response['refunded_balance_mxn'] = 0.0;
+            $response['unapplied_refund_mxn'] = $requestedAmount;
+            return $response;
+        }
+
+        $newPurchasedBalance = round($purchasedBalance - $amount, 2);
+        $newBalance = round((float)$wallet['balance_mxn'] - $amount, 2);
+        $statement = $pdo->prepare(
+            'UPDATE amare_wallets
+                SET balance_mxn = :balance,
+                    purchased_balance_mxn = :purchased_balance,
+                    updated_at = NOW()
+              WHERE id = :id'
+        );
+        $statement->execute([
+            ':balance' => $newBalance,
+            ':purchased_balance' => $newPurchasedBalance,
+            ':id' => (int)$wallet['id'],
+        ]);
+
+        $this->insertTransaction($pdo, [
+            'wallet_id' => (int)$wallet['id'],
+            'user_id' => $userId,
+            'type' => 'stripe_refund',
+            'funding_type' => 'purchased',
+            'context' => 'topup_refund',
+            'reference_type' => 'stripe_refund',
+            'reference_id' => null,
+            'amount_mxn' => -1 * $amount,
+            'points_delta' => 0,
+            'balance_after_mxn' => $newBalance,
+            'points_after' => (int)$wallet['points'],
+            'description' => $description,
+            'metadata_json' => json_encode(['refund_amount_mxn' => $amount], JSON_UNESCAPED_UNICODE),
+            'external_reference' => $externalReference,
+        ]);
+
+        $wallet['balance_mxn'] = $newBalance;
+        $wallet['purchased_balance_mxn'] = $newPurchasedBalance;
+        $response = $this->walletResponse($wallet, $this->recentTransactions($pdo, (int)$wallet['id'], 10));
+        $response['refunded_balance_mxn'] = $amount;
+        $response['unapplied_refund_mxn'] = round($requestedAmount - $amount, 2);
+        return $response;
     }
 
     public function redeemToBalance(
@@ -309,10 +397,12 @@ class RewardsService
 
         $newPoints = $currentPoints - $pointsCost;
         $newBalance = round((float)$wallet['balance_mxn'] + $balanceCreditMxn, 2);
+        $newPromotionalBalance = round((float)($wallet['promotional_balance_mxn'] ?? 0) + $balanceCreditMxn, 2);
 
         $stmt = $pdo->prepare(
             'UPDATE amare_wallets
                 SET balance_mxn = :balance,
+                    promotional_balance_mxn = :promotional_balance,
                     points = :points,
                     simulated_balance = 0,
                     updated_at = NOW()
@@ -320,6 +410,7 @@ class RewardsService
         );
         $stmt->execute([
             ':balance' => $newBalance,
+            ':promotional_balance' => $newPromotionalBalance,
             ':points' => $newPoints,
             ':id' => (int)$wallet['id'],
         ]);
@@ -328,6 +419,7 @@ class RewardsService
             'wallet_id' => (int)$wallet['id'],
             'user_id' => $userId,
             'type' => 'points_redemption',
+            'funding_type' => 'promotional',
             'context' => 'redeem',
             'reference_type' => 'points_redemption',
             'reference_id' => $pointsCost,
@@ -345,6 +437,7 @@ class RewardsService
         ]);
 
         $wallet['balance_mxn'] = $newBalance;
+        $wallet['promotional_balance_mxn'] = $newPromotionalBalance;
         $wallet['points'] = $newPoints;
         $wallet['simulated_balance'] = 0;
         $transactions = $this->recentTransactions($pdo, (int)$wallet['id'], 10);
@@ -370,6 +463,8 @@ class RewardsService
               `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
               `user_id` INT UNSIGNED NOT NULL,
               `balance_mxn` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+              `purchased_balance_mxn` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+              `promotional_balance_mxn` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
               `points` INT UNSIGNED NOT NULL DEFAULT 0,
               `simulated_balance` TINYINT(1) NOT NULL DEFAULT 0,
               `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -386,6 +481,7 @@ class RewardsService
               `wallet_id` INT UNSIGNED NOT NULL,
               `user_id` INT UNSIGNED NOT NULL,
               `type` VARCHAR(40) NOT NULL,
+              `funding_type` VARCHAR(24) NULL,
               `context` VARCHAR(30) NULL,
               `reference_type` VARCHAR(40) NULL,
               `reference_id` INT UNSIGNED NULL,
@@ -449,6 +545,12 @@ class RewardsService
     {
         $this->addColumnIfMissing($pdo, 'amare_wallets', 'user_id', '`user_id` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `id`');
         $this->addColumnIfMissing($pdo, 'amare_wallets', 'balance_mxn', '`balance_mxn` DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `user_id`');
+        $hadPurchasedColumn = $this->columnExists($pdo, 'amare_wallets', 'purchased_balance_mxn');
+        $this->addColumnIfMissing($pdo, 'amare_wallets', 'purchased_balance_mxn', '`purchased_balance_mxn` DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `balance_mxn`');
+        $this->addColumnIfMissing($pdo, 'amare_wallets', 'promotional_balance_mxn', '`promotional_balance_mxn` DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `purchased_balance_mxn`');
+        if (!$hadPurchasedColumn) {
+            $pdo->exec('UPDATE amare_wallets SET promotional_balance_mxn = balance_mxn WHERE balance_mxn > 0');
+        }
         $this->addColumnIfMissing($pdo, 'amare_wallets', 'points', '`points` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `balance_mxn`');
         $this->addColumnIfMissing($pdo, 'amare_wallets', 'simulated_balance', '`simulated_balance` TINYINT(1) NOT NULL DEFAULT 0 AFTER `points`');
         $this->addColumnIfMissing($pdo, 'amare_wallets', 'created_at', '`created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `simulated_balance`');
@@ -460,6 +562,7 @@ class RewardsService
         $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'wallet_id', '`wallet_id` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `id`');
         $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'user_id', '`user_id` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `wallet_id`');
         $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'type', '`type` VARCHAR(40) NOT NULL DEFAULT \'wallet_payment\' AFTER `user_id`');
+        $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'funding_type', '`funding_type` VARCHAR(24) NULL AFTER `type`');
         $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'context', '`context` VARCHAR(30) NULL AFTER `type`');
         $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'reference_type', '`reference_type` VARCHAR(40) NULL AFTER `context`');
         $this->addColumnIfMissing($pdo, 'amare_wallet_transactions', 'reference_id', '`reference_id` INT UNSIGNED NULL AFTER `reference_type`');
@@ -489,6 +592,8 @@ class RewardsService
             $this->userColumnValues($pdo, 'amare_wallets', $userId),
             [
                 'balance_mxn' => 0,
+                'purchased_balance_mxn' => 0,
+                'promotional_balance_mxn' => 0,
                 'points' => 0,
                 'simulated_balance' => 0,
                 'created_at' => date('Y-m-d H:i:s'),
@@ -502,6 +607,8 @@ class RewardsService
             'user_id' => $userId,
             'usuario_id' => $userId,
             'balance_mxn' => 0,
+            'purchased_balance_mxn' => 0,
+            'promotional_balance_mxn' => 0,
             'points' => 0,
             'simulated_balance' => 0,
         ];
@@ -547,6 +654,8 @@ class RewardsService
 
         return [
             'balance_mxn' => round((float)($wallet['balance_mxn'] ?? 0), 2),
+            'purchased_balance_mxn' => round((float)($wallet['purchased_balance_mxn'] ?? 0), 2),
+            'promotional_balance_mxn' => round((float)($wallet['promotional_balance_mxn'] ?? 0), 2),
             'points' => $points,
             'points_value_mxn' => $points,
             'discount_rate' => self::WALLET_DISCOUNT_RATE,
@@ -596,14 +705,14 @@ class RewardsService
     private function isAllowedTopupAmount(float $amount): bool
     {
         $rounded = (int)round($amount);
-        return $rounded > 0 && $rounded <= self::MAX_CUSTOM_TOPUP_AMOUNT && (float)$rounded === $amount;
+        return (float)$rounded === $amount && in_array($rounded, self::QUICK_TOPUP_AMOUNTS, true);
     }
 
     private function recentTransactions(PDO $pdo, int $walletId, int $limit): array
     {
         $limit = max(1, min(50, $limit));
         $stmt = $pdo->prepare(
-            "SELECT type, context, reference_type, reference_id, amount_mxn, points_delta,
+            "SELECT type, funding_type, context, reference_type, reference_id, amount_mxn, points_delta,
                     balance_after_mxn, points_after, description, created_at
                FROM amare_wallet_transactions
               WHERE wallet_id = :wallet_id
@@ -628,6 +737,7 @@ class RewardsService
             [
                 'wallet_id' => $data['wallet_id'],
                 'type' => $data['type'],
+                'funding_type' => $data['funding_type'] ?? null,
                 'context' => $data['context'],
                 'reference_type' => $data['reference_type'],
                 'reference_id' => $data['reference_id'],

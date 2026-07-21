@@ -43,6 +43,11 @@ function onlyDigits(value: string): string {
   return value.replace(/\D+/g, '');
 }
 
+function initialAccountName(value?: string | null): string {
+  const name = value?.trim() ?? '';
+  return name.toLowerCase() === 'usuario amare' ? '' : name;
+}
+
 function toDateString(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -122,6 +127,7 @@ export default function CompleteProfileScreen() {
   const user = useUserStore((state) => state.user);
   const setUser = useUserStore((state) => state.setUser);
   const logout = useUserStore((state) => state.logout);
+  const [name, setName] = useState(() => initialAccountName(user?.nombre));
   const [phone, setPhone] = useState(() => {
     const current = onlyDigits(user?.telefono ?? '');
     return current.startsWith('52') && current.length === 12 ? current.slice(2) : current;
@@ -133,15 +139,17 @@ export default function CompleteProfileScreen() {
     return clampMonth(selected ?? getAgeBounds().max);
   });
   const [termsAccepted, setTermsAccepted] = useState(Boolean(user?.terms_accepted_at));
-  const [marketingOptIn, setMarketingOptIn] = useState(false);
+  const [marketingOptIn, setMarketingOptIn] = useState(Boolean(user?.marketing_opt_in));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [canceling, setCanceling] = useState(false);
 
   const phoneDigits = useMemo(() => onlyDigits(phone), [phone]);
+  const normalizedName = useMemo(() => name.trim().replace(/\s+/g, ' '), [name]);
+  const hasValidName = normalizedName.length >= 3 && normalizedName.toLowerCase() !== 'usuario amare';
   const calendarCells = useMemo(() => getCalendarCells(calendarMonth), [calendarMonth]);
   const selectedBirthday = useMemo(() => parseBirthDate(birthday), [birthday]);
-  const canSubmit = phoneDigits.length === 10 && isAdultBirthday(birthday) && termsAccepted && !saving;
+  const canSubmit = hasValidName && phoneDigits.length === 10 && isAdultBirthday(birthday) && termsAccepted && !saving;
 
   function openCalendar() {
     setCalendarMonth(clampMonth(parseBirthDate(birthday) ?? getAgeBounds().max));
@@ -157,7 +165,7 @@ export default function CompleteProfileScreen() {
 
   async function submit() {
     if (!canSubmit) {
-      setError('Completa tu teléfono, selecciona una fecha válida y confirma que eres mayor de edad.');
+      setError('Escribe tu nombre, completa tu teléfono, selecciona una fecha válida y confirma que eres mayor de edad.');
       return;
     }
 
@@ -166,6 +174,7 @@ export default function CompleteProfileScreen() {
       setError(null);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const updatedUser = await completeProfile({
+        nombre: normalizedName,
         telefono: `52${phoneDigits}`,
         fecha_nacimiento: birthday,
         terms_accepted: true,
@@ -215,6 +224,25 @@ export default function CompleteProfileScreen() {
             </View>
 
             <View style={styles.form}>
+              <View style={styles.field}>
+                <Text style={styles.label}>Nombre</Text>
+                <TextInput
+                  value={name}
+                  onChangeText={(value) => {
+                    setName(value.slice(0, 100));
+                    setError(null);
+                  }}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  textContentType="name"
+                  placeholder="Tu nombre"
+                  placeholderTextColor="#857D71"
+                  style={styles.nameInput}
+                  maxLength={100}
+                  returnKeyType="next"
+                />
+              </View>
+
               <View style={styles.field}>
                 <Text style={styles.label}>Teléfono</Text>
                 <View style={styles.phoneRow}>
@@ -434,6 +462,17 @@ const styles = StyleSheet.create({
   },
   field: { gap: 8 },
   label: { color: '#E9DDC8', fontSize: 12, fontWeight: '800' },
+  nameInput: {
+    minHeight: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.16)',
+    backgroundColor: 'rgba(23,25,30,0.72)',
+    color: '#F6F0E6',
+    fontSize: 16,
+    fontWeight: '700',
+    paddingHorizontal: 14,
+  },
   phoneRow: {
     flexDirection: 'row',
     minHeight: 56,

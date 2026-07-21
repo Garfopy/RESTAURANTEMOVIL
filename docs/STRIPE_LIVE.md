@@ -1,121 +1,115 @@
-# Stripe Live en Amare
+# Stripe Live, Apple Pay y Google Pay en Amare
 
-## 1. Requisitos en Stripe
+## Arquitectura implementada
 
-1. Completar la activacion de la cuenta de Stripe: negocio, representante, cuenta bancaria y datos fiscales.
-2. Cambiar el Dashboard de Stripe a modo live.
-3. En Developers > API keys, obtener:
-   - `pk_live_...`: clave publicable para la app movil.
-   - `sk_live_...`: clave secreta exclusiva del servidor.
-4. No colocar `sk_live_...` ni `whsec_...` en Expo, React Native, Git o variables `EXPO_PUBLIC_*`.
+- La app crea primero un pedido pendiente y PHP calcula el total desde la base de datos.
+- Stripe PaymentSheet muestra tarjeta y, cuando el dispositivo es compatible, Apple Pay o Google Pay.
+- La app nunca recibe `sk_live`, `whsec`, numeros de tarjeta ni criptogramas.
+- PHP valida usuario, pedido, importe, MXN, metadata, estado y modo Live.
+- El webhook termina pedidos, puntos, recargas, regalos, cuentas sociales y solicitudes de factura aunque la app se cierre.
+- Los eventos, reembolsos e incidentes quedan registrados de forma idempotente.
 
-## 2. Backend PHP
+## Variables EAS
 
-Configurar en el `.env` real de `apps/api-php`:
+No guardes la clave real en `eas.json`. Configura el entorno Production desde `apps/mobile`:
+
+```bash
+eas env:create --environment production --name EXPO_PUBLIC_STRIPE_KEY --value pk_live_REEMPLAZAR --visibility plaintext
+eas env:create --environment production --name EXPO_PUBLIC_ENABLE_CARD_PAYMENTS --value true --visibility plaintext
+eas env:create --environment production --name EXPO_PUBLIC_STRIPE_LIVE_MODE --value true --visibility plaintext
+eas env:create --environment production --name EXPO_PUBLIC_ENABLE_NATIVE_WALLETS --value true --visibility plaintext
+eas env:list --environment production
+```
+
+Preview debe usar su propia `pk_test` en EAS Preview y `EXPO_PUBLIC_STRIPE_LIVE_MODE=false`. Cada cambio de variable publica requiere una build nueva.
+
+## Variables PHP de produccion
+
+En el `.env` real del directorio fisico `api-php`:
 
 ```dotenv
 APP_ENV=production
 STRIPE_LIVE_MODE=true
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_SECRET_KEY=sk_live_REEMPLAZAR
+STRIPE_WEBHOOK_SECRET=whsec_REEMPLAZAR
 ```
 
-`STRIPE_SECRET_KEY` del entorno tiene prioridad. Si no existe, la API puede leer
-`global_settings.stripe_secret_key`, que es el valor guardado por el panel web.
-Para produccion se recomienda el `.env` del servidor porque permite rotar y aislar
-la clave sin depender de la base de datos.
+Nunca uses prefijos `EXPO_PUBLIC_` para secretos. Reinicia PHP/PHP-FPM si el hosting conserva variables en memoria.
 
-## 3. Webhook live
+## Migraciones obligatorias
 
-En Stripe, crear un endpoint live con esta URL:
+Ejecuta en orden:
+
+1. `075_create_stripe_webhook_events.sql`
+2. `076_split_amare_wallet_balances.sql`
+3. `077_track_stripe_refunds.sql`
+4. `078_create_stripe_pending_invoices.sql`
+5. `079_create_stripe_refund_audit.sql`
+6. `080_create_stripe_payment_incidents.sql`
+
+La migracion 076 convierte el saldo anterior a Live en promocional. No reviertas esa clasificacion manualmente.
+
+## Webhook Live
+
+En Stripe Workbench crea el endpoint:
 
 ```text
 https://amarerestaurant.club/api_restaurante/payments/webhook
 ```
 
-Suscribir como minimo:
+Eventos requeridos:
 
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
+- `payment_intent.canceled`
+- `charge.refunded`
+- `charge.dispute.created`
 
-Copiar el signing secret `whsec_...` del endpoint a `STRIPE_WEBHOOK_SECRET` y
-reiniciar PHP/PHP-FPM si el hosting conserva variables en memoria. El webhook no
-usa JWT de usuario: valida `Stripe-Signature` con ese secreto.
+El endpoint no usa JWT; valida `Stripe-Signature`. Confirma en Stripe que cada entrega responda HTTP 200. Los fallos quedan en `stripe_webhook_events` y Stripe debe reintentarlos.
 
-## 4. Panel web de Amare
+## Apple Pay
 
-En Credenciales Stripe:
+1. En Apple Developer crea `merchant.com.amare.app`.
+2. Asocialo al App ID `com.amare.app` y activa Apple Pay.
+3. Completa el certificado de procesamiento desde Stripe.
+4. Regenera el provisioning profile de EAS.
+5. Verifica en la IPA el entitlement `com.apple.developer.in-app-payments`.
 
-- Publishable Key: `pk_live_...`
-- Secret Key: `sk_live_...`
-- Metodo habilitado: tarjeta
+No se requiere verificar dominio para Apple Pay nativo. La wallet solo aparece en dispositivo real con una tarjeta compatible.
 
-Dejar Apple Pay y Google Pay desactivados hasta registrar sus dominios,
-merchant IDs y capacidades nativas. Guardar la llave publica en el panel no
-actualiza un APK ya compilado; la app recibe su llave mediante EAS.
+## Google Pay
 
-## 5. Variables EAS de produccion
+1. Habilita Google Pay en Stripe.
+2. Usa una build nativa; no funciona en Expo Go.
+3. En Preview se usa `testEnv`; Production fuerza modo real.
+4. Verifica un dispositivo Android con Google Wallet configurado.
 
-Desde `apps/mobile`:
+## Operacion y reembolsos
+
+- Las recargas validas las entrega `GET /rewards/wallet`; el telefono no decide importes arbitrarios.
+- El saldo promocional se consume antes que el comprado.
+- Solo el saldo comprado no utilizado puede volver al metodo Stripe original.
+- Administración usa `POST /admin/rewards/refunds` con `user_id`, `amount_mxn`, `reason` y un `request_key` unico.
+- Un pago exitoso no aplicado puede reconciliarse con `POST /admin/payments/reconcile` y su `payment_intent_id`.
+- Al eliminar una cuenta, el reembolso del saldo comprado se inicia antes de anonimizarla.
+
+## Verificacion antes de tiendas
+
+1. Ejecuta TypeScript, Expo Doctor, `expo config --type introspect` y lint PHP.
+2. Prueba tarjeta, Apple Pay, Google Pay, 3DS, rechazo, cancelacion y doble toque.
+3. Corta la red despues de PaymentSheet y cierra la app; el webhook debe completar el pedido sin duplicarlo.
+4. Repite el mismo webhook y la misma confirmacion; no deben duplicarse puntos, saldo, factura, QR ni regalo.
+5. Intenta alterar usuario, importe, moneda, metodo y PaymentIntent.
+6. Prueba menu, pickup, tienda, regalo, cubrir cuenta y recarga.
+7. Haz un cobro Live pequeno y despues un reembolso real.
+8. Revisa la IPA/AAB: debe contener `pk_live`, nunca `sk_live`, `whsec` ni claves Test.
+9. Genera TestFlight y APK interno antes de crear las builds candidatas.
+
+## Builds
 
 ```bash
-eas env:create --environment production --name EXPO_PUBLIC_STRIPE_KEY --value pk_live_... --visibility plaintext
-eas env:create --environment production --name EXPO_PUBLIC_ENABLE_CARD_PAYMENTS --value true --visibility plaintext
-eas env:create --environment production --name EXPO_PUBLIC_STRIPE_LIVE_MODE --value true --visibility plaintext
-eas env:create --environment production --name EXPO_PUBLIC_ENABLE_NATIVE_WALLETS --value false --visibility plaintext
-eas env:list --environment production
-```
-
-La clave publicable puede ser visible porque forma parte del binario. Nunca crear
-una variable `EXPO_PUBLIC_STRIPE_SECRET_KEY`. Las variables `EXPO_PUBLIC_*` se
-integran en el build, por lo que cambiar la llave requiere generar otro APK/AAB.
-
-## 6. Generar builds live
-
-```bash
-eas build --platform android --profile production
 eas build --platform ios --profile production
+eas build --platform android --profile production
 ```
 
-No promover el APK `preview-apk` a tiendas: ese perfil conserva la llave de prueba
-y los pagos con tarjeta desactivados.
-
-## 7. Flujo implementado
-
-1. La app crea primero el pedido autenticado mediante `POST /orders`.
-2. El backend ignora precios y totales del cliente, consulta el catalogo y guarda
-   en el pedido un snapshot con productos, modificadores, promocion y total.
-3. La app solicita `POST /payments/create-intent` usando ese `order_id`.
-4. El backend crea un PaymentIntent idempotente en MXN desde el snapshot, lo asocia
-   inmediatamente al pedido y devuelve `client_secret`, `payment_intent_id` e importe.
-5. Si el importe oficial difiere del mostrado, la app actualiza el total y exige
-   una nueva confirmacion; Stripe no se confirma en ese primer intento.
-6. La app confirma la tarjeta con CardField. Los datos de tarjeta no pasan por Amare.
-7. La app llama `POST /orders/{id}/confirm-payment` y el backend recupera el intent
-   desde Stripe para validar usuario, pedido, moneda, importe y estado `succeeded`.
-8. El webhook firmado sirve como confirmacion asincrona si la app se cierra o se
-   pierde la conexion despues del cobro.
-
-Los pedidos para recoger usan el mismo flujo autenticado de `/orders`; ya no se
-confia en un booleano `pagado` enviado por el dispositivo.
-
-## 8. Archivos principales
-
-- `apps/api-php/src/Services/StripeConfig.php`: carga y valida secretos/mode live.
-- `apps/api-php/src/Controllers/PaymentController.php`: cotiza y crea intents; procesa webhook.
-- `apps/api-php/src/Controllers/OrderController.php`: verifica el pago antes de confirmar pedido.
-- `apps/mobile/constants/stripe.ts`: habilita tarjeta y separa wallets nativos.
-- `apps/mobile/services/orders.service.ts`: contrato entre app y API de pagos.
-- `apps/mobile/app/checkout/payment.tsx`: pago de menu y pickup.
-- `apps/mobile/app/checkout/payment-store.tsx`: pago de productos de tienda.
-- `apps/mobile/eas.json`: perfil de build que consume el entorno EAS `production`.
-
-## 9. Checklist antes de publicar
-
-1. Probar primero en test mode con llaves `pk_test_` y `sk_test_`.
-2. Verificar tarjeta aprobada, rechazada, autenticacion 3DS, doble toque y perdida de red.
-3. Confirmar que un total manipulado por el cliente no modifica el cobro.
-4. Revisar en Stripe que el webhook live entregue HTTP 200.
-5. Confirmar en DB el mismo `payment_intent_id`, total, moneda y usuario del pedido.
-6. Hacer una compra real legitima de bajo importe tras activar live y comprobar pedido, recibo y reembolso.
-7. Rotar cualquier secreto que haya estado en ZIP, logs, commits o capturas.
+No uses `preview-apk` para tiendas. Stripe Live, Merchant ID, certificado Apple Pay, webhook y variables EAS son configuracion externa: el codigo no puede confirmarlos sin entrar a esas cuentas.

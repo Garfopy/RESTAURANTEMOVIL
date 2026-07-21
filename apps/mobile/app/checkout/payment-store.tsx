@@ -6,22 +6,22 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
-  Platform,
   Image as RNImage,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatImageUrl } from '../../services/api';
 import { createStoreOrder } from '../../services/store.service';
 import { confirmPayment, createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
-import { NATIVE_WALLETS_ENABLED, STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
 import { Colors, Spacing, Shadows } from '../../theme';
 
-type PaymentMethod = 'card' | 'wallet' | 'cash';
+type PaymentMethod = 'card' | 'cash';
 type TipoPedido = 'delivery' | 'pickup';
 type PreparedStorePayment = {
   orderId: number;
@@ -34,7 +34,7 @@ type PreparedStorePayment = {
 
 export default function StorePaymentScreen() {
   const router = useRouter();
-  const { confirmPayment: stripeConfirm } = useStripe();
+  const stripe = useStripe();
   const params = useLocalSearchParams<{
     productId: string;
     productName: string;
@@ -64,14 +64,11 @@ export default function StorePaymentScreen() {
   const displayedTotal = preparedPayment?.amount ?? total;
   const serverPriceAdjustment = Math.round((displayedTotal - total) * 100) / 100;
 
-  const isIOS = Platform.OS === 'ios';
-  const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
-  const walletIcon = isIOS ? 'logo-apple' : 'logo-google';
-
   async function handlePay() {
     if (paymentLockRef.current) return;
     paymentLockRef.current = true;
     setLoading(true);
+    let stripeCompletedOrderId: number | null = null;
     try {
       if (selectedMethod === 'cash') {
         const order = await createStoreOrder({
@@ -103,7 +100,6 @@ export default function StorePaymentScreen() {
           });
           const paymentIntent = await createPaymentIntent({
             order_id: order.id,
-            amount: Number(order.total),
             currency: 'mxn',
           });
           prepared = {
@@ -125,34 +121,34 @@ export default function StorePaymentScreen() {
           }
         }
 
-        const { error } = prepared.status === 'succeeded'
-          ? { error: undefined }
-          : await stripeConfirm(prepared.clientSecret, {
-              paymentMethodType: 'Card',
-            });
-
-        if (error) {
-          Alert.alert('Pago rechazado', error.message);
-          setLoading(false);
-          return;
+        if (prepared.status !== 'succeeded') {
+          await presentAmarePaymentSheet(stripe, {
+            clientSecret: prepared.clientSecret,
+          });
         }
+        stripeCompletedOrderId = prepared.orderId;
 
         await confirmPayment({
           pedido_id: prepared.orderId,
           payment_intent_id: prepared.intentId,
           metodo: 'card',
         });
+        stripeCompletedOrderId = null;
 
         router.replace({ pathname: '/order/[id]', params: { id: String(prepared.orderId) } } as any);
         return;
       }
 
-      if (selectedMethod === 'wallet') {
-        Alert.alert('En desarrollo', `La integración con ${walletName} está en proceso.`);
-        setLoading(false);
+    } catch (err: any) {
+      if (err?.name === 'PaymentCanceledError') return;
+      if (stripeCompletedOrderId) {
+        Alert.alert(
+          'Procesando pago',
+          'Stripe recibio el pago, pero Amare sigue verificando el pedido. Puedes consultar el resultado en el detalle de la orden.'
+        );
+        router.replace({ pathname: '/order/[id]', params: { id: String(stripeCompletedOrderId) } } as any);
         return;
       }
-    } catch (err: any) {
       Alert.alert('Error', err.message || 'No se pudo procesar el pago.');
       console.error('🔴 Error en handlePay store:', err);
     } finally {
@@ -245,27 +241,7 @@ export default function StorePaymentScreen() {
                 numberOfLines={2}
                 style={[styles.methodText, selectedMethod === 'card' && styles.methodTextActive]}
               >
-                Tarjeta
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {NATIVE_WALLETS_ENABLED ? (
-            <TouchableOpacity
-              style={[styles.methodCard, selectedMethod === 'wallet' && styles.methodCardActive]}
-              onPress={() => setSelectedMethod('wallet')}
-              disabled={preparedPayment !== null}
-            >
-              <Ionicons
-                name={walletIcon}
-                size={26}
-                color={selectedMethod === 'wallet' ? Colors.primary : Colors.textMuted}
-              />
-              <Text
-                numberOfLines={2}
-                style={[styles.methodText, selectedMethod === 'wallet' && styles.methodTextActive]}
-              >
-                {walletName}
+                {stripePaymentLabel()}
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -289,24 +265,12 @@ export default function StorePaymentScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Card field */}
+        {/* Stripe PaymentSheet */}
         {selectedMethod === 'card' && STRIPE_IS_CONFIGURED && (
           <View style={styles.stripeContainer}>
-            <Text style={styles.sectionLabel}>Datos de la tarjeta</Text>
-            <CardField
-              postalCodeEnabled={false}
-              placeholders={{ number: '1234 5678 9012 3456' }}
-              cardStyle={{
-                backgroundColor: Colors.surface,
-                textColor: Colors.text,
-                placeholderColor: Colors.textMuted,
-                borderRadius: 12,
-              }}
-              style={styles.cardField}
-            />
             <Text style={styles.secureNote}>
               <Ionicons name="lock-closed-outline" size={12} color={Colors.success} />
-              {' '}Pago seguro procesado por Stripe
+              {' '}Al pagar se abrira la ventana segura de Stripe
             </Text>
           </View>
         )}

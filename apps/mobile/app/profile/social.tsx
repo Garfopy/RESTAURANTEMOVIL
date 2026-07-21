@@ -33,11 +33,12 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { useStripe } from '@stripe/stripe-react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import InputField from '../../components/ui/InputField';
 import { TableContextBanner } from '../../components/shared/TableContextBanner';
 import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../../constants/stripe';
+import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import {
   confirmSocialGiftPayment,
@@ -194,6 +195,7 @@ type SocialFormState = {
 };
 
 type SocialRequiredField = 'photo' | 'name' | 'age' | 'sexuality' | 'gender' | 'description';
+type SocialProfileField = SocialRequiredField | 'instagram' | 'tiktok';
 
 type SocialFilterState = {
   edadMin: string;
@@ -479,12 +481,6 @@ function formatMatchDate(value?: string | null): string | null {
   return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
 }
 
-function summarizeStripeSecret(secret?: string): string | null {
-  if (!secret) return null;
-  if (secret.length <= 16) return secret;
-  return `${secret.slice(0, 10)}...${secret.slice(-6)}`;
-}
-
 function summarizeStripeKey(key?: string): string | null {
   if (!key) return null;
   if (key.length <= 14) return key;
@@ -698,7 +694,7 @@ export default function SocialProfileScreen() {
     coverId?: string;
   }>();
   const { width, height } = useWindowDimensions();
-  const { confirmPayment: stripeConfirm } = useStripe();
+  const stripe = useStripe();
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const selectedBranch = useBranchStore((state) => state.seleccionada);
@@ -730,7 +726,6 @@ export default function SocialProfileScreen() {
   const [giftProductsLoading, setGiftProductsLoading] = useState(false);
   const [giftSending, setGiftSending] = useState(false);
   const [giftCheckoutMode, setGiftCheckoutMode] = useState<GiftCheckoutMode>('account');
-  const [giftCardComplete, setGiftCardComplete] = useState(false);
   const [giftRewardsWallet, setGiftRewardsWallet] = useState<RewardsWallet | null>(null);
   const [giftRewardsQuote, setGiftRewardsQuote] = useState<RewardsQuote | null>(null);
   const [giftRewardsLoading, setGiftRewardsLoading] = useState(false);
@@ -745,7 +740,6 @@ export default function SocialProfileScreen() {
   const [accountNotificationBusyId, setAccountNotificationBusyId] = useState<number | null>(null);
   const [giftNotificationBusyId, setGiftNotificationBusyId] = useState<number | null>(null);
   const [approvedCoverPayment, setApprovedCoverPayment] = useState<SocialAccountNotification | null>(null);
-  const [approvedCoverCardComplete, setApprovedCoverCardComplete] = useState(false);
   const [approvedCoverPaying, setApprovedCoverPaying] = useState(false);
   const [postPaidCoverResult, setPostPaidCoverResult] = useState<CoverSocialAccountResult | null>(null);
   const [postPaidCoverLoading, setPostPaidCoverLoading] = useState(false);
@@ -787,8 +781,8 @@ export default function SocialProfileScreen() {
   const rotate = useSharedValue(0);
   const detailPhotoScrollRef = useRef<ScrollView | null>(null);
   const profileEditorScrollRef = useRef<ScrollView | null>(null);
-  const profileFieldOffsetsRef = useRef<Partial<Record<SocialRequiredField, number>>>({});
-  const pendingProfileScrollFieldRef = useRef<SocialRequiredField | null>(null);
+  const profileFieldOffsetsRef = useRef<Partial<Record<SocialProfileField, number>>>({});
+  const pendingProfileScrollFieldRef = useRef<SocialProfileField | null>(null);
   const giftRequestKeyRef = useRef<string | null>(null);
   const socialScanActivationHandledRef = useRef(false);
   const socialNotificationDeepLinkHandledRef = useRef<string | null>(null);
@@ -820,7 +814,7 @@ export default function SocialProfileScreen() {
     return missing;
   }
 
-  function recordProfileFieldOffset(field: SocialRequiredField, y: number) {
+  function recordProfileFieldOffset(field: SocialProfileField, y: number) {
     profileFieldOffsetsRef.current[field] = y;
 
     if (pendingProfileScrollFieldRef.current === field) {
@@ -829,7 +823,7 @@ export default function SocialProfileScreen() {
     }
   }
 
-  function scrollToProfileField(field?: SocialRequiredField | null) {
+  function scrollToProfileField(field?: SocialProfileField | null) {
     if (!field) return;
 
     const y = profileFieldOffsetsRef.current[field];
@@ -850,6 +844,10 @@ export default function SocialProfileScreen() {
 
     pendingProfileScrollFieldRef.current = firstField;
     setTimeout(() => scrollToProfileField(firstField), 260);
+  }
+
+  function handleProfileInputFocus(field: SocialProfileField) {
+    setTimeout(() => scrollToProfileField(field), Platform.OS === 'ios' ? 220 : 120);
   }
 
   function openSocialProfileEditor(mode: 'full' | 'missing' = 'full', fields?: SocialRequiredField[]) {
@@ -888,7 +886,7 @@ export default function SocialProfileScreen() {
     !giftSending &&
     (giftCheckoutMode === 'account' ||
       (giftCheckoutMode === 'wallet' && Boolean(giftRewardsQuote?.can_pay) && !giftRewardsLoading) ||
-      (giftCheckoutMode === 'stripe' && stripeAvailable && giftCardComplete));
+      (giftCheckoutMode === 'stripe' && stripeAvailable));
   const detailPhotos = detailDiner
     ? normalizePhotoList(detailDiner.social_photos, detailDiner.foto_url)
     : [];
@@ -940,7 +938,6 @@ export default function SocialProfileScreen() {
 
     if (isApprovedStripe) {
       setApprovedCoverPayment(target);
-      setApprovedCoverCardComplete(false);
       return;
     }
 
@@ -1648,7 +1645,6 @@ export default function SocialProfileScreen() {
       await markNotificationRead(notification);
       setNotificationsVisible(false);
       setApprovedCoverPayment(notification);
-      setApprovedCoverCardComplete(false);
       return;
     }
     if (!exitPass) return;
@@ -1758,30 +1754,33 @@ export default function SocialProfileScreen() {
       Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para pagar ahora.');
       return;
     }
-    if (!approvedCoverCardComplete) {
-      Alert.alert('Tarjeta incompleta', 'Captura una tarjeta válida para pagar la cuenta.');
-      return;
-    }
-
     setApprovedCoverPaying(true);
+    let paymentPresented = false;
     try {
       const prepared = await prepareSocialAccountCoverPayment(coverId);
       if (!prepared.client_secret || !prepared.cover?.id) {
         throw new Error('No se recibió el cliente de pago de Stripe.');
       }
-      const { error } = await stripeConfirm(prepared.client_secret, {
-        paymentMethodType: 'Card',
+      await presentAmarePaymentSheet(stripe, {
+        clientSecret: prepared.client_secret,
+        customerName: user?.nombre,
+        customerEmail: user?.email,
       });
-      if (error) {
-        Alert.alert('Pago rechazado', error.message);
-        return;
-      }
+      paymentPresented = true;
       const confirmation = await confirmSocialAccountCoverPayment(prepared.cover.id);
       Alert.alert('Cuenta pagada', confirmation.cover?.message || 'Pagaste la cuenta. Le avisamos al comensal.');
       setApprovedCoverPayment(null);
-      setApprovedCoverCardComplete(false);
       await refreshRealtimeState();
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'PaymentCanceledError') return;
+      if (paymentPresented) {
+        Alert.alert(
+          'Pago en proceso',
+          'Stripe recibio el pago y Amare esta verificando la cuenta. Te notificaremos cuando termine la conciliacion.'
+        );
+        await refreshRealtimeState();
+        return;
+      }
       Alert.alert('No se pudo pagar', getApiError(error));
     } finally {
       setApprovedCoverPaying(false);
@@ -2717,7 +2716,6 @@ export default function SocialProfileScreen() {
     setGiftsVisible(false);
     setFocusedDiner(null);
     setGiftCheckoutMode('account');
-    setGiftCardComplete(false);
     setGiftRewardsQuote(null);
     setUseGiftRewardsPoints(false);
     giftRequestKeyRef.current = null;
@@ -2731,7 +2729,6 @@ export default function SocialProfileScreen() {
   function selectGiftCheckoutMode(mode: GiftCheckoutMode) {
     if (giftSending) return;
     giftRequestKeyRef.current = null;
-    setGiftCardComplete(false);
     setUseGiftRewardsPoints(false);
     setGiftCheckoutMode(mode);
   }
@@ -2785,10 +2782,6 @@ export default function SocialProfileScreen() {
     if (!stripeAvailable) {
       throw new Error('Stripe no está configurado en esta app. Agrega EXPO_PUBLIC_STRIPE_KEY para usar pago inmediato.');
     }
-    if (!giftCardComplete) {
-      throw new Error('Completa los datos de tu tarjeta antes de pagar el regalo.');
-    }
-
     const requestKey = getGiftRequestKey();
     if (__DEV__) {
       console.log('[SocialGift][Stripe] Iniciando pago', {
@@ -2797,7 +2790,6 @@ export default function SocialProfileScreen() {
         giftProductId: gift.id,
         requestKey,
         stripeAvailable,
-        giftCardComplete,
         publishableKeyPreview: summarizeStripeKey(STRIPE_PUBLISHABLE_KEY),
       });
     }
@@ -2816,7 +2808,6 @@ export default function SocialProfileScreen() {
         giftId: payload?.gift?.id ?? null,
         status: payload?.gift?.status ?? null,
         paymentIntentId: payload?.payment_intent_id ?? null,
-        clientSecretPreview: summarizeStripeSecret(payload?.client_secret),
         requestKey,
       });
     }
@@ -2835,25 +2826,11 @@ export default function SocialProfileScreen() {
         requestKey,
       });
     }
-    const { error } = await stripeConfirm(payload.client_secret, {
-      paymentMethodType: 'Card',
+    await presentAmarePaymentSheet(stripe, {
+      clientSecret: payload.client_secret,
+      customerName: user?.nombre,
+      customerEmail: user?.email,
     });
-    if (error) {
-      if (__DEV__) {
-        console.error('[SocialGift][Stripe] Stripe confirmPayment fallo', {
-          message: error.message,
-          code: 'code' in error ? (error as { code?: string }).code ?? null : null,
-          declineCode: 'declineCode' in error ? (error as { declineCode?: string }).declineCode ?? null : null,
-          localizedMessage:
-            'localizedMessage' in error
-              ? (error as { localizedMessage?: string }).localizedMessage ?? null
-              : null,
-          paymentIntentId: payload.payment_intent_id,
-          requestKey,
-        });
-      }
-      throw new Error(error.message || 'Stripe no pudo confirmar el pago.');
-    }
 
     if (__DEV__) {
       console.log('[SocialGift][Stripe] Stripe confirmo la tarjeta, verificando backend', {
@@ -2862,7 +2839,16 @@ export default function SocialProfileScreen() {
         requestKey,
       });
     }
-    const paidGift = await confirmSocialGiftPayment(payload.gift.id);
+    let paidGift;
+    try {
+      paidGift = await confirmSocialGiftPayment(payload.gift.id);
+    } catch {
+      const processingError = new Error(
+        'Stripe recibio el pago y Amare esta verificando la entrega. Te notificaremos cuando termine.'
+      );
+      processingError.name = 'PaymentProcessingError';
+      throw processingError;
+    }
     if (__DEV__) {
       console.log('[SocialGift][Stripe] Backend confirmo regalo pagado', {
         giftId: paidGift?.id ?? payload.gift.id,
@@ -2924,7 +2910,13 @@ export default function SocialProfileScreen() {
       } else {
         await sendGiftToAccount();
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'PaymentCanceledError') return;
+      if (error?.name === 'PaymentProcessingError') {
+        Alert.alert('Regalo en proceso', error.message);
+        await refreshRealtimeState();
+        return;
+      }
       if (giftCheckoutMode === 'stripe' || giftCheckoutMode === 'wallet') {
         if (__DEV__) {
           console.error('[SocialGift] Flujo de pago fallo', {
@@ -3461,9 +3453,8 @@ export default function SocialProfileScreen() {
     );
   }
 
-  const showOnlyMissingProfileFields = profileEditorMode === 'missing' && editorMissingFields.length > 0;
-  const shouldShowProfileField = (field: SocialRequiredField) =>
-    !showOnlyMissingProfileFields || editorMissingFields.includes(field);
+  const isCompletingProfile = profileEditorMode === 'missing' && editorMissingFields.length > 0;
+  const shouldShowProfileField = (_field: SocialRequiredField) => true;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -3671,7 +3662,10 @@ export default function SocialProfileScreen() {
       </View>
 
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={closeSocialProfileEditor}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <Pressable style={styles.modalBackdrop} onPress={closeSocialProfileEditor} />
 
           <View style={styles.modalCard}>
@@ -3686,15 +3680,17 @@ export default function SocialProfileScreen() {
 
             <ScrollView
               ref={profileEditorScrollRef}
-              contentContainerStyle={styles.modalContent}
+              contentContainerStyle={[styles.modalContent, styles.profileModalContent]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             >
-              {showOnlyMissingProfileFields ? (
+              {isCompletingProfile ? (
                 <View style={styles.missingOnlyNotice}>
                   <Ionicons name="sparkles-outline" size={18} color={Colors.primary} />
                   <Text style={styles.missingOnlyText}>
-                    Sólo te mostramos lo que falta para activar tu perfil social.
+                    Completa los datos obligatorios y agrega tus preferencias para personalizar tu perfil social.
                   </Text>
                 </View>
               ) : null}
@@ -3779,6 +3775,7 @@ export default function SocialProfileScreen() {
                     placeholder="Cómo quieres aparecer"
                     autoCapitalize="words"
                     maxLength={80}
+                    onFocus={() => handleProfileInputFocus('name')}
                   />
                 </View>
               ) : null}
@@ -3792,6 +3789,7 @@ export default function SocialProfileScreen() {
                     keyboardType="number-pad"
                     placeholder="Tu edad"
                     maxLength={3}
+                    onFocus={() => handleProfileInputFocus('age')}
                   />
                 </View>
               ) : null}
@@ -3820,15 +3818,13 @@ export default function SocialProfileScreen() {
                 </View>
               ) : null}
 
-              {!showOnlyMissingProfileFields ? (
-                <ChoiceField
-                  label="Qué buscas"
-                  value={form.queBusca}
-                  placeholder="Cuéntale a otros qué buscas"
-                  options={LOOKING_FOR_OPTIONS}
-                  onSelect={(value) => updateField('queBusca', value)}
-                />
-              ) : null}
+              <ChoiceField
+                label="Qué buscas"
+                value={form.queBusca}
+                placeholder="Cuéntale a otros qué buscas"
+                options={LOOKING_FOR_OPTIONS}
+                onSelect={(value) => updateField('queBusca', value)}
+              />
 
               {shouldShowProfileField('description') ? (
                 <View onLayout={(event) => recordProfileFieldOffset('description', event.nativeEvent.layout.y)}>
@@ -3841,12 +3837,12 @@ export default function SocialProfileScreen() {
                     numberOfLines={4}
                     textAlignVertical="top"
                     style={styles.textAreaInput}
+                    onFocus={() => handleProfileInputFocus('description')}
                   />
                 </View>
               ) : null}
 
-              {!showOnlyMissingProfileFields ? (
-                <View style={styles.fieldBlock}>
+              <View style={styles.fieldBlock}>
                 <Text style={styles.fieldLabel}>Intereses</Text>
                 <Text style={styles.helperText}>Opcional. Toca los temas que mejor te representen.</Text>
                 <View style={styles.interestWrap}>
@@ -3872,29 +3868,32 @@ export default function SocialProfileScreen() {
                   })}
                 </View>
               </View>
-              ) : null}
 
-              {!showOnlyMissingProfileFields ? (
+              <View onLayout={(event) => recordProfileFieldOffset('instagram', event.nativeEvent.layout.y)}>
                 <InputField
                   label="Instagram"
                   value={form.instagram}
                   onChangeText={(value) => updateField('instagram', value)}
                   placeholder="@usuario"
                   autoCapitalize="none"
+                  autoCorrect={false}
+                  onFocus={() => handleProfileInputFocus('instagram')}
                 />
-              ) : null}
+              </View>
 
-              {!showOnlyMissingProfileFields ? (
+              <View onLayout={(event) => recordProfileFieldOffset('tiktok', event.nativeEvent.layout.y)}>
                 <InputField
                   label="TikTok"
                   value={form.tiktok}
                   onChangeText={(value) => updateField('tiktok', value)}
                   placeholder="@usuario"
                   autoCapitalize="none"
+                  autoCorrect={false}
+                  onFocus={() => handleProfileInputFocus('tiktok')}
                 />
-              ) : null}
+              </View>
 
-              {!showOnlyMissingProfileFields ? (
+              {profileEditorMode === 'full' ? (
                 <View style={styles.socialPrivacyPanel}>
                 <View style={styles.socialPrivacyHeader}>
                   <View style={styles.socialPrivacyIcon}>
@@ -3949,7 +3948,7 @@ export default function SocialProfileScreen() {
               )}
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={consentModalVisible} transparent animationType="slide" onRequestClose={handleCancelSocialConsent}>
@@ -4544,7 +4543,6 @@ export default function SocialProfileScreen() {
         onRequestClose={() => {
           if (!approvedCoverPaying) {
             setApprovedCoverPayment(null);
-            setApprovedCoverCardComplete(false);
           }
         }}
       >
@@ -4556,7 +4554,6 @@ export default function SocialProfileScreen() {
                 ? undefined
                 : () => {
                     setApprovedCoverPayment(null);
-                    setApprovedCoverCardComplete(false);
                   }
             }
           />
@@ -4568,7 +4565,6 @@ export default function SocialProfileScreen() {
               <TouchableOpacity
                 onPress={() => {
                   setApprovedCoverPayment(null);
-                  setApprovedCoverCardComplete(false);
                 }}
                 style={styles.closeButton}
                 activeOpacity={0.8}
@@ -4598,19 +4594,9 @@ export default function SocialProfileScreen() {
 
               {stripeAvailable ? (
                 <View style={styles.giftStripeBox}>
-                  <CardField
-                    postalCodeEnabled={false}
-                    placeholders={{ number: '4242 4242 4242 4242' }}
-                    cardStyle={{
-                      backgroundColor: '#FFFFFF',
-                      textColor: '#111827',
-                      borderColor: '#D8DDE8',
-                      borderWidth: 1,
-                      borderRadius: 12,
-                    }}
-                    style={styles.giftStripeCardField}
-                    onCardChange={(details) => setApprovedCoverCardComplete(Boolean(details.complete))}
-                  />
+                  <Text style={styles.giftStripeNote}>
+                    Se abrira la ventana segura de Stripe con {stripePaymentLabel()}.
+                  </Text>
                 </View>
               ) : (
                 <Text style={styles.giftUnavailableText}>Configura EXPO_PUBLIC_STRIPE_KEY para pagar ahora.</Text>
@@ -4627,7 +4613,7 @@ export default function SocialProfileScreen() {
                 ) : (
                   <Ionicons name="card-outline" size={18} color={Colors.white} />
                 )}
-                <Text style={styles.giftSendButtonText}>Confirmar pago</Text>
+                <Text style={styles.giftSendButtonText}>Pagar con {stripePaymentLabel()}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -4975,19 +4961,9 @@ export default function SocialProfileScreen() {
                   {giftCheckoutMode === 'stripe' ? (
                     stripeAvailable ? (
                       <View style={styles.giftStripeCardWrap}>
-                        <CardField
-                          postalCodeEnabled={false}
-                          placeholders={{ number: '4242 4242 4242 4242' }}
-                          cardStyle={{
-                            backgroundColor: Colors.white,
-                            textColor: Colors.text,
-                            placeholderColor: Colors.textMuted,
-                            borderRadius: 12,
-                          }}
-                          style={styles.giftStripeCardField}
-                          onCardChange={(card) => setGiftCardComplete(Boolean(card.complete))}
-                        />
-                        <Text style={styles.giftStripeNote}>Pago seguro procesado por Stripe.</Text>
+                        <Text style={styles.giftStripeNote}>
+                          Se abrira la ventana segura de Stripe con {stripePaymentLabel()}.
+                        </Text>
                       </View>
                     ) : (
                       <Text style={styles.giftStripeWarning}>
@@ -6271,13 +6247,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 8,
   },
-  giftStripeCardField: {
-    width: '100%',
-    height: 54,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D8DDE8',
-  },
   giftUnavailableText: {
     fontSize: 12,
     lineHeight: 18,
@@ -6567,6 +6536,9 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     paddingBottom: 12,
+  },
+  profileModalContent: {
+    paddingBottom: 36,
   },
   missingOnlyNotice: {
     marginBottom: 14,

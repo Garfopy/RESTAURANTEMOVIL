@@ -41,6 +41,11 @@ type PasswordResetResponse = {
   } | null;
 };
 
+function hasUsableName(value: string | null | undefined): boolean {
+  const name = value?.trim() ?? '';
+  return name.length >= 3 && name.toLowerCase() !== 'usuario amare';
+}
+
 function hasAuthEnvelope(response: AuthResponse): response is Extract<AuthResponse, { data?: unknown }> {
   return typeof response === 'object' && response !== null && 'data' in response;
 }
@@ -52,7 +57,12 @@ function hasMeEnvelope(response: MeResponse): response is Extract<MeResponse, { 
 export function normalizeUser(user: AuthUserPayload | undefined): MobileUser {
   const requiresExternalOnboarding = Boolean(
     user?.requires_onboarding ??
-      ((user?.google_id || user?.apple_id) && (!user?.telefono || !user?.fecha_nacimiento || !user?.terms_accepted_at))
+      ((user?.google_id || user?.apple_id) && (
+        !hasUsableName(user?.nombre) ||
+        !user?.telefono ||
+        !user?.fecha_nacimiento ||
+        !user?.terms_accepted_at
+      ))
   );
 
   return {
@@ -160,6 +170,7 @@ export async function getMe(): Promise<MobileUser> {
 }
 
 type ProfileUpdatePayload = {
+  nombre?: string;
   telefono?: string;
   fecha_nacimiento?: string;
   terms_accepted?: boolean;

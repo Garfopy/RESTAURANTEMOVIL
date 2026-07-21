@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { loginWithApple } from '../../services/auth.service';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { getApiError } from '../../services/api';
@@ -9,6 +10,8 @@ import { useUserStore } from '../../store/user.store';
 
 declare const require: (name: string) => any;
 type AppleAuthenticationModule = typeof import('expo-apple-authentication');
+
+const APPLE_NAME_KEY_PREFIX = 'amare_apple_name_';
 
 export function AppleSignInButton() {
   const router = useRouter();
@@ -58,16 +61,22 @@ export function AppleSignInButton() {
         throw new Error('Apple no devolvio un token de identidad.');
       }
 
-      const fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+      const receivedFullName = [credential.fullName?.givenName, credential.fullName?.familyName]
         .filter(Boolean)
         .join(' ')
         .trim();
+      const appleNameKey = `${APPLE_NAME_KEY_PREFIX}${credential.user}`;
+      if (receivedFullName) {
+        await SecureStore.setItemAsync(appleNameKey, receivedFullName);
+      }
+      const fullName = receivedFullName || await SecureStore.getItemAsync(appleNameKey);
       const session = await loginWithApple({
         identity_token: credential.identityToken,
         authorization_code: credential.authorizationCode,
         full_name: fullName || null,
         platform: 'ios',
       });
+      await SecureStore.deleteItemAsync(appleNameKey);
       await login(session);
       router.replace('/' as never);
     } catch (error: unknown) {

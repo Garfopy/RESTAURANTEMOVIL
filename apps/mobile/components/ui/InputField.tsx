@@ -23,6 +23,7 @@ export default function InputField({
   ...rest
 }: InputFieldProps) {
   const [isFocused, setIsFocused] = useState(false);
+  const { onFocus, onBlur, ...inputProps } = rest;
 
   return (
     <View style={styles.container}>
@@ -40,9 +41,15 @@ export default function InputField({
         <TextInput
           style={[styles.input, style]}
           placeholderTextColor="#9CA3AF"
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          {...rest}
+          onFocus={(event) => {
+            setIsFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setIsFocused(false);
+            onBlur?.(event);
+          }}
+          {...inputProps}
         />
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}

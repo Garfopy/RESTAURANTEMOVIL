@@ -15,13 +15,10 @@ use Stripe\Stripe;
 
 class RewardsController
 {
-    private const MIN_TOPUP_AMOUNT = 100;
-    private const MAX_TOPUP_AMOUNT = 50000;
-
     private function isValidTopupAmount(float $amount): bool
     {
         $rounded = (int)round($amount);
-        return $rounded >= self::MIN_TOPUP_AMOUNT && $rounded <= self::MAX_TOPUP_AMOUNT && (float)$rounded === $amount;
+        return (float)$rounded === $amount && in_array($rounded, RewardsService::quickTopupAmounts(), true);
     }
 
     private function getStripeSecret(): string
@@ -79,9 +76,13 @@ class RewardsController
         $user = AuthMiddleware::authenticate();
         $input = ValidationMiddleware::getAllInput();
         $amount = (float)($input['amount'] ?? 0);
+        $requestKey = trim((string)($input['request_key'] ?? ''));
 
         if (!$this->isValidTopupAmount($amount)) {
-            Response::validationError(['amount' => ['El monto minimo de recarga es de $100 MXN']]);
+            Response::validationError(['amount' => ['Selecciona uno de los montos de recarga disponibles']]);
+        }
+        if (!preg_match('/^[A-Za-z0-9_-]{12,100}$/', $requestKey)) {
+            Response::validationError(['request_key' => ['La referencia de recarga no es valida']]);
         }
 
         try {
@@ -94,10 +95,13 @@ class RewardsController
                     'user_id' => (string)$user->id,
                     'rewards_action' => 'wallet_topup',
                     'wallet_topup_amount' => (string)((int)round($amount)),
+                    'request_key' => $requestKey,
                 ],
                 'automatic_payment_methods' => [
                     'enabled' => true,
                 ],
+            ], [
+                'idempotency_key' => 'amare_wallet_topup_' . hash('sha256', (string)$user->id . '|' . $requestKey),
             ]);
 
             Response::success([
@@ -135,13 +139,18 @@ class RewardsController
             if ($intent->status !== 'succeeded') {
                 Response::error('Stripe aun no confirma el pago de esta recarga.', 409);
             }
+            if ((bool)$intent->livemode !== StripeConfig::isLiveMode()) {
+                Response::error('El entorno de la recarga no coincide con el servidor.', 409);
+            }
             if (!$this->isValidTopupAmount($amountMxn)) {
-                Response::error('El monto minimo de recarga es de $100 MXN.', 409);
+                Response::error('El importe no corresponde a una opcion de recarga vigente.', 409);
             }
 
+            $rewards = new RewardsService();
+            $rewards->getWallet((int)$user->id);
             $pdo = Database::getInstance();
             $pdo->beginTransaction();
-            $wallet = (new RewardsService())->applyTopup(
+            $wallet = $rewards->applyTopup(
                 $pdo,
                 (int)$user->id,
                 $amountMxn,

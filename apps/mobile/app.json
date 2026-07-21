@@ -20,13 +20,20 @@
       "usesAppleSignIn": true,
       "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
-        "aps-environment": "production"
+        "aps-environment": "production",
+        "com.apple.developer.in-app-payments": [
+          "merchant.com.amare.app"
+        ]
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Amare necesita tu ubicacion para encontrar la sucursal mas cercana.",
         "NSCameraUsageDescription": "Amare necesita la camara para escanear codigos QR y actualizar tu perfil.",
         "NSPhotoLibraryUsageDescription": "Amare necesita acceso a tus fotos para elegir imagenes de perfil.",
         "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleAllowMixedLocalizations": true,
+        "CFBundleLocalizations": [
+          "es"
+        ],
         "UIBackgroundModes": [
           "remote-notification"
         ]
@@ -92,6 +99,13 @@
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.859009059542-3c3159vd6maibhhgpjng9t63q5rjmsl1"
+        }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.amare.app",
+          "enableGooglePay": true
         }
       ],
       "expo-web-browser"

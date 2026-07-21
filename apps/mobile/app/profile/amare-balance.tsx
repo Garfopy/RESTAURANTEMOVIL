@@ -1,24 +1,20 @@
-import React, { useMemo, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
   Keyboard,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../../components/ui/Button';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import {
-  MIN_REWARDS_TOPUP_AMOUNT,
   confirmRewardsTopup,
   createRewardsTopupIntent,
   getRewardsWallet,
@@ -26,10 +22,7 @@ import {
   type RewardsWallet,
 } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
-
-type TopupChoice = number | 'custom';
-
-const MIN_TOPUP_AMOUNT = MIN_REWARDS_TOPUP_AMOUNT;
+import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
 
 const FALLBACK_TOPUPS: RewardsTopupOption[] = [
   { amount_mxn: 500 },
@@ -39,21 +32,17 @@ const FALLBACK_TOPUPS: RewardsTopupOption[] = [
 
 export default function AmareBalanceScreen() {
   const router = useRouter();
-  const { confirmPayment: stripeConfirm } = useStripe();
+  const stripe = useStripe();
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedChoice, setSelectedChoice] = useState<TopupChoice>(500);
-  const [customAmount, setCustomAmount] = useState('');
-  const [cardComplete, setCardComplete] = useState(false);
-  const [screenFocused, setScreenFocused] = useState(true);
+  const [selectedAmount, setSelectedAmount] = useState(500);
+  const topupRequestKeyRef = useRef<string | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
-      setScreenFocused(true);
       void loadWallet();
       return () => {
         Keyboard.dismiss();
-        setScreenFocused(false);
       };
     }, [])
   );
@@ -68,16 +57,6 @@ export default function AmareBalanceScreen() {
 
   const topupOptions = wallet?.topup_options?.length ? wallet.topup_options : FALLBACK_TOPUPS;
 
-  const selectedAmount = useMemo(() => {
-    if (selectedChoice === 'custom') {
-      const parsed = Number(customAmount);
-      return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
-    }
-    return selectedChoice;
-  }, [customAmount, selectedChoice]);
-
-  const amountBelowMinimum = selectedAmount > 0 && selectedAmount < MIN_TOPUP_AMOUNT;
-
   async function handleTopup() {
     if (!STRIPE_IS_CONFIGURED) {
       Alert.alert('Stripe no disponible', 'La app no tiene Stripe configurado para recargar saldo.');
@@ -87,31 +66,30 @@ export default function AmareBalanceScreen() {
       Alert.alert('Monto requerido', 'Ingresa un monto válido para recargar tu prepago.');
       return;
     }
-    if (amountBelowMinimum) {
-      Alert.alert('Monto minimo', `El monto minimo para recargar Saldo Amare es de $${MIN_TOPUP_AMOUNT} MXN.`);
-      return;
-    }
-    if (!cardComplete) {
-      Alert.alert('Tarjeta incompleta', 'Captura una tarjeta válida para continuar.');
-      return;
-    }
-
     setLoading(true);
+    let paymentPresented = false;
     try {
-      const prepared = await createRewardsTopupIntent(selectedAmount);
-      const { error } = await stripeConfirm(prepared.client_secret, {
-        paymentMethodType: 'Card',
+      topupRequestKeyRef.current ??= `topup_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+      const prepared = await createRewardsTopupIntent(selectedAmount, topupRequestKeyRef.current);
+      await presentAmarePaymentSheet(stripe, {
+        clientSecret: prepared.client_secret,
       });
-
-      if (error) {
-        Alert.alert('Pago rechazado', error.message);
-        return;
-      }
+      paymentPresented = true;
 
       const nextWallet = await confirmRewardsTopup(prepared.payment_intent_id);
+      topupRequestKeyRef.current = null;
       setWallet(nextWallet);
       Alert.alert('Recarga exitosa', `Tu Saldo Amare ahora es de $${nextWallet.balance_mxn.toFixed(2)}.`);
     } catch (error: any) {
+      if (error?.name === 'PaymentCanceledError') return;
+      if (paymentPresented) {
+        Alert.alert(
+          'Recarga en proceso',
+          'Stripe recibio el pago y Amare esta conciliando tu saldo. No intentes otra recarga; vuelve a esta pantalla en unos momentos.'
+        );
+        await loadWallet();
+        return;
+      }
       Alert.alert('No se pudo recargar', error?.message || 'Intenta de nuevo en unos momentos.');
     } finally {
       setLoading(false);
@@ -120,7 +98,6 @@ export default function AmareBalanceScreen() {
 
   function handleBack() {
     Keyboard.dismiss();
-    setCardComplete(false);
     router.back();
   }
 
@@ -134,7 +111,6 @@ export default function AmareBalanceScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -148,16 +124,19 @@ export default function AmareBalanceScreen() {
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Recargar prepago</Text>
-          <Text style={styles.sectionHint}>Elige un monto rápido o usa “Otro” para personalizar la recarga.</Text>
+          <Text style={styles.sectionHint}>Elige uno de los montos disponibles para agregar saldo.</Text>
 
           <View style={styles.amountRow}>
             {topupOptions.map((option) => {
-              const active = selectedChoice === option.amount_mxn;
+              const active = selectedAmount === option.amount_mxn;
               return (
                 <TouchableOpacity
                   key={option.amount_mxn}
                   style={[styles.amountChip, active && styles.amountChipActive]}
-                  onPress={() => setSelectedChoice(option.amount_mxn)}
+                  onPress={() => {
+                    topupRequestKeyRef.current = null;
+                    setSelectedAmount(option.amount_mxn);
+                  }}
                   activeOpacity={0.88}
                 >
                   <Text style={[styles.amountChipText, active && styles.amountChipTextActive]}>${option.amount_mxn}</Text>
@@ -165,59 +144,20 @@ export default function AmareBalanceScreen() {
               );
             })}
 
-            <TouchableOpacity
-              style={[styles.amountChip, selectedChoice === 'custom' && styles.amountChipActive]}
-              onPress={() => setSelectedChoice('custom')}
-              activeOpacity={0.88}
-            >
-              <Text style={[styles.amountChipText, selectedChoice === 'custom' && styles.amountChipTextActive]}>Otro</Text>
-            </TouchableOpacity>
           </View>
-
-          {selectedChoice === 'custom' ? (
-            <TextInput
-              value={customAmount}
-              onChangeText={(value) => setCustomAmount(value.replace(/[^0-9]/g, ''))}
-              inputMode="numeric"
-              keyboardType="number-pad"
-              placeholder="¿Cuánto quieres agregar?"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-            />
-          ) : null}
-          {amountBelowMinimum ? (
-            <Text style={styles.minimumHint}>El monto minimo de recarga es de $100 MXN.</Text>
-          ) : null}
-
           {STRIPE_IS_CONFIGURED ? (
             <>
-              {screenFocused ? (
-                <CardField
-                  postalCodeEnabled={false}
-                  placeholders={{ number: '1234 5678 9012 3456' }}
-                  cardStyle={{
-                    backgroundColor: '#FFFFFF',
-                    textColor: Colors.text || '#111827',
-                    placeholderColor: '#9CA3AF',
-                    borderRadius: 14,
-                  }}
-                  style={styles.cardField}
-                  onCardChange={(details) => setCardComplete(Boolean(details.complete))}
-                />
-              ) : null}
-
+              <Text style={styles.helperText}>
+                El saldo comprado solo puede usarse en productos físicos de Amare y puede solicitarse su reembolso a soporte.
+              </Text>
               <Button
-                label={
-                  amountBelowMinimum
-                    ? `Minimo $${MIN_TOPUP_AMOUNT} para recargar`
-                    : selectedAmount > 0
-                      ? `Recargar $${selectedAmount} con Stripe`
-                      : 'Ingresa un monto para recargar'
-                }
+                label={selectedAmount > 0
+                  ? `Recargar $${selectedAmount} con ${stripePaymentLabel()}`
+                  : 'Selecciona un monto para recargar'}
                 onPress={handleTopup}
                 fullWidth
                 loading={loading}
-                disabled={loading || !cardComplete || selectedAmount <= 0}
+                disabled={loading || selectedAmount <= 0}
               />
             </>
           ) : (
@@ -226,7 +166,6 @@ export default function AmareBalanceScreen() {
         </View>
 
       </ScrollView>
-      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -349,12 +288,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#6B7280',
     fontWeight: '600',
-  },
-  minimumHint: {
-    marginTop: -8,
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#B91C1C',
-    fontWeight: '700',
   },
 });

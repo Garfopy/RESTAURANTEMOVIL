@@ -376,6 +376,14 @@ class User
         ) > 0;
     }
 
+    public static function updateName(int $id, string $name): bool
+    {
+        return Database::rowCount(
+            'UPDATE mobile_usuarios SET nombre = :nombre, updated_at = NOW() WHERE id = :id',
+            [':nombre' => $name, ':id' => $id]
+        ) > 0;
+    }
+
     public static function verifyPassword(string $password, string $hash): bool
     {
         return password_verify($password, $hash);

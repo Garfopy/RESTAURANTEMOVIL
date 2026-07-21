@@ -23,6 +23,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker, {
+  DateTimePickerAndroid,
+  type DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUserStore } from '../../store/user.store';
@@ -76,6 +80,73 @@ const HOME_BANNERS = [
 const AUTO_SELECT_DISTANCE_METERS = 100;
 const CONFIRM_SELECT_DISTANCE_METERS = 333;
 const MIN_DISTANCE_GAP_METERS = 200;
+const RESERVATION_MINUTE_STEP = 15;
+
+type ReservationPickerMode = 'date' | 'time';
+
+function formatReservationDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatReservationTimeValue(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function parseReservationDateTime(dateValue: string, timeValue: string): Date | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue.trim());
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(timeValue.trim());
+  if (!dateMatch || !timeMatch) return null;
+
+  const selected = new Date(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    Number(timeMatch[1]),
+    Number(timeMatch[2]),
+    0,
+    0
+  );
+  if (
+    selected.getFullYear() !== Number(dateMatch[1]) ||
+    selected.getMonth() !== Number(dateMatch[2]) - 1 ||
+    selected.getDate() !== Number(dateMatch[3]) ||
+    selected.getHours() !== Number(timeMatch[1]) ||
+    selected.getMinutes() !== Number(timeMatch[2])
+  ) {
+    return null;
+  }
+
+  return selected;
+}
+
+function getNextReservationSlot(): Date {
+  const slot = new Date(Date.now() + 30 * 60 * 1000);
+  slot.setSeconds(0, 0);
+  slot.setMinutes(Math.ceil(slot.getMinutes() / RESERVATION_MINUTE_STEP) * RESERVATION_MINUTE_STEP);
+  return slot;
+}
+
+function formatReservationDateLabel(value: string): string {
+  const selected = parseReservationDateTime(value, '12:00');
+  if (!selected) return 'Seleccionar fecha';
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(selected);
+}
+
+function formatReservationTimeLabel(dateValue: string, timeValue: string): string {
+  const selected = parseReservationDateTime(dateValue, timeValue);
+  if (!selected) return 'Seleccionar hora';
+  return new Intl.DateTimeFormat('es-MX', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(selected);
+}
 
 type NearbyBranchState =
   | { kind: 'inside'; branch: Sucursal; distanceMeters: number }
@@ -114,6 +185,8 @@ export default function HomeScreen() {
   const [reservationEmail, setReservationEmail] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [reservationTime, setReservationTime] = useState('');
+  const [reservationPickerMode, setReservationPickerMode] = useState<ReservationPickerMode | null>(null);
+  const [reservationPickerDraft, setReservationPickerDraft] = useState(() => getNextReservationSlot());
   const [reservationPeople, setReservationPeople] = useState(2);
   const [reservationNotes, setReservationNotes] = useState('');
   const [reservationTables, setReservationTables] = useState<ReservationTable[]>([]);
@@ -223,17 +296,70 @@ export default function HomeScreen() {
 
   function openReservationModal() {
     const userAny = user as any;
-    const today = new Date().toISOString().slice(0, 10);
+    const nextSlot = getNextReservationSlot();
+    const currentSelection = parseReservationDateTime(reservationDate, reservationTime);
+    const initialSelection = currentSelection && currentSelection.getTime() > Date.now()
+      ? currentSelection
+      : nextSlot;
     setReservationName((user?.nombre ?? '').trim());
     setReservationPhone(normalizeReservationPhone(String(userAny?.telefono ?? userAny?.phone ?? '').trim()));
     setReservationEmail(String(userAny?.email ?? userAny?.correo ?? '').trim());
-    setReservationDate((current) => current || today);
-    setReservationTime((current) => current || '20:00');
+    setReservationDate(formatReservationDateValue(initialSelection));
+    setReservationTime(formatReservationTimeValue(initialSelection));
     setReservationPeople((current) => current || 2);
     setReservationNotes('');
     setReservationTables([]);
     setSelectedReservationTableId(null);
     setReservationVisible(true);
+  }
+
+  function clearReservationAvailability() {
+    setReservationTables([]);
+    setSelectedReservationTableId(null);
+  }
+
+  function applyReservationPickerValue(mode: ReservationPickerMode, selected: Date) {
+    if (mode === 'date') {
+      setReservationDate(formatReservationDateValue(selected));
+    } else {
+      setReservationTime(formatReservationTimeValue(selected));
+    }
+    clearReservationAvailability();
+  }
+
+  function openReservationPicker(mode: ReservationPickerMode) {
+    const selected = parseReservationDateTime(reservationDate, reservationTime) ?? getNextReservationSlot();
+
+    if (Platform.OS === 'android') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const maximumDate = new Date(today);
+      maximumDate.setFullYear(maximumDate.getFullYear() + 1);
+      DateTimePickerAndroid.open({
+        value: selected,
+        mode,
+        minimumDate: mode === 'date' ? today : undefined,
+        maximumDate: mode === 'date' ? maximumDate : undefined,
+        onChange: (event: DateTimePickerEvent, value?: Date) => {
+          if (event.type === 'set' && value) applyReservationPickerValue(mode, value);
+        },
+      });
+      return;
+    }
+
+    setReservationPickerDraft(selected);
+    setReservationPickerMode(mode);
+  }
+
+  function confirmReservationPicker() {
+    if (!reservationPickerMode) return;
+    applyReservationPickerValue(reservationPickerMode, reservationPickerDraft);
+    setReservationPickerMode(null);
+  }
+
+  function changeReservationPeople(amount: number) {
+    setReservationPeople((value) => Math.min(20, Math.max(1, value + amount)));
+    clearReservationAvailability();
   }
 
   function validateReservationForm(): string | null {
@@ -242,6 +368,8 @@ export default function HomeScreen() {
     if (!/^\d{10}$/.test(normalizeReservationPhone(reservationPhone))) return 'Ingresa un telefono de 10 digitos.';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reservationDate.trim())) return 'Usa fecha en formato aaaa-mm-dd.';
     if (!/^\d{2}:\d{2}$/.test(reservationTime.trim())) return 'Usa hora en formato hh:mm.';
+    const selectedDateTime = parseReservationDateTime(reservationDate, reservationTime);
+    if (!selectedDateTime || selectedDateTime.getTime() <= Date.now()) return 'Elige una fecha y hora futuras.';
     if (reservationPeople < 1) return 'Indica el numero de personas.';
     return null;
   }
@@ -1325,30 +1453,48 @@ export default function HomeScreen() {
                 />
               </View>
               <View style={styles.reservationFormRow}>
-                <TextInput
-                  style={[styles.reservationInput, styles.reservationHalfInput]}
-                  value={reservationDate}
-                  onChangeText={setReservationDate}
-                  placeholder="aaaa-mm-dd"
-                  placeholderTextColor="#8A8276"
-                />
-                <TextInput
-                  style={[styles.reservationInput, styles.reservationHalfInput]}
-                  value={reservationTime}
-                  onChangeText={setReservationTime}
-                  placeholder="hh:mm"
-                  placeholderTextColor="#8A8276"
-                />
+                <TouchableOpacity
+                  style={styles.reservationPickerButton}
+                  onPress={() => openReservationPicker('date')}
+                  activeOpacity={0.82}
+                  accessibilityRole="button"
+                  accessibilityLabel="Seleccionar fecha de reservación"
+                >
+                  <Ionicons name="calendar-outline" size={19} color="#D6B77A" />
+                  <View style={styles.reservationPickerCopy}>
+                    <Text style={styles.reservationPickerLabel}>Fecha</Text>
+                    <Text style={styles.reservationPickerValue} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatReservationDateLabel(reservationDate)}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-down" size={16} color="#8A8276" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.reservationPickerButton}
+                  onPress={() => openReservationPicker('time')}
+                  activeOpacity={0.82}
+                  accessibilityRole="button"
+                  accessibilityLabel="Seleccionar hora de reservación"
+                >
+                  <Ionicons name="time-outline" size={19} color="#D6B77A" />
+                  <View style={styles.reservationPickerCopy}>
+                    <Text style={styles.reservationPickerLabel}>Hora</Text>
+                    <Text style={styles.reservationPickerValue} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatReservationTimeLabel(reservationDate, reservationTime)}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-down" size={16} color="#8A8276" />
+                </TouchableOpacity>
               </View>
 
               <View style={styles.peopleSelector}>
                 <Text style={styles.reservationLabel}>Numero de personas</Text>
                 <View style={styles.peopleStepper}>
-                  <TouchableOpacity style={styles.peopleStepButton} onPress={() => setReservationPeople((value) => Math.max(1, value - 1))}>
+                  <TouchableOpacity style={styles.peopleStepButton} onPress={() => changeReservationPeople(-1)}>
                     <Ionicons name="remove" size={16} color="#E9DDC8" />
                   </TouchableOpacity>
                   <Text style={styles.peopleValue}>{reservationPeople} personas</Text>
-                  <TouchableOpacity style={styles.peopleStepButton} onPress={() => setReservationPeople((value) => Math.min(20, value + 1))}>
+                  <TouchableOpacity style={styles.peopleStepButton} onPress={() => changeReservationPeople(1)}>
                     <Ionicons name="add" size={16} color="#E9DDC8" />
                   </TouchableOpacity>
                 </View>
@@ -1411,6 +1557,48 @@ export default function HomeScreen() {
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      {Platform.OS === 'ios' ? (
+        <Modal
+          visible={reservationPickerMode !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setReservationPickerMode(null)}
+        >
+          <View style={styles.reservationPickerOverlay}>
+            <View style={styles.reservationPickerSheet}>
+              <View style={styles.reservationPickerHeader}>
+                <TouchableOpacity onPress={() => setReservationPickerMode(null)} activeOpacity={0.8}>
+                  <Text style={styles.reservationPickerCancel}>Cancelar</Text>
+                </TouchableOpacity>
+                <Text style={styles.reservationPickerTitle}>
+                  {reservationPickerMode === 'date' ? 'Selecciona la fecha' : 'Selecciona la hora'}
+                </Text>
+                <TouchableOpacity onPress={confirmReservationPicker} activeOpacity={0.8}>
+                  <Text style={styles.reservationPickerDone}>Listo</Text>
+                </TouchableOpacity>
+              </View>
+              {reservationPickerMode ? (
+                <DateTimePicker
+                  value={reservationPickerDraft}
+                  mode={reservationPickerMode}
+                  display={reservationPickerMode === 'date' ? 'inline' : 'spinner'}
+                  minimumDate={reservationPickerMode === 'date' ? new Date() : undefined}
+                  maximumDate={reservationPickerMode === 'date' ? new Date(new Date().setFullYear(new Date().getFullYear() + 1)) : undefined}
+                  minuteInterval={RESERVATION_MINUTE_STEP}
+                  locale="es-MX"
+                  themeVariant="dark"
+                  accentColor="#D6B77A"
+                  onChange={(_event, selected) => {
+                    if (selected) setReservationPickerDraft(selected);
+                  }}
+                  style={styles.reservationNativePicker}
+                />
+              ) : null}
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1643,6 +1831,77 @@ const styles = StyleSheet.create({
   reservationHalfInput: {
     flex: 1,
     minWidth: 0,
+  },
+  reservationPickerButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 58,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+    backgroundColor: '#171717',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  reservationPickerCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reservationPickerLabel: {
+    color: '#8A8276',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  reservationPickerValue: {
+    color: '#F7F1E7',
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  reservationPickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+  },
+  reservationPickerSheet: {
+    backgroundColor: '#171717',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: '#2C2C2C',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
+  reservationPickerHeader: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  reservationPickerTitle: {
+    flex: 1,
+    color: '#F7F1E7',
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  reservationPickerCancel: {
+    color: '#B9B0A3',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  reservationPickerDone: {
+    color: '#D6B77A',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  reservationNativePicker: {
+    width: '100%',
   },
   reservationLabel: {
     color: '#D6B77A',

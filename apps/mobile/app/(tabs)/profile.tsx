@@ -384,7 +384,7 @@ export default function ProfileScreen() {
               icon="help-circle"
               label="Centro de ayuda"
               color="#8B5CF6"
-              onPress={() => Alert.alert('Ayuda', 'Próximamente...')}
+              onPress={() => router.push('/profile/help' as any)}
               showDivider
             />
             <MenuItem

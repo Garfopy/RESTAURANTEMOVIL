@@ -17,6 +17,25 @@ class AuthController
         return preg_replace('/\D+/', '', (string)($value ?? ''));
     }
 
+    private static function normalizeExternalName(?string $value): string
+    {
+        $name = preg_replace('/\s+/u', ' ', trim((string)($value ?? ''))) ?? '';
+        if ($name === '') {
+            return '';
+        }
+
+        return function_exists('mb_substr')
+            ? mb_substr($name, 0, 100, 'UTF-8')
+            : substr($name, 0, 100);
+    }
+
+    private static function isPlaceholderName(?string $value): bool
+    {
+        $name = trim((string)($value ?? ''));
+        $length = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+        return $length < 3 || strcasecmp($name, 'Usuario Amare') === 0;
+    }
+
     /**
      * @return array<int, string>
      */
@@ -320,7 +339,7 @@ class AuthController
             $identity = AppleIdentityService::verifyIdentityToken($identityToken);
             $appleId = $identity['sub'];
             $email = $identity['email'];
-            $name = trim((string)($input['full_name'] ?? ''));
+            $name = self::normalizeExternalName($input['full_name'] ?? null);
 
             $user = User::findByAppleId($appleId);
             if (!$user && $email !== null) {
@@ -374,6 +393,15 @@ class AuthController
 
             if (!$user) {
                 Response::serverError('No se pudo preparar la cuenta de Apple.');
+            }
+
+            if ($name !== '' && self::isPlaceholderName($user['nombre'] ?? null)) {
+                try {
+                    User::updateName((int)$user['id'], $name);
+                    $user = User::findById((int)$user['id']) ?? $user;
+                } catch (\Throwable $nameException) {
+                    error_log('AuthController::apple NAME_SYNC_ERROR: ' . $nameException->getMessage());
+                }
             }
 
             $token = AuthMiddleware::generateToken([
@@ -630,7 +658,8 @@ class AuthController
             trim((string)($user['apple_id'] ?? '')) !== ''
         )
             && (
-                trim((string)($user['telefono'] ?? '')) === ''
+                self::isPlaceholderName($user['nombre'] ?? null)
+                || trim((string)($user['telefono'] ?? '')) === ''
                 || trim((string)($user['fecha_nacimiento'] ?? '')) === ''
                 || trim((string)($user['terms_accepted_at'] ?? '')) === ''
             );

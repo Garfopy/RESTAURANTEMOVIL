@@ -28,11 +28,7 @@ final class StripeConfig
             throw new \RuntimeException('STRIPE_SECRET_KEY no configurada o invalida');
         }
 
-        $appEnvironment = strtolower(self::environmentValue('APP_ENV'));
-        $liveSetting = self::environmentValue('STRIPE_LIVE_MODE');
-        $liveMode = $liveSetting !== ''
-            ? filter_var($liveSetting, FILTER_VALIDATE_BOOLEAN)
-            : $appEnvironment === 'production';
+        $liveMode = self::isLiveMode();
 
         if ($liveMode && !str_starts_with($key, 'sk_live_')) {
             throw new \RuntimeException('Stripe esta en modo produccion pero la Secret Key no es live');
@@ -49,6 +45,16 @@ final class StripeConfig
         }
 
         return $secret;
+    }
+
+    public static function isLiveMode(): bool
+    {
+        $liveSetting = self::environmentValue('STRIPE_LIVE_MODE');
+        if ($liveSetting !== '') {
+            return filter_var($liveSetting, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        return strtolower(self::environmentValue('APP_ENV')) === 'production';
     }
 
     private static function environmentValue(string $key): string

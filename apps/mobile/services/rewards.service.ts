@@ -1,7 +1,5 @@
 import { apiClient } from './api';
 
-export const MIN_REWARDS_TOPUP_AMOUNT = 100;
-
 type ApiEnvelope<T> = {
   success?: boolean;
   data?: T;
@@ -11,6 +9,7 @@ export type RewardsContext = 'food' | 'gift';
 
 export type RewardTransaction = {
   type: string;
+  funding_type?: 'purchased' | 'promotional' | 'mixed' | null;
   context?: string | null;
   reference_type?: string | null;
   reference_id?: number | null;
@@ -34,6 +33,8 @@ export type RewardsRedeemOption = {
 
 export type RewardsWallet = {
   balance_mxn: number;
+  purchased_balance_mxn: number;
+  promotional_balance_mxn: number;
   points: number;
   points_value_mxn: number;
   discount_rate: number;
@@ -83,6 +84,8 @@ function normalizeWallet(wallet: RewardsWallet): RewardsWallet {
   return {
     ...wallet,
     balance_mxn: Number(wallet.balance_mxn || 0),
+    purchased_balance_mxn: Number(wallet.purchased_balance_mxn || 0),
+    promotional_balance_mxn: Number(wallet.promotional_balance_mxn || 0),
     points: Number(wallet.points || 0),
     points_value_mxn: Number(wallet.points_value_mxn || 0),
     discount_rate: Number(wallet.discount_rate || 0),
@@ -151,15 +154,11 @@ export async function quoteRewards(params: {
   return normalizeQuote(unwrapEnvelope(response.data));
 }
 
-export async function createRewardsTopupIntent(amountMxn: number): Promise<{
+export async function createRewardsTopupIntent(amountMxn: number, requestKey: string): Promise<{
   client_secret: string;
   payment_intent_id: string;
   amount_mxn: number;
 }> {
-  if (amountMxn > 0 && amountMxn < MIN_REWARDS_TOPUP_AMOUNT) {
-    throw new Error(`El monto minimo para recargar Saldo Amare es de $${MIN_REWARDS_TOPUP_AMOUNT} MXN.`);
-  }
-
   const response = await apiClient.post<
     ApiEnvelope<{
       client_secret: string;
@@ -168,6 +167,7 @@ export async function createRewardsTopupIntent(amountMxn: number): Promise<{
     }>
   >('/rewards/topups/create-intent', {
     amount: amountMxn,
+    request_key: requestKey,
   });
 
   return unwrapEnvelope(response.data);

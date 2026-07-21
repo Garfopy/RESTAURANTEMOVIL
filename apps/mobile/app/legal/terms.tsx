@@ -30,7 +30,7 @@ const TERMS_SECTIONS = [
   {
     title: 'Pagos, saldo y recompensas',
     body:
-      'Los pagos se procesan mediante proveedores autorizados. Saldo Amare, puntos, cupones y promociones pueden tener vigencia, reglas de uso y validaciones antifraude.',
+      'Los pagos con tarjeta, Apple Pay y Google Pay se procesan mediante Stripe. El Saldo Amare comprado se separa del saldo promocional: se consume primero el promocional y despues el comprado. El saldo comprado no utilizado puede solicitarse en reembolso al metodo de pago original; puntos, cupones y saldo promocional no son transferibles ni reembolsables.',
   },
   {
     title: 'Modo social',
@@ -93,8 +93,8 @@ export default function LegalTermsScreen() {
           <View style={styles.contactCard}>
             <Text style={styles.contactTitle}>Contacto</Text>
             <Text style={styles.contactText}>
-              Para dudas sobre tu cuenta, pedidos, privacidad o condiciones del servicio, contacta a Amare desde los
-              canales oficiales del restaurante o la version web.
+              Para dudas sobre tu cuenta, pedidos, pagos, reembolsos o privacidad escribe a
+              soporte@amarerestaurant.club.
             </Text>
           </View>
 

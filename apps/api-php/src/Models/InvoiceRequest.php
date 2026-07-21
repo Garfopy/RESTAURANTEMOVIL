@@ -15,6 +15,14 @@ class InvoiceRequest
             return null;
         }
 
+        $orderId = self::nullableInt($context['pedido_id'] ?? null);
+        if ($orderId !== null) {
+            $existing = self::findByOrder($orderId);
+            if ($existing) {
+                return $existing;
+            }
+        }
+
         $restaurantId = (int)($context['restaurante_id'] ?? 0);
         if ($restaurantId <= 0) {
             throw new \InvalidArgumentException('No se detecto la sucursal para facturar.');
@@ -124,6 +132,25 @@ class InvoiceRequest
           LEFT JOIN rest_restaurantes r ON r.id = fs.restaurante_id
               WHERE fs.id = :id',
             [':id' => $id]
+        );
+
+        return $row ? self::normalize($row) : null;
+    }
+
+    public static function findByOrder(int $orderId): ?array
+    {
+        if ($orderId <= 0) {
+            return null;
+        }
+
+        $row = Database::queryOne(
+            'SELECT fs.*, r.nombre AS restaurante_nombre
+               FROM facturacion_solicitudes fs
+          LEFT JOIN rest_restaurantes r ON r.id = fs.restaurante_id
+              WHERE fs.pedido_id = :order_id
+           ORDER BY fs.id ASC
+              LIMIT 1',
+            [':order_id' => $orderId]
         );
 
         return $row ? self::normalize($row) : null;

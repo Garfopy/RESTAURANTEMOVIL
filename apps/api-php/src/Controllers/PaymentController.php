@@ -11,6 +11,8 @@ use Amare\Api\Middleware\ValidationMiddleware;
 use Stripe\Stripe;
 use Stripe\PaymentIntent;
 use Stripe\Webhook;
+use Stripe\Charge;
+use Amare\Api\Models\InvoiceRequest;
 use Amare\Api\Models\Order;
 use Amare\Api\Services\RewardsService;
 use Amare\Api\Services\StripeConfig;
@@ -39,10 +41,7 @@ class PaymentController
         $input = ValidationMiddleware::getAllInput();
 
         $rules = [
-            'amount' => 'numeric',
-            'order_id' => 'integer',
-            'restaurante_id' => 'integer',
-            'items' => 'array'
+            'order_id' => 'required|integer'
         ];
 
         $errors = ValidationMiddleware::validate($rules, $input);
@@ -76,18 +75,14 @@ class PaymentController
                 $amount = (float)($order['total'] ?? $order['subtotal'] ?? 0);
                 $pricingItems = is_array($order['items'] ?? null) ? $order['items'] : [];
                 $previousIntentId = trim((string)($order['payment_intent_id'] ?? $order['stripe_payment_intent_id'] ?? ''));
-            } elseif (!empty($input['items']) && !empty($input['restaurante_id'])) {
-                $quote = Order::quote([
-                    'restaurante_id' => (int)$input['restaurante_id'],
-                    'items' => $input['items'],
-                    'user_id' => (int)$user->id,
-                    'promo_code' => $promoCode !== '' ? $promoCode : null,
-                ]);
-                $amount = (float)$quote['total'];
-                $pricingItems = is_array($quote['items'] ?? null) ? $quote['items'] : [];
+                $this->persistPendingInvoiceRequest(
+                    $order,
+                    (int)$user->id,
+                    is_array($input['invoice_request'] ?? null) ? $input['invoice_request'] : null
+                );
             } else {
                 Response::validationError([
-                    'payment' => ['Envia order_id o restaurante_id con los productos para calcular el total en el servidor'],
+                    'order_id' => ['Envia un pedido valido para calcular el total en el servidor'],
                 ]);
             }
 
@@ -112,12 +107,20 @@ class PaymentController
                     $existingIntent = PaymentIntent::retrieve($previousIntentId);
                     $existingUserId = (int)($existingIntent->metadata['user_id'] ?? 0);
                     $existingOrderId = (int)($existingIntent->metadata['order_id'] ?? 0);
-                    if (
+                    $existingUsePoints = (string)($existingIntent->metadata['use_points'] ?? '0') === '1';
+                    $existingPromoCode = strtoupper(trim((string)($existingIntent->metadata['promo_code'] ?? '')));
+                    $expectedCents = (int)round($amount * 100);
+                    $matchesCurrentPayment =
                         (string)$existingIntent->status !== 'canceled' &&
                         $existingUserId === (int)$user->id &&
-                        ($existingOrderId === 0 || $existingOrderId === $orderId) &&
-                        strtolower((string)$existingIntent->currency) === 'mxn'
-                    ) {
+                        $existingOrderId === $orderId &&
+                        strtolower((string)$existingIntent->currency) === 'mxn' &&
+                        (int)$existingIntent->amount === $expectedCents &&
+                        $existingUsePoints === $usePoints &&
+                        $existingPromoCode === strtoupper($promoCode) &&
+                        (bool)$existingIntent->livemode === StripeConfig::isLiveMode();
+
+                    if ($matchesCurrentPayment) {
                         Response::success([
                             'client_secret' => $existingIntent->client_secret,
                             'payment_intent_id' => $existingIntent->id,
@@ -126,8 +129,25 @@ class PaymentController
                             'use_points' => (string)($existingIntent->metadata['use_points'] ?? '0') === '1',
                         ], 'Payment intent recuperado');
                     }
+
+                    if ((string)$existingIntent->status === 'succeeded') {
+                        Response::error(
+                            'El pedido ya tiene un pago exitoso con condiciones distintas. Contacta a soporte.',
+                            409,
+                            'PAID_INTENT_MISMATCH'
+                        );
+                    }
+
+                    if (in_array((string)$existingIntent->status, ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing'], true)) {
+                        $existingIntent->cancel();
+                    }
                 } catch (\Stripe\Exception\ApiErrorException $exception) {
                     error_log('PaymentController::createPaymentIntent existing intent ERROR: ' . $exception->getMessage());
+                    Response::error(
+                        'No se pudo validar el intento anterior. No se genero un segundo cobro; contacta a soporte.',
+                        409,
+                        'PAYMENT_INTENT_REVIEW_REQUIRED'
+                    );
                 }
             }
 
@@ -158,7 +178,7 @@ class PaymentController
                     (int)round($amount * 100),
                     $usePoints,
                     $promoCode,
-                    (int)($input['restaurante_id'] ?? 0),
+                    (int)($order['restaurante_id'] ?? 0),
                     $pricingItems,
                     $previousIntentId
                 ),
@@ -183,10 +203,42 @@ class PaymentController
         }
     }
 
+    public function adminReconcilePayment(): void
+    {
+        $admin = AuthMiddleware::requireAdmin();
+        $input = ValidationMiddleware::getAllInput();
+        $intentId = trim((string)($input['payment_intent_id'] ?? ''));
+        if (!preg_match('/^pi_[A-Za-z0-9_]+$/', $intentId)) {
+            Response::validationError(['payment_intent_id' => ['El PaymentIntent no es valido.']]);
+        }
+
+        try {
+            Stripe::setApiKey($this->getStripeSecret());
+            $intent = PaymentIntent::retrieve($intentId);
+            if ((bool)$intent->livemode !== StripeConfig::isLiveMode()) {
+                Response::error('El modo live/test no coincide con el servidor.', 409);
+            }
+            if ((string)$intent->status !== 'succeeded') {
+                Response::error('Stripe todavia no confirma este pago como exitoso.', 409);
+            }
+
+            $result = $this->reconcileSucceededPaymentIntent($intent);
+            error_log('Stripe reconciliacion manual admin=' . (int)($admin->id ?? 0) . ' intent=' . $intentId);
+            Response::success($result, 'Pago reconciliado correctamente.');
+        } catch (\Stripe\Exception\ApiErrorException $exception) {
+            error_log('PaymentController::adminReconcilePayment STRIPE ERROR: ' . $exception->getMessage());
+            Response::error('Stripe no pudo recuperar el pago.', 409);
+        } catch (\Throwable $exception) {
+            error_log('PaymentController::adminReconcilePayment ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo reconciliar el pago.');
+        }
+    }
+
     public function webhook(): void
     {
         $payload = file_get_contents('php://input');
         $sig_header = $_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '';
+        $eventId = '';
         
         try {
             // 🛠️ Cambiado a método seguro
@@ -199,60 +251,19 @@ class PaymentController
                 $this->getStripeWebhookSecret()
             );
 
+            $eventId = (string)$event->id;
+            $objectId = (string)($event->data->object->id ?? '');
+            if (!$this->beginWebhookEvent($eventId, (string)$event->type, $objectId)) {
+                Response::success(null, 'Webhook ya procesado', 200);
+            }
+
             switch ($event->type) {
                 case 'payment_intent.succeeded':
                     $paymentIntent = $event->data->object;
-                    $rewardsAction = (string)($paymentIntent->metadata['rewards_action'] ?? '');
-                    $orderId = (int) ($paymentIntent->metadata['order_id'] ?? 0);
-                    $storedOrderId = $this->findOrderIdByPaymentIntent((string)$paymentIntent->id);
-                    if ($storedOrderId > 0) {
-                        $orderId = $storedOrderId;
+                    if ((bool)$paymentIntent->livemode !== StripeConfig::isLiveMode()) {
+                        throw new \RuntimeException('El modo live/test del PaymentIntent no coincide con el servidor');
                     }
-                    $giftOrderId = (int) ($paymentIntent->metadata['gift_order_id'] ?? 0);
-                    if ($rewardsAction === 'wallet_topup') {
-                        $topupUserId = (int)($paymentIntent->metadata['user_id'] ?? 0);
-                        $topupAmount = round(((int)($paymentIntent->amount_received ?: $paymentIntent->amount)) / 100, 2);
-                        if ($topupUserId > 0) {
-                            $pdo = Database::getInstance();
-                            $pdo->beginTransaction();
-                            try {
-                                (new RewardsService())->applyTopup(
-                                    $pdo,
-                                    $topupUserId,
-                                    $topupAmount,
-                                    $paymentIntent->id,
-                                    'Recarga de Saldo Amare con Stripe'
-                                );
-                                $pdo->commit();
-                            } catch (\Throwable $exception) {
-                                if ($pdo->inTransaction()) {
-                                    $pdo->rollBack();
-                                }
-                                throw $exception;
-                            }
-                        }
-                    }
-                    if ($orderId > 0) {
-                        $this->markOrderPaidFromWebhook($orderId, $paymentIntent);
-                    }
-                    if ($giftOrderId > 0) {
-                        $gift = Database::queryOne(
-                            'SELECT gift_precio, moneda FROM social_gift_orders WHERE id = :id AND stripe_payment_intent_id = :intent_id',
-                            [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
-                        );
-                        $expectedCents = $gift ? (int)round((float)$gift['gift_precio'] * 100) : -1;
-                        if ($gift && $expectedCents === (int)$paymentIntent->amount && strtolower((string)$paymentIntent->currency) === strtolower((string)$gift['moneda'])) {
-                            Database::rowCount(
-                                "UPDATE social_gift_orders
-                                    SET status = IF(status IN ('pendiente_pago','pago_fallido'), 'listo', status),
-                                        pagado_at = COALESCE(pagado_at, NOW()), updated_at = NOW()
-                                  WHERE id = :id AND stripe_payment_intent_id = :intent_id",
-                                [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
-                            );
-                        } else {
-                            error_log("Pago de regalo #{$giftOrderId} con importe o moneda inconsistente");
-                        }
-                    }
+                    $this->reconcileSucceededPaymentIntent($paymentIntent);
                     break;
                     
                 case 'payment_intent.payment_failed':
@@ -274,18 +285,127 @@ class PaymentController
                             [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
                         );
                     }
+                    $this->recordPaymentIncident(
+                        'payment_failed',
+                        (string)$paymentIntent->id,
+                        (string)$paymentIntent->id,
+                        ['message' => (string)($paymentIntent->last_payment_error?->message ?? '')]
+                    );
+                    break;
+
+                case 'payment_intent.canceled':
+                    $paymentIntent = $event->data->object;
+                    $this->markOrderPaymentInterrupted($paymentIntent, 'cancelled');
+                    $this->recordPaymentIncident('payment_canceled', (string)$paymentIntent->id, (string)$paymentIntent->id);
+                    break;
+
+                case 'charge.refunded':
+                    $charge = $event->data->object;
+                    $this->handleChargeRefunded($charge);
+                    $this->recordPaymentIncident(
+                        'charge_refunded',
+                        (string)$charge->id,
+                        (string)($charge->payment_intent ?? ''),
+                        ['amount_refunded' => (int)($charge->amount_refunded ?? 0)]
+                    );
+                    break;
+
+                case 'charge.dispute.created':
+                    $chargeId = (string)($event->data->object->charge ?? '');
+                    error_log('Stripe disputa recibida para charge ' . $chargeId);
+                    $this->recordPaymentIncident(
+                        'charge_dispute_created',
+                        (string)($event->data->object->id ?? $chargeId),
+                        '',
+                        ['charge_id' => $chargeId, 'amount' => (int)($event->data->object->amount ?? 0)]
+                    );
                     break;
             }
 
+            $this->completeWebhookEvent($eventId);
             Response::success(null, 'Webhook procesado', 200);
         } catch (\UnexpectedValueException $e) {
             Response::error('Webhook inválido', 400);
         } catch (\Stripe\Exception\SignatureVerificationException $e) {
             Response::error('Firma inválida', 400);
         } catch (\Throwable $e) {
+            if ($eventId !== '') {
+                $this->failWebhookEvent($eventId, $e->getMessage());
+            }
             error_log('PaymentController::webhook ERROR: ' . $e->getMessage());
             Response::serverError('No se pudo procesar el webhook.');
         }
+    }
+
+    private function reconcileSucceededPaymentIntent(object $paymentIntent): array
+    {
+        if ((bool)($paymentIntent->livemode ?? false) !== StripeConfig::isLiveMode()) {
+            throw new \RuntimeException('El modo live/test del PaymentIntent no coincide con el servidor.');
+        }
+        if ((string)($paymentIntent->status ?? '') !== 'succeeded') {
+            throw new \RuntimeException('Stripe todavia no confirma este pago.');
+        }
+
+        $rewardsAction = (string)($paymentIntent->metadata['rewards_action'] ?? '');
+        $orderId = (int)($paymentIntent->metadata['order_id'] ?? 0);
+        $storedOrderId = $this->findOrderIdByPaymentIntent((string)$paymentIntent->id);
+        if ($storedOrderId > 0) $orderId = $storedOrderId;
+        $giftOrderId = (int)($paymentIntent->metadata['gift_order_id'] ?? 0);
+        $coverId = (int)($paymentIntent->metadata['social_account_cover_id'] ?? 0);
+        $coverPayerId = (int)($paymentIntent->metadata['payer_user_id'] ?? 0);
+
+        if ($rewardsAction === 'wallet_topup') {
+            $topupUserId = (int)($paymentIntent->metadata['user_id'] ?? 0);
+            $topupAmount = round(((int)($paymentIntent->amount_received ?: $paymentIntent->amount)) / 100, 2);
+            if ($topupUserId <= 0) throw new \RuntimeException('La recarga no contiene usuario valido.');
+            $rewards = new RewardsService();
+            $rewards->getWallet($topupUserId);
+            $pdo = Database::getInstance();
+            $pdo->beginTransaction();
+            try {
+                $rewards->applyTopup(
+                    $pdo,
+                    $topupUserId,
+                    $topupAmount,
+                    (string)$paymentIntent->id,
+                    'Recarga de Saldo Amare con Stripe'
+                );
+                $pdo->commit();
+            } catch (\Throwable $exception) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $exception;
+            }
+        }
+
+        if ($orderId > 0 && !$this->markOrderPaidFromWebhook($orderId, $paymentIntent)) {
+            throw new \RuntimeException("No se pudo conciliar el pedido #{$orderId}.");
+        }
+        if ($giftOrderId > 0) {
+            $gift = Database::queryOne(
+                'SELECT gift_precio, moneda, sender_user_id FROM social_gift_orders WHERE id = :id AND stripe_payment_intent_id = :intent_id',
+                [':id' => $giftOrderId, ':intent_id' => $paymentIntent->id]
+            );
+            $expectedCents = $gift ? (int)round((float)$gift['gift_precio'] * 100) : -1;
+            if (!$gift || $expectedCents !== (int)$paymentIntent->amount || strtolower((string)$paymentIntent->currency) !== strtolower((string)$gift['moneda'])) {
+                throw new \RuntimeException("El pago del regalo #{$giftOrderId} no coincide con la operacion guardada.");
+            }
+            (new SocialController())->reconcileGiftFromWebhook(
+                $giftOrderId,
+                (int)$gift['sender_user_id'],
+                (string)$paymentIntent->id
+            );
+        }
+        if ($coverId > 0 && $coverPayerId > 0) {
+            (new SocialController())->reconcileAccountCoverFromWebhook($coverId, $coverPayerId);
+        }
+
+        return [
+            'payment_intent_id' => (string)$paymentIntent->id,
+            'order_id' => $orderId ?: null,
+            'gift_id' => $giftOrderId ?: null,
+            'cover_id' => $coverId ?: null,
+            'wallet_topup' => $rewardsAction === 'wallet_topup',
+        ];
     }
 
     private function findOrderIdByPaymentIntent(string $paymentIntentId): int
@@ -321,18 +441,18 @@ class PaymentController
         }
     }
 
-    private function markOrderPaidFromWebhook(int $orderId, object $paymentIntent): void
+    private function markOrderPaidFromWebhook(int $orderId, object $paymentIntent): bool
     {
         $userId = (int)($paymentIntent->metadata['user_id'] ?? 0);
         if ($userId <= 0) {
             error_log("Stripe webhook omitido para pedido #{$orderId}: falta user_id");
-            return;
+            return false;
         }
 
         $order = Order::findById($orderId, $userId);
         if (!$order) {
             error_log("Stripe webhook omitido para pedido #{$orderId}: usuario o pedido no coinciden");
-            return;
+            return false;
         }
 
         $intentId = (string)($paymentIntent->id ?? '');
@@ -359,10 +479,380 @@ class PaymentController
             (string)$paymentIntent->status !== 'succeeded'
         ) {
             error_log("Stripe webhook omitido para pedido #{$orderId}: intent, moneda, importe o estado no coinciden");
+            return false;
+        }
+
+        if ((bool)($paymentIntent->livemode ?? false) !== StripeConfig::isLiveMode()) {
+            error_log("Stripe webhook omitido para pedido #{$orderId}: modo live/test inconsistente");
+            return false;
+        }
+
+        $method = $this->stripePaymentMethod($paymentIntent);
+        $rewards = new RewardsService();
+        $rewards->getWallet($userId);
+        $pdo = Database::getInstance();
+        $pdo->beginTransaction();
+        try {
+            if (!Order::updatePaymentMethod($orderId, $method, $intentId)) {
+                throw new \RuntimeException("No se pudo marcar pagado el pedido #{$orderId}.");
+            }
+            $reward = $rewards->awardPoints(
+                $pdo,
+                $userId,
+                $baseAmount,
+                $usePoints,
+                'food',
+                'order',
+                $orderId,
+                'Puntos generados por compra de alimentos'
+            );
+            if (empty($reward['already_applied'])) {
+                Order::applyExternalRewardsSummary($orderId, $reward, true);
+            }
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $exception;
+        }
+
+        if (($order['tipo_pedido'] ?? null) === 'eat_in') {
+            try {
+                Order::ensureExitPass($orderId, $userId);
+            } catch (\Throwable $exception) {
+                error_log("Stripe webhook no pudo generar QR para pedido #{$orderId}: " . $exception->getMessage());
+                throw $exception;
+            }
+        }
+
+        $this->fulfillPendingInvoiceRequest($order, $userId, $method);
+        return true;
+    }
+
+    private function ensurePendingInvoiceTable(): void
+    {
+        Database::getInstance()->exec(
+            "CREATE TABLE IF NOT EXISTS stripe_pending_invoice_requests (
+              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+              order_id INT UNSIGNED NOT NULL,
+              user_id INT UNSIGNED NOT NULL,
+              request_json JSON NOT NULL,
+              status VARCHAR(24) NOT NULL DEFAULT 'pending',
+              invoice_request_id INT UNSIGNED NULL,
+              last_error TEXT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NULL,
+              processed_at DATETIME NULL,
+              PRIMARY KEY (id),
+              UNIQUE KEY uq_stripe_pending_invoice_order (order_id),
+              KEY idx_stripe_pending_invoice_status (status, updated_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    }
+
+    private function persistPendingInvoiceRequest(array $order, int $userId, ?array $invoiceRequest): void
+    {
+        if (!InvoiceRequest::isRequired($invoiceRequest)) {
             return;
         }
 
-        Order::updatePaymentMethod($orderId, 'card', $intentId);
+        $orderId = (int)($order['id'] ?? 0);
+        $restaurantId = (int)($order['restaurante_id'] ?? 0);
+        if ($orderId <= 0 || $userId <= 0) {
+            throw new \InvalidArgumentException('No se pudo asociar la solicitud de factura al pedido.');
+        }
+
+        InvoiceRequest::validateForPayment($restaurantId, $invoiceRequest);
+        $encoded = json_encode($invoiceRequest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            throw new \InvalidArgumentException('Los datos de facturacion no se pudieron guardar.');
+        }
+
+        $this->ensurePendingInvoiceTable();
+        Database::rowCount(
+            "INSERT INTO stripe_pending_invoice_requests
+                (order_id, user_id, request_json, status, created_at, updated_at)
+             VALUES (:order_id, :user_id, :request_json, 'pending', NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                user_id = VALUES(user_id),
+                request_json = IF(status = 'processed', request_json, VALUES(request_json)),
+                status = IF(status = 'processed', status, 'pending'),
+                last_error = IF(status = 'processed', last_error, NULL),
+                updated_at = NOW()",
+            [
+                ':order_id' => $orderId,
+                ':user_id' => $userId,
+                ':request_json' => $encoded,
+            ]
+        );
+    }
+
+    public function fulfillPendingInvoiceRequest(array $order, int $userId, string $paymentMethod): void
+    {
+        $orderId = (int)($order['id'] ?? 0);
+        if ($orderId <= 0 || $userId <= 0) {
+            return;
+        }
+
+        $this->ensurePendingInvoiceTable();
+        $pending = Database::queryOne(
+            'SELECT * FROM stripe_pending_invoice_requests
+              WHERE order_id = :order_id AND user_id = :user_id
+              LIMIT 1',
+            [':order_id' => $orderId, ':user_id' => $userId]
+        );
+        if (!$pending || ($pending['status'] ?? '') === 'processed') {
+            return;
+        }
+
+        $claimed = Database::rowCount(
+            "UPDATE stripe_pending_invoice_requests
+                SET status = 'processing', last_error = NULL, updated_at = NOW()
+              WHERE order_id = :order_id AND user_id = :user_id
+                AND status IN ('pending', 'failed')",
+            [':order_id' => $orderId, ':user_id' => $userId]
+        );
+        if ($claimed === 0) {
+            return;
+        }
+
+        try {
+            $request = json_decode((string)$pending['request_json'], true, 512, JSON_THROW_ON_ERROR);
+            $invoice = InvoiceRequest::createFromPayment([
+                'restaurante_id' => (int)($order['restaurante_id'] ?? 0),
+                'pedido_id' => $orderId,
+                'consumo_id' => $order['consumo_id'] ?? null,
+                'mesa_id' => $order['mesa_id'] ?? null,
+                'mobile_usuario_id' => $userId,
+                'solicitado_por_usuario_id' => $userId,
+                'origen' => 'cliente',
+                'scope' => 'pedido',
+                'monto' => (float)($order['total'] ?? $order['subtotal'] ?? 0),
+                'metodo_pago' => $paymentMethod,
+            ], is_array($request) ? $request : null);
+
+            Database::rowCount(
+                "UPDATE stripe_pending_invoice_requests
+                    SET status = 'processed', invoice_request_id = :invoice_id,
+                        last_error = NULL, processed_at = NOW(), updated_at = NOW()
+                  WHERE order_id = :order_id",
+                [':invoice_id' => $invoice['id'] ?? null, ':order_id' => $orderId]
+            );
+        } catch (\Throwable $exception) {
+            Database::rowCount(
+                "UPDATE stripe_pending_invoice_requests
+                    SET status = 'failed', last_error = :error, updated_at = NOW()
+                  WHERE order_id = :order_id",
+                [':error' => substr($exception->getMessage(), 0, 2000), ':order_id' => $orderId]
+            );
+            throw $exception;
+        }
+    }
+
+    private function stripePaymentMethod(object $paymentIntent): string
+    {
+        try {
+            $charge = $paymentIntent->latest_charge ?? null;
+            if (is_string($charge) && $charge !== '') {
+                $charge = Charge::retrieve($charge);
+            }
+            $walletType = strtolower((string)($charge?->payment_method_details?->card?->wallet?->type ?? ''));
+            if ($walletType === 'apple_pay') return 'apple_pay';
+            if ($walletType === 'google_pay') return 'google_pay';
+        } catch (\Stripe\Exception\ApiErrorException $exception) {
+            error_log('PaymentController::stripePaymentMethod ERROR: ' . $exception->getMessage());
+        }
+
+        return 'card';
+    }
+
+    private function recordPaymentIncident(string $type, string $objectId, string $paymentIntentId, array $details = []): void
+    {
+        Database::getInstance()->exec(
+            "CREATE TABLE IF NOT EXISTS stripe_payment_incidents (
+              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+              incident_type VARCHAR(80) NOT NULL,
+              stripe_object_id VARCHAR(255) NOT NULL,
+              payment_intent_id VARCHAR(255) NULL,
+              details_json TEXT NULL,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME NULL,
+              PRIMARY KEY (id),
+              UNIQUE KEY uq_stripe_payment_incident (incident_type, stripe_object_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        Database::rowCount(
+            "INSERT INTO stripe_payment_incidents
+                (incident_type, stripe_object_id, payment_intent_id, details_json, created_at, updated_at)
+             VALUES (:type, :object_id, :intent_id, :details, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE details_json = VALUES(details_json), updated_at = NOW()",
+            [
+                ':type' => $type,
+                ':object_id' => $objectId,
+                ':intent_id' => $paymentIntentId ?: null,
+                ':details' => json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]
+        );
+    }
+
+    private function ensureWebhookEventsTable(): void
+    {
+        Database::getInstance()->exec(
+            "CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+              stripe_event_id VARCHAR(255) NOT NULL,
+              event_type VARCHAR(120) NOT NULL,
+              object_id VARCHAR(255) NULL,
+              status VARCHAR(24) NOT NULL DEFAULT 'processing',
+              attempts INT UNSIGNED NOT NULL DEFAULT 1,
+              last_error TEXT NULL,
+              received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              processed_at DATETIME NULL,
+              updated_at DATETIME NULL,
+              PRIMARY KEY (id),
+              UNIQUE KEY uq_stripe_webhook_event (stripe_event_id),
+              KEY idx_stripe_webhook_status (status, updated_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    }
+
+    private function beginWebhookEvent(string $eventId, string $eventType, string $objectId): bool
+    {
+        $this->ensureWebhookEventsTable();
+        $existing = Database::queryOne(
+            'SELECT status FROM stripe_webhook_events WHERE stripe_event_id = :event_id LIMIT 1',
+            [':event_id' => $eventId]
+        );
+        if (($existing['status'] ?? '') === 'processed') return false;
+
+        if ($existing) {
+            Database::rowCount(
+                "UPDATE stripe_webhook_events
+                    SET status = 'processing', attempts = attempts + 1, last_error = NULL, updated_at = NOW()
+                  WHERE stripe_event_id = :event_id",
+                [':event_id' => $eventId]
+            );
+            return true;
+        }
+
+        Database::rowCount(
+            "INSERT INTO stripe_webhook_events
+                (stripe_event_id, event_type, object_id, status, attempts, received_at, updated_at)
+             VALUES (:event_id, :event_type, :object_id, 'processing', 1, NOW(), NOW())",
+            [':event_id' => $eventId, ':event_type' => $eventType, ':object_id' => $objectId ?: null]
+        );
+        return true;
+    }
+
+    private function completeWebhookEvent(string $eventId): void
+    {
+        Database::rowCount(
+            "UPDATE stripe_webhook_events
+                SET status = 'processed', processed_at = NOW(), last_error = NULL, updated_at = NOW()
+              WHERE stripe_event_id = :event_id",
+            [':event_id' => $eventId]
+        );
+    }
+
+    private function failWebhookEvent(string $eventId, string $message): void
+    {
+        try {
+            Database::rowCount(
+                "UPDATE stripe_webhook_events
+                    SET status = 'failed', last_error = :error, updated_at = NOW()
+                  WHERE stripe_event_id = :event_id",
+                [':event_id' => $eventId, ':error' => substr($message, 0, 2000)]
+            );
+        } catch (\Throwable $ignored) {
+        }
+    }
+
+    private function markOrderPaymentInterrupted(object $paymentIntent, string $reason): void
+    {
+        $orderId = (int)($paymentIntent->metadata['order_id'] ?? 0);
+        if ($orderId <= 0) $orderId = $this->findOrderIdByPaymentIntent((string)($paymentIntent->id ?? ''));
+        if ($orderId > 0) {
+            error_log("Stripe pago {$reason} para pedido #{$orderId}");
+        }
+    }
+
+    private function handleChargeRefunded(object $charge): void
+    {
+        $paymentIntentId = (string)($charge->payment_intent ?? '');
+        if ($paymentIntentId === '') return;
+        $intent = PaymentIntent::retrieve($paymentIntentId);
+        if ((string)($intent->metadata['rewards_action'] ?? '') !== 'wallet_topup') {
+            error_log('Stripe reembolso confirmado para PaymentIntent ' . $paymentIntentId);
+            return;
+        }
+
+        $userId = (int)($intent->metadata['user_id'] ?? 0);
+        $chargeId = (string)($charge->id ?? '');
+        $cumulativeCents = (int)($charge->amount_refunded ?? 0);
+        if ($userId <= 0 || $chargeId === '' || $cumulativeCents <= 0) return;
+
+        $rewards = new RewardsService();
+        $rewards->getWallet($userId);
+        $pdo = Database::getInstance();
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS stripe_charge_refund_state (
+              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+              stripe_charge_id VARCHAR(255) NOT NULL,
+              payment_intent_id VARCHAR(255) NULL,
+              user_id INT UNSIGNED NULL,
+              refunded_cents BIGINT UNSIGNED NOT NULL DEFAULT 0,
+              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY (id),
+              UNIQUE KEY uq_stripe_refund_charge (stripe_charge_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+
+        $pdo->beginTransaction();
+        try {
+            $statement = $pdo->prepare(
+                'SELECT refunded_cents FROM stripe_charge_refund_state WHERE stripe_charge_id = :charge_id LIMIT 1 FOR UPDATE'
+            );
+            $statement->execute([':charge_id' => $chargeId]);
+            $previousCents = (int)($statement->fetchColumn() ?: 0);
+            $deltaCents = max(0, $cumulativeCents - $previousCents);
+
+            if ($deltaCents > 0) {
+                $refundResult = $rewards->applyPurchasedRefund(
+                    $pdo,
+                    $userId,
+                    round($deltaCents / 100, 2),
+                    'stripe_refund_' . $chargeId . '_' . $cumulativeCents,
+                    'Reembolso de recarga de Saldo Amare',
+                    true
+                );
+                if ((float)($refundResult['unapplied_refund_mxn'] ?? 0) > 0) {
+                    error_log(
+                        'Stripe reembolso excede saldo comprado disponible user=' . $userId .
+                        ' amount=' . (float)$refundResult['unapplied_refund_mxn']
+                    );
+                }
+            }
+
+            Database::rowCount(
+                "INSERT INTO stripe_charge_refund_state
+                    (stripe_charge_id, payment_intent_id, user_id, refunded_cents, updated_at)
+                 VALUES (:charge_id, :intent_id, :user_id, :refunded_cents, NOW())
+                 ON DUPLICATE KEY UPDATE
+                    payment_intent_id = VALUES(payment_intent_id),
+                    user_id = VALUES(user_id),
+                    refunded_cents = GREATEST(refunded_cents, VALUES(refunded_cents)),
+                    updated_at = NOW()",
+                [
+                    ':charge_id' => $chargeId,
+                    ':intent_id' => $paymentIntentId,
+                    ':user_id' => $userId,
+                    ':refunded_cents' => $cumulativeCents,
+                ]
+            );
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $exception;
+        }
     }
 
     private function paymentIntentIdempotencyKey(

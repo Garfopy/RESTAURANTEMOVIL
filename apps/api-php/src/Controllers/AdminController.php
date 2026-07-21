@@ -7,9 +7,41 @@ namespace Amare\Api\Controllers;
 use Amare\Api\Config\Database;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
+use Amare\Api\Middleware\ValidationMiddleware;
+use Amare\Api\Services\PurchasedBalanceRefundService;
 
 class AdminController
 {
+    public function refundPurchasedBalance(): void
+    {
+        $admin = AuthMiddleware::requireAdmin();
+        $input = ValidationMiddleware::getAllInput();
+        $userId = (int)($input['user_id'] ?? 0);
+        $amount = round((float)($input['amount_mxn'] ?? 0), 2);
+        $requestKey = trim((string)($input['request_key'] ?? ''));
+        $reason = trim((string)($input['reason'] ?? 'Reembolso solicitado por administracion'));
+
+        if ($userId <= 0 || $amount <= 0 || !preg_match('/^[A-Za-z0-9_-]{12,120}$/', $requestKey)) {
+            Response::validationError(['refund' => ['Usuario, monto y request_key son obligatorios.']]);
+        }
+
+        try {
+            $result = (new PurchasedBalanceRefundService())->refund(
+                $userId,
+                $amount,
+                $requestKey,
+                $reason,
+                (int)($admin->id ?? 0) ?: null
+            );
+            Response::success($result, 'Reembolso de saldo comprado iniciado.');
+        } catch (\InvalidArgumentException|\DomainException $exception) {
+            Response::error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            error_log('AdminController::refundPurchasedBalance ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo procesar el reembolso.');
+        }
+    }
+
     // GET /admin/users
     // Devuelve la lista de usuarios registrados en la app movil.
     // Util para el selector de usuario al crear/editar promociones desde la web admin.
