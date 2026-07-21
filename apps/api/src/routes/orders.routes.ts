@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query, queryOne, pool } from '../db';
 import { requireAuth } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/error.middleware';
-import type { Pedido, TrackingEvent, CreateOrderPayload, EstadoPedido } from '@amare/types';
+import type { Pedido, TrackingEvent, EstadoPedido } from '@amare/types';
 
 export const ordersRouter = Router();
 
@@ -50,7 +50,7 @@ ordersRouter.post('/', requireAuth, async (req: Request, res: Response, next: Ne
         notas: z.string().max(500).optional(),
         payment_intent_id: z.string().optional(),
       })
-      .parse(req.body) as CreateOrderPayload;
+      .parse(req.body);
 
     const conn = await pool.getConnection();
     try {

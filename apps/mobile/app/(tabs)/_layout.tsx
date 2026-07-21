@@ -83,6 +83,7 @@ const TabIcon = memo(
     );
   }
 );
+TabIcon.displayName = 'TabIcon';
 
 export default function TabsLayout() {
   const router = useRouter();

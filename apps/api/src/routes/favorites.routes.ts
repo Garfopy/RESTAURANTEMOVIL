@@ -30,7 +30,7 @@ favoritesRouter.get('/', async (req: Request, res: Response, next: NextFunction)
 favoritesRouter.post('/:platilloId', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const platilloId = parseInt(req.params.platilloId);
-    const existing = await queryOne(
+    const existing = await queryOne<{ id: number }>(
       'SELECT id FROM mobile_favoritos WHERE usuario_id = ? AND platillo_id = ?',
       [req.user!.id, platilloId]
     );

@@ -8,6 +8,14 @@ use Amare\Api\Config\Database;
 
 final class StripeConfig
 {
+    public const MINIMUM_PAYMENT_MXN_CENTS = 1000;
+
+    public static function isBelowMinimumPaymentMxn(float $amount): bool
+    {
+        $amountCents = (int)round($amount * 100);
+        return $amountCents > 0 && $amountCents < self::MINIMUM_PAYMENT_MXN_CENTS;
+    }
+
     public static function secretKey(): string
     {
         $key = self::environmentValue('STRIPE_SECRET_KEY');

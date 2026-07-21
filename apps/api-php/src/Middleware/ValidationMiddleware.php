@@ -143,7 +143,6 @@ class ValidationMiddleware
             'content_type' => $contentType,
             'is_multipart' => $isMultipart,
             'raw_body_length' => strlen((string)$rawBody),
-            'raw_body_preview' => substr($trimmedBody, 0, 500),
             'looks_like_json' => $looksLikeJson,
             'json_error' => $jsonError,
             'post_keys' => array_keys($_POST),

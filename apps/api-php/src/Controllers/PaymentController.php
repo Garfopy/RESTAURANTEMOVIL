@@ -98,6 +98,13 @@ class PaymentController
             if ($amount <= 0) {
                 Response::error('El total a cobrar debe ser mayor a cero.', 409, 'PAYMENT_AMOUNT_ZERO');
             }
+            if (StripeConfig::isBelowMinimumPaymentMxn($amount)) {
+                Response::error(
+                    'El pago con tarjeta debe ser de al menos $10.00 MXN. Ajusta tu compra o elige otro método de pago.',
+                    422,
+                    'PAYMENT_AMOUNT_BELOW_MINIMUM'
+                );
+            }
 
             // 🛠️ Cambiado a método seguro protegido contra fallas de lectura de .env
             Stripe::setApiKey($this->getStripeSecret());
@@ -275,8 +282,7 @@ class PaymentController
                     }
                     $giftOrderId = (int) ($paymentIntent->metadata['gift_order_id'] ?? 0);
                     if ($orderId > 0) {
-                        // Registrar el fallo sin cambiar estado
-                        error_log("Pago fallido para pedido #{$orderId}: {$paymentIntent->last_payment_error?->message}");
+                        $this->markOrderPaymentInterrupted($paymentIntent, 'failed');
                     }
                     if ($giftOrderId > 0) {
                         Database::rowCount(
@@ -312,6 +318,10 @@ class PaymentController
 
                 case 'charge.dispute.created':
                     $chargeId = (string)($event->data->object->charge ?? '');
+                    if ($chargeId !== '') {
+                        $charge = Charge::retrieve($chargeId);
+                        $this->markOrderDisputed((string)($charge->payment_intent ?? ''));
+                    }
                     error_log('Stripe disputa recibida para charge ' . $chargeId);
                     $this->recordPaymentIncident(
                         'charge_dispute_created',
@@ -496,6 +506,7 @@ class PaymentController
             if (!Order::updatePaymentMethod($orderId, $method, $intentId)) {
                 throw new \RuntimeException("No se pudo marcar pagado el pedido #{$orderId}.");
             }
+            $this->updateOrderStripeState($orderId, 'succeeded');
             $reward = $rewards->awardPoints(
                 $pdo,
                 $userId,
@@ -771,6 +782,8 @@ class PaymentController
         $orderId = (int)($paymentIntent->metadata['order_id'] ?? 0);
         if ($orderId <= 0) $orderId = $this->findOrderIdByPaymentIntent((string)($paymentIntent->id ?? ''));
         if ($orderId > 0) {
+            $message = (string)($paymentIntent->last_payment_error?->message ?? '');
+            $this->updateOrderStripeState($orderId, $reason, $message);
             error_log("Stripe pago {$reason} para pedido #{$orderId}");
         }
     }
@@ -780,6 +793,15 @@ class PaymentController
         $paymentIntentId = (string)($charge->payment_intent ?? '');
         if ($paymentIntentId === '') return;
         $intent = PaymentIntent::retrieve($paymentIntentId);
+        $orderId = $this->findOrderIdByPaymentIntent($paymentIntentId);
+        if ($orderId > 0) {
+            $refundedCents = max(0, (int)($charge->amount_refunded ?? 0));
+            $chargedCents = max(0, (int)($charge->amount ?? $intent->amount_received ?? $intent->amount ?? 0));
+            $status = $chargedCents > 0 && $refundedCents < $chargedCents
+                ? 'partially_refunded'
+                : 'refunded';
+            $this->updateOrderStripeState($orderId, $status, null, $refundedCents);
+        }
         if ((string)($intent->metadata['rewards_action'] ?? '') !== 'wallet_topup') {
             error_log('Stripe reembolso confirmado para PaymentIntent ' . $paymentIntentId);
             return;
@@ -793,19 +815,6 @@ class PaymentController
         $rewards = new RewardsService();
         $rewards->getWallet($userId);
         $pdo = Database::getInstance();
-        $pdo->exec(
-            "CREATE TABLE IF NOT EXISTS stripe_charge_refund_state (
-              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-              stripe_charge_id VARCHAR(255) NOT NULL,
-              payment_intent_id VARCHAR(255) NULL,
-              user_id INT UNSIGNED NULL,
-              refunded_cents BIGINT UNSIGNED NOT NULL DEFAULT 0,
-              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              UNIQUE KEY uq_stripe_refund_charge (stripe_charge_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-        );
-
         $pdo->beginTransaction();
         try {
             $statement = $pdo->prepare(
@@ -853,6 +862,57 @@ class PaymentController
             if ($pdo->inTransaction()) $pdo->rollBack();
             throw $exception;
         }
+    }
+
+    private function markOrderDisputed(string $paymentIntentId): void
+    {
+        $orderId = $this->findOrderIdByPaymentIntent($paymentIntentId);
+        if ($orderId > 0) {
+            $this->updateOrderStripeState($orderId, 'disputed', 'Stripe recibio una disputa para este pago.', null, true);
+        }
+    }
+
+    private function updateOrderStripeState(
+        int $orderId,
+        string $status,
+        ?string $error = null,
+        ?int $refundedCents = null,
+        bool $disputed = false
+    ): void {
+        $columns = Database::query(
+            "SELECT COLUMN_NAME
+               FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'rest_pedidos'
+                AND COLUMN_NAME IN ('stripe_payment_status', 'stripe_payment_error', 'stripe_refunded_cents', 'stripe_disputed_at', 'updated_at')"
+        );
+        $available = array_column($columns, 'COLUMN_NAME');
+        if (!in_array('stripe_payment_status', $available, true)) {
+            error_log('Falta ejecutar la migracion 083_add_stripe_payment_state_to_orders.sql');
+            return;
+        }
+
+        $fields = ['stripe_payment_status = :status'];
+        $params = [':status' => substr($status, 0, 30), ':order_id' => $orderId];
+        if (in_array('stripe_payment_error', $available, true)) {
+            $fields[] = 'stripe_payment_error = :error';
+            $params[':error'] = $error === null || $error === '' ? null : substr($error, 0, 500);
+        }
+        if ($refundedCents !== null && in_array('stripe_refunded_cents', $available, true)) {
+            $fields[] = 'stripe_refunded_cents = GREATEST(stripe_refunded_cents, :refunded_cents)';
+            $params[':refunded_cents'] = max(0, $refundedCents);
+        }
+        if ($disputed && in_array('stripe_disputed_at', $available, true)) {
+            $fields[] = 'stripe_disputed_at = COALESCE(stripe_disputed_at, NOW())';
+        }
+        if (in_array('updated_at', $available, true)) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        Database::rowCount(
+            'UPDATE rest_pedidos SET ' . implode(', ', $fields) . ' WHERE id = :order_id',
+            $params
+        );
     }
 
     private function paymentIntentIdempotencyKey(

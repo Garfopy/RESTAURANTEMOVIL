@@ -23,16 +23,30 @@ if (file_exists($envFile)) {
 // Configuración de zona horaria
 date_default_timezone_set('America/Mexico_City');
 
-// Headers CORS
-header('Access-Control-Allow-Origin: ' . ($_ENV['CORS_ORIGIN'] ?? '*'));
+// CORS solo aplica a clientes web. Las apps nativas normalmente no envian Origin.
+$appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? 'production')));
+$requestOrigin = trim((string)($_SERVER['HTTP_ORIGIN'] ?? ''));
+$configuredOrigins = array_values(array_filter(array_map(
+    'trim',
+    explode(',', (string)($_ENV['CORS_ORIGIN'] ?? ''))
+)));
+$allowsWildcard = $appEnv !== 'production' && in_array('*', $configuredOrigins, true);
+$originAllowed = $requestOrigin === '' || $allowsWildcard || in_array($requestOrigin, $configuredOrigins, true);
+
+if ($requestOrigin !== '' && $originAllowed) {
+    header('Access-Control-Allow-Origin: ' . ($allowsWildcard ? '*' : $requestOrigin));
+    header('Vary: Origin');
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, If-None-Match, Cache-Control, Pragma');
 header('Access-Control-Expose-Headers: ETag, Cache-Control');
-header('Access-Control-Allow-Credentials: true');
+if ($requestOrigin !== '' && $originAllowed && !$allowsWildcard) {
+    header('Access-Control-Allow-Credentials: true');
+}
 header('Content-Type: application/json; charset=utf-8');
 
 // Manejar preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
+    http_response_code($originAllowed ? 204 : 403);
     exit;
 }

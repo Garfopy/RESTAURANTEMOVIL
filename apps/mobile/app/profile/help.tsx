@@ -23,7 +23,11 @@ const FAQS = [
   },
   {
     title: 'Reportes y bloqueo',
-    body: 'Desde cada perfil social puedes reportar o bloquear. El equipo de moderacion revisa los reportes y puede suspender cuentas.',
+    body: 'Desde cada perfil social puedes reportar o bloquear. Las fotos nuevas se revisan antes de publicarse y los reportes de seguridad normalmente se atienden dentro de 24 horas.',
+  },
+  {
+    title: 'Google Pay no aparece',
+    body: 'Google Pay solo aparece en Android si Google Wallet y los Servicios de Google estan actualizados y existe una tarjeta compatible configurada. Siempre puedes pagar con tarjeta desde la misma ventana.',
   },
 ];
 

@@ -19,7 +19,10 @@ class PaymentController
     private function getStripeSecret(): string
     {
         $key = $_ENV['STRIPE_SECRET_KEY'] ?? $_SERVER['STRIPE_SECRET_KEY'] ?? getenv('STRIPE_SECRET_KEY');
-        return $key ?: 'sk_test_51TeJtC40bT4RaBUH5oNKSSOKjzreEfOUiLdswY7CYEYOfp9MdkMR43U1QdK9TGnc0DpY3KhJ41smmvQLNYhx8Rjj00sbJNzOfi';
+        if (!is_string($key) || trim($key) === '') {
+            throw new \RuntimeException('STRIPE_SECRET_KEY no esta configurada.');
+        }
+        return trim($key);
     }
 
     /**
@@ -28,7 +31,10 @@ class PaymentController
     private function getStripeWebhookSecret(): string
     {
         $key = $_ENV['STRIPE_WEBHOOK_SECRET'] ?? $_SERVER['STRIPE_WEBHOOK_SECRET'] ?? getenv('STRIPE_WEBHOOK_SECRET');
-        return $key ?: 'whsec_0NeYzmDe2OFW6mvfOF0TZ3WRjoYivXLB';
+        if (!is_string($key) || trim($key) === '') {
+            throw new \RuntimeException('STRIPE_WEBHOOK_SECRET no esta configurado.');
+        }
+        return trim($key);
     }
 
     public function createPaymentIntent(): void

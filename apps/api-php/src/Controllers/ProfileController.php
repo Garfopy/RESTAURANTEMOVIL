@@ -103,22 +103,11 @@ class ProfileController
                 (string)($debug['content_type'] ?? '')
             );
 
-            Response::json([
-                'success' => false,
-                'message' => $summary,
-                'code' => 'PROFILE_UPDATE_EMPTY_INPUT',
-                'debug' => [
-                    'allowed_fields' => [
-                        'nombre',
-                        'telefono',
-                        'fecha_nacimiento',
-                        'marketing_opt_in',
-                        'terms_accepted',
-                    ],
-                    'received_input_keys' => $inputKeys,
-                    'input_debug' => $debug,
-                ],
-            ], 400);
+            if (\Amare\Api\Config\Environment::bool('APP_DEBUG')) {
+                error_log('ProfileController::update EMPTY INPUT ' . $summary);
+            }
+
+            Response::error('No se proporcionaron datos validos para actualizar.', 400, 'PROFILE_UPDATE_EMPTY_INPUT');
         }
 
         if (!User::update($user->id, $updateData)) {
@@ -276,6 +265,19 @@ class ProfileController
         }
 
         $photos = $this->collectUserPhotoUrls($currentUser);
+        if ($this->tableExists('social_photo_moderation')) {
+            $pendingPhotos = Database::query(
+                "SELECT photo_url FROM social_photo_moderation WHERE user_id = :user_id AND status = 'pending'",
+                [':user_id' => $userId]
+            );
+            foreach ($pendingPhotos as $pendingPhoto) {
+                $url = trim((string)($pendingPhoto['photo_url'] ?? ''));
+                if ($url !== '') {
+                    $photos[] = $url;
+                }
+            }
+            $photos = array_values(array_unique($photos));
+        }
         $pdo = Database::getInstance();
 
         try {
@@ -307,6 +309,14 @@ class ProfileController
             if ($this->tableExists('social_reports')) {
                 Database::rowCount(
                     'DELETE FROM social_reports WHERE reporter_user_id = :id',
+                    [':id' => $userId]
+                );
+            }
+            if ($this->tableExists('social_photo_moderation')) {
+                Database::rowCount(
+                    "UPDATE social_photo_moderation
+                        SET status = 'rejected', review_notes = 'account_deleted', reviewed_at = NOW()
+                      WHERE user_id = :id AND status = 'pending'",
                     [':id' => $userId]
                 );
             }

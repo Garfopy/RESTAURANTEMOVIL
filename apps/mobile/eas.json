@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 3.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "requireCommit": true
   },
   "build": {
     "development": {
@@ -31,6 +32,7 @@
     "production-apk": {
       "distribution": "internal",
       "environment": "production",
+      "credentialsSource": "remote",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
         "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true"
@@ -42,6 +44,7 @@
     "production": {
       "autoIncrement": true,
       "environment": "production",
+      "credentialsSource": "remote",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
         "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true"

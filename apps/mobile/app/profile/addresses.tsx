@@ -89,7 +89,7 @@ export default function AddressesScreen() {
                 <Ionicons name="location-outline" size={40} color={Colors.textMuted} />
               </View>
               <Text style={styles.emptyTitle}>Aún no tienes direcciones</Text>
-              <Text style={styles.emptySubtext}>Toca el botón "+" superior para agregar una nueva dirección de entrega.</Text>
+              <Text style={styles.emptySubtext}>Toca el botón + superior para agregar una nueva dirección de entrega.</Text>
             </View>
           }
           renderItem={({ item }) => (

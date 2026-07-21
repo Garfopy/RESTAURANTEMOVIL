@@ -22,7 +22,12 @@ import {
   type RewardsWallet,
 } from '../../services/rewards.service';
 import { Colors, Shadows } from '../../theme';
-import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
+import {
+  assertStripeMinimumPaymentAmount,
+  presentAmarePaymentSheet,
+  showStripeMinimumAmountAlert,
+  stripePaymentLabel,
+} from '../../services/stripe-payment-sheet.service';
 
 const FALLBACK_TOPUPS: RewardsTopupOption[] = [
   { amount_mxn: 500 },
@@ -69,10 +74,12 @@ export default function AmareBalanceScreen() {
     setLoading(true);
     let paymentPresented = false;
     try {
+      assertStripeMinimumPaymentAmount(selectedAmount);
       topupRequestKeyRef.current ??= `topup_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
       const prepared = await createRewardsTopupIntent(selectedAmount, topupRequestKeyRef.current);
       await presentAmarePaymentSheet(stripe, {
         clientSecret: prepared.client_secret,
+        amountMxn: prepared.amount_mxn,
       });
       paymentPresented = true;
 
@@ -82,6 +89,7 @@ export default function AmareBalanceScreen() {
       Alert.alert('Recarga exitosa', `Tu Saldo Amare ahora es de $${nextWallet.balance_mxn.toFixed(2)}.`);
     } catch (error: any) {
       if (error?.name === 'PaymentCanceledError') return;
+      if (showStripeMinimumAmountAlert(error)) return;
       if (paymentPresented) {
         Alert.alert(
           'Recarga en proceso',

@@ -29,6 +29,14 @@
         "NSLocationWhenInUseUsageDescription": "Amare necesita tu ubicacion para encontrar la sucursal mas cercana.",
         "NSCameraUsageDescription": "Amare necesita la camara para escanear codigos QR y actualizar tu perfil.",
         "NSPhotoLibraryUsageDescription": "Amare necesita acceso a tus fotos para elegir imagenes de perfil.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSExceptionDomains": {
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            }
+          }
+        },
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleAllowMixedLocalizations": true,
         "CFBundleLocalizations": [
@@ -45,6 +53,7 @@
       }
     },
     "android": {
+      "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/amare_icon.png",
         "backgroundColor": "#191A2E"
@@ -78,7 +87,19 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Amare necesita tu ubicacion para encontrar sucursales cercanas y preparar entregas."
+          "locationWhenInUsePermission": "Amare necesita tu ubicacion para encontrar sucursales cercanas y preparar entregas.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Amare necesita la camara para escanear codigos QR y actualizar tu perfil.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       "expo-notifications",

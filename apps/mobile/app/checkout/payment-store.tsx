@@ -18,7 +18,12 @@ import { createStoreOrder } from '../../services/store.service';
 import { confirmPayment, createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
-import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
+import {
+  assertStripeMinimumPaymentAmount,
+  presentAmarePaymentSheet,
+  showStripeMinimumAmountAlert,
+  stripePaymentLabel,
+} from '../../services/stripe-payment-sheet.service';
 import { Colors, Spacing, Shadows } from '../../theme';
 
 type PaymentMethod = 'card' | 'cash';
@@ -87,6 +92,7 @@ export default function StorePaymentScreen() {
         if (!STRIPE_IS_CONFIGURED) {
           throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
         }
+        assertStripeMinimumPaymentAmount(displayedTotal);
         let prepared = preparedPayment;
         if (!prepared) {
           const order = await createStoreOrder({
@@ -124,6 +130,7 @@ export default function StorePaymentScreen() {
         if (prepared.status !== 'succeeded') {
           await presentAmarePaymentSheet(stripe, {
             clientSecret: prepared.clientSecret,
+            amountMxn: prepared.amount,
           });
         }
         stripeCompletedOrderId = prepared.orderId;
@@ -141,6 +148,7 @@ export default function StorePaymentScreen() {
 
     } catch (err: any) {
       if (err?.name === 'PaymentCanceledError') return;
+      if (showStripeMinimumAmountAlert(err)) return;
       if (stripeCompletedOrderId) {
         Alert.alert(
           'Procesando pago',

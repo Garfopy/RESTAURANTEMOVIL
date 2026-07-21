@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Amare\Api\Middleware;
 
 use Amare\Api\Config\Database;
+use Amare\Api\Config\Environment;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Models\User;
 use Firebase\JWT\JWT;
@@ -14,14 +15,16 @@ class AuthMiddleware
 {
     private const ACCOUNT_SUSPENDED_CODE = 'ACCOUNT_SUSPENDED';
 
-    /**
-     * Obtiene la clave secreta JWT de forma segura con fallbacks alternativos
-     */
     private static function getSecret(): string
     {
-        $secret = $_ENV['JWT_SECRET'] ?? $_SERVER['JWT_SECRET'] ?? getenv('JWT_SECRET');
+        $secret = Environment::value('JWT_SECRET', '') ?? '';
 
-        return $secret ?: 'amare_api_secret_key_2024_change_this_in_production_use_a_longer_random_string';
+        if (strlen($secret) < 48) {
+            error_log('JWT_SECRET missing or shorter than 48 characters.');
+            Response::serverError('La autenticacion no esta disponible temporalmente.');
+        }
+
+        return $secret;
     }
 
     public static function authenticate(): ?object
@@ -102,8 +105,6 @@ class AuthMiddleware
     public static function requireAdmin(): object
     {
         $user = self::authenticate();
-
-        error_log('USER=' . json_encode($user));
 
         $rol = $user->rol ?? '';
 
@@ -226,8 +227,9 @@ class AuthMiddleware
             return null;
         }
 
+        $candidates = [];
         try {
-            return Database::queryOne(
+            $report = Database::queryOne(
                 "SELECT reason, details, status, created_at
                    FROM social_reports
                   WHERE reported_user_id = :user_id
@@ -235,9 +237,39 @@ class AuthMiddleware
                   LIMIT 1",
                 [':user_id' => $userId]
             );
+            if ($report) $candidates[] = $report;
         } catch (\Throwable $e) {
-            return null;
+            // La moderacion de fotos puede seguir aportando el motivo.
         }
+
+        try {
+            $photoModeration = Database::queryOne(
+                "SELECT 'inappropriate_content' AS reason,
+                        COALESCE(NULLIF(review_notes, ''), 'Una foto del perfil incumplio las reglas de la comunidad.') AS details,
+                        status,
+                        COALESCE(reviewed_at, created_at) AS created_at
+                   FROM social_photo_moderation
+                  WHERE user_id = :user_id
+                    AND status = 'rejected'
+                    AND COALESCE(review_notes, '') NOT IN ('account_deleted', 'deleted_by_user')
+                  ORDER BY COALESCE(reviewed_at, created_at) DESC
+                  LIMIT 1",
+                [':user_id' => $userId]
+            );
+            if ($photoModeration) $candidates[] = $photoModeration;
+        } catch (\Throwable $e) {
+            // La tabla puede no existir en instalaciones anteriores.
+        }
+
+        if (empty($candidates)) return null;
+        usort(
+            $candidates,
+            static fn(array $left, array $right): int => strcmp(
+                (string)($right['created_at'] ?? ''),
+                (string)($left['created_at'] ?? '')
+            )
+        );
+        return $candidates[0];
     }
 
     private static function formatSuspensionReason(string $reasonCode): string

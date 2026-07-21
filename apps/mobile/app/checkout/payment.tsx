@@ -35,7 +35,12 @@ import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet }
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
-import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
+import {
+  assertStripeMinimumPaymentAmount,
+  presentAmarePaymentSheet,
+  showStripeMinimumAmountAlert,
+  stripePaymentLabel,
+} from '../../services/stripe-payment-sheet.service';
 import { InvoiceRequestForm } from '../../components/shared/InvoiceRequestForm';
 import { Colors, Shadows, Spacing, Typography } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
@@ -417,6 +422,7 @@ export default function PaymentScreen() {
         if (!STRIPE_IS_CONFIGURED) {
           throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
         }
+        assertStripeMinimumPaymentAmount(effectivePaymentAmount);
 
         let prepared = preparedCardPayment;
         if (!prepared) {
@@ -452,6 +458,7 @@ export default function PaymentScreen() {
         if (prepared.status !== 'succeeded') {
           await presentAmarePaymentSheet(stripe, {
             clientSecret: prepared.clientSecret,
+            amountMxn: prepared.amount,
             customerName: user?.nombre,
             customerEmail: user?.email,
           });
@@ -475,6 +482,7 @@ export default function PaymentScreen() {
 
     } catch (err: any) {
       if (err?.name === 'PaymentCanceledError') return;
+      if (showStripeMinimumAmountAlert(err)) return;
       if (stripeCompletedOrderId) {
         Alert.alert(
           'Procesando pago',

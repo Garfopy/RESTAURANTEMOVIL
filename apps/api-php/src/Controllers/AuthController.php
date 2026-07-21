@@ -6,6 +6,7 @@ namespace Amare\Api\Controllers;
 
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
+use Amare\Api\Middleware\RateLimiter;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\User;
 use Amare\Api\Services\AppleIdentityService;
@@ -74,7 +75,7 @@ class AuthController
     {
         $rules = [
             'name' => 'required|min:3|max:100',
-            'password' => 'required|min:6|max:100'
+            'password' => 'required|min:8|max:100'
         ];
 
         $errors = ValidationMiddleware::validate($rules, ValidationMiddleware::getAllInput());
@@ -87,6 +88,7 @@ class AuthController
         $email = isset($input['email']) ? strtolower(trim((string)$input['email'])) : '';
         $phone = self::normalizePhone($input['phone'] ?? $input['telefono'] ?? '');
         $birthday = trim((string)($input['fecha_nacimiento'] ?? ''));
+        RateLimiter::enforce('auth-register', $email !== '' ? $email : $phone, 5, 3600);
 
         if (strlen($phone) === 10) {
             $phone = '52' . $phone;
@@ -181,6 +183,8 @@ class AuthController
         $input = ValidationMiddleware::getAllInput();
         $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? ''));
 
+        RateLimiter::enforce('auth-login', $identifier, 10, 900);
+
         if ($identifier === '') {
             Response::validationError(['identifier' => ['Correo o teléfono es requerido']]);
         }
@@ -236,6 +240,8 @@ class AuthController
 
     public function google(): void
     {
+        RateLimiter::enforce('auth-oauth-google', 'google', 30, 900);
+
         $input = ValidationMiddleware::getAllInput();
         
         if (empty($input['token'])) {
@@ -321,6 +327,8 @@ class AuthController
 
     public function apple(): void
     {
+        RateLimiter::enforce('auth-oauth-apple', 'apple', 30, 900);
+
         $input = ValidationMiddleware::getAllInput();
         $identityToken = trim((string)($input['identity_token'] ?? ''));
         if ($identityToken === '') {
@@ -449,7 +457,7 @@ class AuthController
 
         $rules = [
             'current_password' => 'required',
-            'new_password' => 'required|min:6'
+            'new_password' => 'required|min:8'
         ];
 
         $errors = ValidationMiddleware::validate($rules, $input);
@@ -475,6 +483,7 @@ class AuthController
     {
         $input = ValidationMiddleware::getAllInput();
         $identifier = trim((string)($input['identifier'] ?? $input['email'] ?? $input['phone'] ?? ''));
+        RateLimiter::enforce('password-reset-request', $identifier, 5, 3600);
 
         if ($identifier === '') {
             Response::validationError(['identifier' => ['Correo o telefono es requerido']]);
@@ -522,6 +531,8 @@ class AuthController
             Response::validationError($errors);
         }
 
+        RateLimiter::enforce('password-reset-verify', $identifier, 8, 900);
+
         $user = $this->findMobileUserByIdentifier($identifier);
         if (!$user || !User::hasValidPasswordResetCode($user, $code)) {
             Response::error('Codigo invalido o expirado', 400, 'PASSWORD_RESET_INVALID');
@@ -546,13 +557,15 @@ class AuthController
         if (strlen($code) !== 6) {
             $errors['code'] = ['Ingresa el codigo de 6 digitos'];
         }
-        if (strlen($newPassword) < 6) {
-            $errors['new_password'] = ['La nueva contrasena debe tener al menos 6 caracteres'];
+        if (strlen($newPassword) < 8) {
+            $errors['new_password'] = ['La nueva contrasena debe tener al menos 8 caracteres'];
         }
 
         if (!empty($errors)) {
             Response::validationError($errors);
         }
+
+        RateLimiter::enforce('password-reset-confirm', $identifier, 5, 900);
 
         $user = $this->findMobileUserByIdentifier($identifier);
         if (!$user || !User::hasValidPasswordResetCode($user, $code)) {

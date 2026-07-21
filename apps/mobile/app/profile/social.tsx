@@ -38,7 +38,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import InputField from '../../components/ui/InputField';
 import { TableContextBanner } from '../../components/shared/TableContextBanner';
 import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../../constants/stripe';
-import { presentAmarePaymentSheet, stripePaymentLabel } from '../../services/stripe-payment-sheet.service';
+import {
+  assertStripeMinimumPaymentAmount,
+  presentAmarePaymentSheet,
+  showStripeMinimumAmountAlert,
+  stripePaymentLabel,
+} from '../../services/stripe-payment-sheet.service';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
 import {
   confirmSocialGiftPayment,
@@ -151,6 +156,8 @@ type SocialPhotoResponse = {
   foto_url?: string | null;
   social_photos?: string[] | null;
   uploaded_photo_url?: string | null;
+  moderation_id?: number | null;
+  moderation_status?: 'pending' | 'approved' | 'rejected' | null;
 };
 
 type SocialStatusResponse = {
@@ -375,6 +382,7 @@ const EMPTY_FILTERS: SocialFilterState = {
 };
 
 const SOCIAL_PRIVACY_NOTICE_URL = 'https://amarerestaurant.club/aviso-de-privacidad';
+const SOCIAL_COMMUNITY_RULES_URL = 'https://amarerestaurant.club/legal/terminos';
 
 function parseInterestList(value?: string | null): string[] {
   if (!value) return [];
@@ -1757,12 +1765,14 @@ export default function SocialProfileScreen() {
     setApprovedCoverPaying(true);
     let paymentPresented = false;
     try {
+      assertStripeMinimumPaymentAmount(Number(notification.payload?.amount_mxn ?? 0));
       const prepared = await prepareSocialAccountCoverPayment(coverId);
       if (!prepared.client_secret || !prepared.cover?.id) {
         throw new Error('No se recibió el cliente de pago de Stripe.');
       }
       await presentAmarePaymentSheet(stripe, {
         clientSecret: prepared.client_secret,
+        amountMxn: prepared.cover.amount_mxn,
         customerName: user?.nombre,
         customerEmail: user?.email,
       });
@@ -1773,6 +1783,7 @@ export default function SocialProfileScreen() {
       await refreshRealtimeState();
     } catch (error: any) {
       if (error?.name === 'PaymentCanceledError') return;
+      if (showStripeMinimumAmountAlert(error)) return;
       if (paymentPresented) {
         Alert.alert(
           'Pago en proceso',
@@ -2235,16 +2246,24 @@ export default function SocialProfileScreen() {
     setUploading(true);
 
     try {
+      let pendingCount = 0;
       for (const uri of uris) {
         const payload = await uploadSingleSocialPhoto(uri);
         applyPhotoResponse(payload);
+        if (payload.moderation_status === 'pending') {
+          pendingCount += 1;
+        }
       }
 
       Alert.alert(
-        'Listo',
-        uris.length === 1
-          ? 'La foto se agrego a tu perfil social.'
-          : `${uris.length} fotos se agregaron a tu perfil social.`
+        pendingCount > 0 ? (pendingCount === 1 ? 'Foto publicada' : 'Fotos publicadas') : 'Listo',
+        pendingCount > 0
+          ? pendingCount === 1
+            ? 'La foto ya aparece en tu perfil. El equipo de Amare puede revisarla y retirarla si incumple las reglas de la comunidad.'
+            : `${pendingCount} fotos ya aparecen en tu perfil. El equipo de Amare puede revisarlas y retirar las que incumplan las reglas.`
+          : uris.length === 1
+            ? 'La foto se agregó a tu perfil social.'
+            : `${uris.length} fotos se agregaron a tu perfil social.`
       );
     } catch (error) {
       Alert.alert('No se pudo subir la foto', getApiError(error));
@@ -2361,6 +2380,14 @@ export default function SocialProfileScreen() {
         branchId: String(branchForScanner.id),
       },
     });
+  }
+
+  async function openCommunityRules() {
+    try {
+      await Linking.openURL(SOCIAL_COMMUNITY_RULES_URL);
+    } catch {
+      Alert.alert('Reglas de la comunidad', SOCIAL_COMMUNITY_RULES_URL);
+    }
   }
 
   function promptScanTableForSocial() {
@@ -2782,6 +2809,7 @@ export default function SocialProfileScreen() {
     if (!stripeAvailable) {
       throw new Error('Stripe no está configurado en esta app. Agrega EXPO_PUBLIC_STRIPE_KEY para usar pago inmediato.');
     }
+    assertStripeMinimumPaymentAmount(gift.precio);
     const requestKey = getGiftRequestKey();
     if (__DEV__) {
       console.log('[SocialGift][Stripe] Iniciando pago', {
@@ -2828,6 +2856,7 @@ export default function SocialProfileScreen() {
     }
     await presentAmarePaymentSheet(stripe, {
       clientSecret: payload.client_secret,
+      amountMxn: payload.gift.gift_precio,
       customerName: user?.nombre,
       customerEmail: user?.email,
     });
@@ -2912,6 +2941,7 @@ export default function SocialProfileScreen() {
       }
     } catch (error: any) {
       if (error?.name === 'PaymentCanceledError') return;
+      if (showStripeMinimumAmountAlert(error)) return;
       if (error?.name === 'PaymentProcessingError') {
         Alert.alert('Regalo en proceso', error.message);
         await refreshRealtimeState();
@@ -3981,9 +4011,20 @@ export default function SocialProfileScreen() {
                 regalos. Puedes apagar el modo social cuando quieras.
               </Text>
 
+              <Text style={styles.consentText}>
+                No se permite acosar, amenazar, suplantar identidades ni publicar contenido sexual, violento u ofensivo.
+                Las fotos pueden revisarse después de publicarse. El contenido que incumpla las reglas se retirará y la
+                cuenta podrá suspenderse. Los reportes se atienden lo antes posible.
+              </Text>
+
               <TouchableOpacity style={styles.privacyNoticeButton} activeOpacity={0.82} onPress={openPrivacyNotice}>
                 <Ionicons name="document-text-outline" size={18} color={Colors.primary} />
                 <Text style={styles.privacyNoticeText}>Ver aviso de privacidad</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.privacyNoticeButton} activeOpacity={0.82} onPress={openCommunityRules}>
+                <Ionicons name="people-outline" size={18} color={Colors.primary} />
+                <Text style={styles.privacyNoticeText}>Ver reglas de la comunidad</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -3995,7 +4036,7 @@ export default function SocialProfileScreen() {
                   {socialConsentChecked ? <Ionicons name="checkmark" size={18} color={Colors.white} /> : null}
                 </View>
                 <Text style={styles.consentCheckText}>
-                  Acepto compartir mis datos personales para usar el modo social de Amare.
+                  Acepto compartir mis datos y cumplir las reglas de la comunidad para usar el modo social de Amare.
                 </Text>
               </TouchableOpacity>
             </ScrollView>

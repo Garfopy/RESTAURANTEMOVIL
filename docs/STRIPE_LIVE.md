@@ -46,6 +46,9 @@ Ejecuta en orden:
 4. `078_create_stripe_pending_invoices.sql`
 5. `079_create_stripe_refund_audit.sql`
 6. `080_create_stripe_payment_incidents.sql`
+7. `081_create_api_rate_limits.sql`
+8. `082_create_social_photo_moderation.sql`
+9. `083_add_stripe_payment_state_to_orders.sql`
 
 La migracion 076 convierte el saldo anterior a Live en promocional. No reviertas esa clasificacion manualmente.
 
@@ -83,6 +86,7 @@ No se requiere verificar dominio para Apple Pay nativo. La wallet solo aparece e
 2. Usa una build nativa; no funciona en Expo Go.
 3. En Preview se usa `testEnv`; Production fuerza modo real.
 4. Verifica un dispositivo Android con Google Wallet configurado.
+5. Google Wallet debe tener una tarjeta compatible y Servicios de Google Play actualizados; PaymentSheet oculta la opcion si el dispositivo no pasa esa comprobacion.
 
 ## Operacion y reembolsos
 

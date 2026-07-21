@@ -636,11 +636,32 @@ export default function HomeScreen() {
 
     async function bootstrapOrderFlow() {
       const enabledTypes = getEnabledOrderTypes(sucursales);
+      let nextAvailableTypes: TipoPedido[] = enabledTypes.length ? enabledTypes : ['delivery', 'pickup'];
+      let nextDetectedMessage: string | null = null;
+
+      if (enabledTypes.includes('eat_in')) {
+        const permission = await Location.getForegroundPermissionsAsync();
+
+        // El arranque nunca solicita ubicacion por sorpresa. Si el usuario ya la
+        // concedio, usamos esa señal para no ofrecer entrega externa dentro del local.
+        if (permission.granted) {
+          const nearbyBranch = await evaluateNearbyBranch();
+
+          if (nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near') {
+            syncDetectedBranchIfSafe(nearbyBranch.branch);
+            nextAvailableTypes = ['eat_in'];
+            nextDetectedMessage =
+              nearbyBranch.kind === 'inside'
+                ? `Estás en ${nearbyBranch.branch.nombre}. Escanea el QR de tu mesa para continuar.`
+                : `Estás cerca de ${nearbyBranch.branch.nombre}. En el restaurante solo necesitas escanear tu mesa.`;
+          }
+        }
+      }
 
       if (!cancelled) {
-        setAvailableTypes(enabledTypes);
+        setAvailableTypes(nextAvailableTypes);
         setSelectingPickupBranch(false);
-        setDetectedBranchMessage(null);
+        setDetectedBranchMessage(nextDetectedMessage);
         setShowTypeModal(true);
       }
     }
@@ -1393,7 +1414,7 @@ export default function HomeScreen() {
               <View style={styles.infoBox}>
                 <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
                 <Text style={styles.infoText}>
-                  La opción "En mesa" solo está disponible si te encuentras en el restaurante.
+                  La opción En mesa solo está disponible si te encuentras en el restaurante.
                 </Text>
               </View>
             )}

@@ -16,7 +16,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 // Manejar errores
 error_reporting(E_ALL);
-if ($_ENV['APP_DEBUG'] ?? false) {
+if (\Amare\Api\Config\Environment::bool('APP_DEBUG')) {
     ini_set('display_errors', '1');
 } else {
     ini_set('display_errors', '0');

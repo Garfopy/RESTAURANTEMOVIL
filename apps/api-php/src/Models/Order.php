@@ -1009,6 +1009,12 @@ class Order
         }
 
         $fields = ["`{$column}` = :payment_intent_id"];
+        if (self::columnExists('rest_pedidos', 'stripe_payment_status')) {
+            $fields[] = "stripe_payment_status = 'pending'";
+        }
+        if (self::columnExists('rest_pedidos', 'stripe_payment_error')) {
+            $fields[] = 'stripe_payment_error = NULL';
+        }
         if (self::columnExists('rest_pedidos', 'updated_at')) {
             $fields[] = 'updated_at = NOW()';
         }

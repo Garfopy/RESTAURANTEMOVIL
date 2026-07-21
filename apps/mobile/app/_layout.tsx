@@ -41,6 +41,7 @@ import {
   subscribeNotificationResponses,
   subscribePushTokenRefresh,
 } from '../services/push-notifications.service';
+import { ensureLocationPermission, ensureNotificationPermission } from '../services/app-permissions.service';
 import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
 
 void SplashScreen.preventAutoHideAsync().catch((error) => {
@@ -63,6 +64,7 @@ const STARTUP_SESSION_TIMEOUT_MS = 8_000;
 const STARTUP_FONT_TIMEOUT_MS = 4_000;
 const STARTUP_WATCHDOG_MS = 12_000;
 const PUSH_SESSION_STABILIZATION_MS = 5_000;
+const INITIAL_PERMISSION_DELAY_MS = 600;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -274,7 +276,7 @@ function PushNotificationRuntime() {
       void registerPushNotifications({
         reason,
         userId,
-        requestPermissions: reason === 'authenticated-user-changed',
+        requestPermissions: false,
       })
         .then((token) => {
           if (!token) {
@@ -409,6 +411,49 @@ function AuthenticatedDataWarmupRuntime() {
 
     return () => clearTimeout(timer);
   }, [userId]);
+
+  return null;
+}
+
+function InitialPermissionsRuntime() {
+  const isAuthenticated = useUserStore((state) => state.isAuthenticated);
+  const userId = useUserStore((state) => state.user?.id ?? null);
+  const requestedForUserRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !userId) {
+      requestedForUserRef.current = null;
+      return;
+    }
+    if (requestedForUserRef.current === userId) return;
+
+    requestedForUserRef.current = userId;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        await ensureLocationPermission();
+        if (cancelled) return;
+
+        const notificationPermission = await ensureNotificationPermission();
+        if (cancelled || !notificationPermission.granted) return;
+
+        await registerPushNotifications({
+          reason: 'initial-authenticated-access',
+          userId,
+          requestPermissions: false,
+        });
+      })().catch((error) => {
+        if (__DEV__) {
+          console.warn('[Permissions] No se pudieron solicitar los permisos iniciales:', error);
+        }
+      });
+    }, INITIAL_PERMISSION_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isAuthenticated, userId]);
 
   return null;
 }
@@ -558,6 +603,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <ToastProvider>
               <BranchConfigRuntime />
+              {optionalRuntimesReady ? <InitialPermissionsRuntime /> : null}
               {optionalRuntimesReady ? <PushNotificationRuntime /> : null}
               <AccountStatusRuntime />
               <AuthenticatedDataWarmupRuntime />

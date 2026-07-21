@@ -12,7 +12,7 @@
     "build:android:apk": "eas build --platform android --profile preview-apk",
     "build:android:apk:live": "eas build --platform android --profile production-apk",
     "build:android:aab": "eas build --platform android --profile production",
-    "lint": "eslint app --ext .tsx,.ts"
+    "lint": "eslint app components constants context hooks services store theme types utils"
   },
   "dependencies": {
     "@amare/types": "workspace:*",
@@ -28,7 +28,7 @@
     "@react-native-google-signin/google-signin": "^13.1.0",
     "@stripe/stripe-react-native": "0.50.3",
     "@tanstack/react-query": "^5.62.2",
-    "axios": "^1.7.9",
+    "axios": "^1.18.0",
     "expo": "~54.0.36",
     "expo-apple-authentication": "~8.0.8",
     "expo-application": "~7.0.8",
@@ -72,6 +72,8 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.17",
+    "eslint": "^9.39.1",
+    "eslint-config-expo": "^10.0.0",
     "typescript": "^5.6.0"
   }
 }

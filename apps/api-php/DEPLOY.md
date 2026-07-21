@@ -1,225 +1,95 @@
-# Guía de Despliegue en cPanel
+# Despliegue de la API PHP de Amare
 
-## Paso 1: Preparación Local
+## Rutas de produccion
 
-### 1.1 Instalar dependencias
+- Directorio fisico en el servidor: `api-php`.
+- URL publica usada por la app: `https://amarerestaurant.club/api_restaurante`.
+- No cambies la URL publica a `/api-php`; el alias o rewrite del servidor conserva `/api_restaurante`.
+
+## Preparacion
+
 ```bash
 cd apps/api-php
 composer install --no-dev --optimize-autoloader
 ```
 
-### 1.2 Configurar .env
-Edita el archivo `.env` con los datos de tu hosting:
+El `.env` de produccion debe permanecer fuera de Git:
 
-```env
-# Base de datos (usa los datos de cPanel)
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=usuario_cpanel_basedatos
-DB_PASS=contraseña_cpanel
-DB_NAME=usuario_cpanel_nombre_basedatos
-
-# API
+```dotenv
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://tudominio.com/api
-
-# JWT (genera una clave segura)
-JWT_SECRET=tu_clave_secreta_muy_larga_y_segura_cambiala_en_produccion
+APP_URL=https://amarerestaurant.club/api_restaurante
+CORS_ORIGIN=https://amarerestaurant.club
+JWT_SECRET=GENERAR_UN_VALOR_ALEATORIO_DE_64_CARACTERES_O_MAS
 JWT_EXPIRY=720
-
-# Google OAuth (si usas login con Google)
-GOOGLE_CLIENT_ID=tu_client_id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=tu_client_secret
-
-# Stripe
-STRIPE_SECRET_KEY=sk_live_... (usa tu clave real de Stripe)
-STRIPE_WEBHOOK_SECRET=whsec_... (configura tu webhook secret)
-
-# CORS
-CORS_ORIGIN=https://tudominio.com
-
-# Uploads
-UPLOAD_MAX_SIZE=10485760
-UPLOAD_DIR=uploads
+APPLE_CLIENT_ID=com.amare.app
+STRIPE_LIVE_MODE=true
+STRIPE_SECRET_KEY=sk_live_REEMPLAZAR
+STRIPE_WEBHOOK_SECRET=whsec_REEMPLAZAR
 ```
 
-## Paso 2: Subir Archivos a cPanel
+`JWT_SECRET` es obligatorio y debe tener al menos 48 caracteres. La API se negara a autenticar si falta. No uses `CORS_ORIGIN=*` en produccion.
 
-### Opción A: Usando File Manager
-1. Inicia sesión en cPanel
-2. Ve a **File Manager**
-3. Navega a `public_html` (o al directorio de tu dominio)
-4. Crea una carpeta llamada `api`
-5. Sube todos los archivos de `apps/api-php/` a esta carpeta
-6. **Importante:** Sube también la carpeta `vendor/` completa
+## Archivos
 
-### Opción B: Usando FTP
-1. Conéctate via FTP (FileZilla, Cyberduck, etc.)
-2. Navega a `/public_html/api/`
-3. Sube todos los archivos
+1. Sube el contenido de `apps/api-php/` al directorio fisico `api-php` del hosting.
+2. Incluye `vendor/`, `.htaccess`, `routes/`, `src/`, las paginas legales y las migraciones.
+3. Conserva el `.env` real del servidor; no lo reemplaces con `.env.example`.
+4. Da permisos de escritura solo a `uploads/`. Archivos `644`, directorios `755`.
+5. Nunca subas archivos `.key`, keystores, certificados privados ni credenciales JSON dentro del sitio publico.
 
-## Paso 3: Configurar Base de Datos en cPanel
+## Migraciones
 
-1. En cPanel, ve a **MySQL® Databases**
-2. Crea una nueva base de datos (ej: `usuario_amare`)
-3. Crea un usuario de base de datos (ej: `usuario_api`)
-4. Asigna el usuario a la base de datos con **TODOS** los privilegios
-5. Anota:
-   - Nombre de la base de datos (usualmente `usuario_amare`)
-   - Usuario (usualmente `usuario_api`)
-   - Contraseña
+Ejecuta todas las migraciones pendientes en orden. Para esta entrega son obligatorias:
 
-## Paso 4: Verificar Configuración
+1. `075_create_stripe_webhook_events.sql`
+2. `076_split_amare_wallet_balances.sql`
+3. `077_track_stripe_refunds.sql`
+4. `078_create_stripe_pending_invoices.sql`
+5. `079_create_stripe_refund_audit.sql`
+6. `080_create_stripe_payment_incidents.sql`
+7. `081_create_api_rate_limits.sql`
+8. `082_create_social_photo_moderation.sql`
+9. `083_add_stripe_payment_state_to_orders.sql`
 
-### 4.1 Verificar PHP
-En cPanel, ve a **Select PHP Version** o **Setup Node.js App**:
-- Asegúrate de que PHP 8.2 esté seleccionado
-- Verifica que estas extensiones estén activas:
-  - ✅ pdo_mysql
-  - ✅ json
-  - ✅ openssl
-  - ✅ mbstring
-  - ✅ curl
-  - ✅ zip (necesaria para Composer)
+Verifica que las tablas y columnas existan antes de publicar la nueva build. La migracion `082` usa `INT UNSIGNED` para coincidir con `mobile_usuarios.id`; la `083` conserva fallos, cancelaciones, reembolsos y disputas de Stripe en cada pedido.
 
-### 4.2 Verificar .htaccess
-El archivo `.htaccess` debe estar en la raíz de `api/`. Si no funciona:
-1. En cPanel File Manager, asegúrate de ver archivos ocultos
-2. Verifica que el archivo exista
-3. Permisos: 644
-
-## Paso 5: Probar la API
-
-### 5.1 Health Check
-Abre en tu navegador:
-```
-https://tudominio.com/api/health
-```
-
-Deberías ver:
-```json
-{
-  "success": true,
-  "message": "API funcionando",
-  "version": "1.0.0"
-}
-```
-
-### 5.2 Probar endpoints básicos
-
-**Listar sucursales:**
-```bash
-curl https://tudominio.com/api/branches
-```
-
-**Listar categorías:**
-```bash
-curl https://tudominio.com/api/menu/categories
-```
-
-## Paso 6: Configurar Aplicación Móvil
-
-Actualiza la URL de la API en `apps/mobile/services/api.ts`:
-
-```typescript
-const API_URL = 'https://tudominio.com/api';
-```
-
-## Paso 7: Configurar Stripe Webhook
-
-1. Ve al Dashboard de Stripe
-2. Developers → Webhooks
-3. Add endpoint: `https://tudominio.com/api/payments/webhook`
-4. Selecciona eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`
-5. Copia el **Signing secret** y actualiza tu `.env`:
-   ```env
-   STRIPE_WEBHOOK_SECRET=whsec_...
-   ```
-
-## Paso 8: Configurar Google OAuth
-
-1. Ve a Google Cloud Console
-2. Credentials → OAuth 2.0 Client IDs
-3. Agrega tu dominio en **Authorized domains**: `tudominio.com`
-4. Actualiza `.env`:
-   ```env
-   GOOGLE_CLIENT_ID=tu_client_id.apps.googleusercontent.com
-   GOOGLE_CLIENT_SECRET=tu_client_secret
-   ```
-
-## Solución de Problemas Comunes
-
-### Error 500 - Internal Server Error
-**Causa:** Extensiones PHP faltantes o error en el código
-
-**Solución:**
-1. Revisa los logs de error en cPanel (Error Log o logs/ directory)
-2. Verifica que todas las extensiones PHP estén activas
-3. Asegúrate de que el archivo `.env` esté configurado correctamente
-
-### Error 404 - Not Found
-**Causa:** .htaccess no está funcionando
-
-**Solución:**
-1. Verifica que `AllowOverride All` esté activado en tu hosting
-2. Asegúrate de que `mod_rewrite` esté habilitado
-3. Comprueba que el archivo `.htaccess` exista y tenga permisos 644
-
-### Error de conexión a base de datos
-**Causa:** Credenciales incorrectas
-
-**Solución:**
-1. Verifica que los datos en `.env` coincidan con los de cPanel
-2. Asegúrate de que el usuario tenga todos los privilegios
-3. El host usualmente es `localhost` en cPanel
-
-### Error "JWT_SECRET not set"
-**Causa:** Variable de entorno faltante
-
-**Solución:**
-1. Asegúrate de que el archivo `.env` esté en la raíz de `api/`
-2. Verifica que `JWT_SECRET` esté configurada
-3. Los permisos del archivo `.env` deben ser 644
-
-### Errores de Composer
-**Causa:** Dependencias no instaladas
-
-**Solución:**
-1. Si no tienes SSH, instala localmente y sube `vendor/`
-2. Asegúrate de subir TODA la carpeta `vendor/`
-3. Verifica que `composer.json` esté en la raíz
-
-## Permisos Recomendados
+## Verificacion
 
 ```bash
-# Carpetas: 755
-chmod 755 .
-chmod 755 config
-chmod 755 src
-chmod 755 routes
-chmod 755 uploads
-
-# Archivos: 644
-chmod 644 .htaccess
-chmod 644 .env
-chmod 644 index.php
-chmod 644 composer.json
+curl -i https://amarerestaurant.club/api_restaurante/branches
 ```
 
-## Verificación Final
+Debe responder HTTP `200` y JSON. No existe un endpoint `/health` en esta API.
 
-✅ La API responde en `https://tudominio.com/api/health`  
-✅ Los endpoints básicos funcionan (branches, menu)  
-✅ La autenticación JWT funciona  
-✅ Stripe está configurado correctamente  
-✅ Google OAuth está configurado (si se usa)  
-✅ La aplicación móvil se conecta a la nueva URL  
-✅ Los uploads tienen permisos de escritura  
+Comprueba ademas:
 
-## Soporte
+- Login por correo, Google y Apple.
+- Cuenta suspendida y eliminacion de cuenta.
+- Subida de foto social: debe quedar `pending` en `social_photo_moderation`.
+- Lista administrativa: `GET /admin/social/photos?status=pending`.
+- Decision administrativa: `POST /admin/social/photos/{id}/decision` con `decision=approved` o `rejected`.
+- Limites de intentos: una rafaga debe terminar en HTTP `429`.
 
-Si encuentras problemas:
-1. Revisa los logs de error de cPanel
-2. Verifica la configuración paso a paso
-3. Contacta a tu proveedor de hosting si hay problemas de configuración del servidor
+## Stripe
+
+Webhook Live:
+
+```text
+https://amarerestaurant.club/api_restaurante/payments/webhook
+```
+
+Eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded` y `charge.dispute.created`.
+
+Confirma entregas HTTP `200`, realiza un cobro Live pequeno y un reembolso. Repetir un evento no debe duplicar pedidos, puntos ni saldo.
+
+## Paginas web
+
+Las paginas de soporte, privacidad, terminos y eliminacion pertenecen a la raiz web publica, no al directorio visible de la API:
+
+- `/soporte/`
+- `/aviso-de-privacidad/`
+- `/legal/terminos/`
+- `/eliminar-cuenta/`
+
+Sube `ragatha/public/soporte/index.html` a la carpeta publica `/soporte/` para conservar el logo y la informacion de moderacion actualizados.

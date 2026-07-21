@@ -84,6 +84,13 @@ class RewardsController
         if (!preg_match('/^[A-Za-z0-9_-]{12,100}$/', $requestKey)) {
             Response::validationError(['request_key' => ['La referencia de recarga no es valida']]);
         }
+        if (StripeConfig::isBelowMinimumPaymentMxn($amount)) {
+            Response::error(
+                'La recarga con tarjeta debe ser de al menos $10.00 MXN.',
+                422,
+                'PAYMENT_AMOUNT_BELOW_MINIMUM'
+            );
+        }
 
         try {
             Stripe::setApiKey($this->getStripeSecret());

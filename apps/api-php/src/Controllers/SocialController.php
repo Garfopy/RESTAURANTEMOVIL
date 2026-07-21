@@ -8,6 +8,7 @@ use Amare\Api\Config\Database;
 use Amare\Api\Helpers\ImageUploadHelper;
 use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
+use Amare\Api\Middleware\RateLimiter;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\User;
 use Amare\Api\Services\FirebaseMessagingService;
@@ -15,6 +16,7 @@ use Amare\Api\Services\RewardsService;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
 use Amare\Api\Services\StripeConfig;
+use Amare\Api\Services\ContentModerationService;
 
 class SocialController
 {
@@ -29,6 +31,9 @@ class SocialController
         'spam',
         'other',
     ];
+    private const SOCIAL_GENDERS = ['Hombre', 'Mujer', 'No binario', 'Otro', 'Prefiero no decirlo'];
+    private const SOCIAL_SEXUALITIES = ['Heterosexual', 'Homosexual', 'Bisexual', 'Pansexual', 'Asexual', 'Prefiero no decirlo'];
+    private const SOCIAL_LOOKING_FOR = ['Amigos', 'Relación seria', 'Nada serio', 'Conocer gente', 'Salir y platicar'];
 
     public function updateStatus(): void
     {
@@ -69,6 +74,17 @@ class SocialController
             $currentProfile = $this->fetchSocialProfile($user->id);
             if (!$currentProfile || !$this->hasSocialProfile($currentProfile)) {
                 Response::error('Debes completar tu perfil social antes de activar el modo social.', 400);
+            }
+
+            $profileAge = (int)($currentProfile['edad'] ?? 0);
+            if ($profileAge < 18 || $profileAge > 120) {
+                Response::error('Debes corregir la edad de tu perfil antes de activar el modo social.', 400);
+            }
+
+            foreach (['nombre', 'descripcion', 'intereses', 'redes_sociales'] as $moderatedField) {
+                if (ContentModerationService::violation((string)($currentProfile[$moderatedField] ?? '')) !== null) {
+                    Response::error('Tu perfil contiene texto que incumple las reglas de la comunidad.', 400);
+                }
             }
 
             if (!$this->hasCurrentSocialConsent($currentProfile)) {
@@ -350,6 +366,7 @@ class SocialController
         $reportedUserId = isset($input['reported_user_id']) ? (int)$input['reported_user_id'] : 0;
         $reason = $this->sanitizeNullableString($input['reason'] ?? null);
         $details = $this->sanitizeNullableString($input['details'] ?? null);
+        RateLimiter::enforce('social-report', (string)$user->id, 10, 3600);
 
         if ($reportedUserId <= 0 || $reportedUserId === (int)$user->id) {
             Response::validationError(['reported_user_id' => ['Selecciona un perfil valido para reportar']]);
@@ -368,6 +385,22 @@ class SocialController
         }
         if (!$this->fetchSocialProfile($reportedUserId)) {
             Response::notFound('Perfil social no encontrado');
+        }
+
+        $duplicateReport = Database::queryOne(
+            "SELECT id FROM social_reports
+              WHERE reporter_user_id = :reporter_user_id
+                AND reported_user_id = :reported_user_id
+                AND status IN ('open', 'reviewed')
+                AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+              LIMIT 1",
+            [
+                ':reporter_user_id' => (int)$user->id,
+                ':reported_user_id' => $reportedUserId,
+            ]
+        );
+        if ($duplicateReport) {
+            Response::success(['reported' => true, 'duplicate' => true], 'Este reporte ya fue recibido');
         }
 
         Database::rowCount(
@@ -781,32 +814,52 @@ class SocialController
         $updateData = [];
 
         if (array_key_exists('nombre', $input)) {
-            $nombre = $this->sanitizeNullableString($input['nombre']);
+            $nombre = $this->validatedSocialText($input['nombre'], 'nombre', 100);
             if ($nombre === null) {
                 Response::validationError(['nombre' => ['El nombre es obligatorio']]);
             }
-            $updateData['nombre'] = substr($nombre, 0, 100);
+            $nameLength = function_exists('mb_strlen') ? mb_strlen($nombre, 'UTF-8') : strlen($nombre);
+            if ($nameLength < 2) {
+                Response::validationError(['nombre' => ['El nombre debe tener al menos 2 caracteres']]);
+            }
+            $updateData['nombre'] = $nombre;
         }
         if (array_key_exists('edad', $input)) {
-            $updateData['edad'] = $input['edad'] !== null && $input['edad'] !== '' ? (int)$input['edad'] : null;
+            $age = $input['edad'] !== null && $input['edad'] !== '' ? (int)$input['edad'] : null;
+            if ($age !== null && ($age < 18 || $age > 120)) {
+                Response::validationError(['edad' => ['La edad debe estar entre 18 y 120 años']]);
+            }
+            $updateData['edad'] = $age;
         }
         if (array_key_exists('sexualidad', $input)) {
-            $updateData['sexualidad'] = $this->sanitizeNullableString($input['sexualidad']);
+            $sexuality = $this->validatedSocialText($input['sexualidad'], 'sexualidad', 60, false);
+            if ($sexuality !== null && !in_array($sexuality, self::SOCIAL_SEXUALITIES, true)) {
+                Response::validationError(['sexualidad' => ['Selecciona una opción válida']]);
+            }
+            $updateData['sexualidad'] = $sexuality;
         }
         if (array_key_exists('genero', $input)) {
-            $updateData['genero'] = $this->sanitizeNullableString($input['genero']);
+            $gender = $this->validatedSocialText($input['genero'], 'genero', 60, false);
+            if ($gender !== null && !in_array($gender, self::SOCIAL_GENDERS, true)) {
+                Response::validationError(['genero' => ['Selecciona una opción válida']]);
+            }
+            $updateData['genero'] = $gender;
         }
         if (array_key_exists('descripcion', $input)) {
-            $updateData['descripcion'] = $this->sanitizeNullableString($input['descripcion']);
+            $updateData['descripcion'] = $this->validatedSocialText($input['descripcion'], 'descripcion', 500);
         }
         if (array_key_exists('intereses', $input)) {
-            $updateData['intereses'] = $this->sanitizeNullableString($input['intereses']);
+            $updateData['intereses'] = $this->validatedSocialText($input['intereses'], 'intereses', 1000);
         }
         if (array_key_exists('que_busca', $input)) {
-            $updateData['que_busca'] = $this->sanitizeNullableString($input['que_busca']);
+            $lookingFor = $this->validatedSocialText($input['que_busca'], 'que_busca', 80, false);
+            if ($lookingFor !== null && !in_array($lookingFor, self::SOCIAL_LOOKING_FOR, true)) {
+                Response::validationError(['que_busca' => ['Selecciona una opción válida']]);
+            }
+            $updateData['que_busca'] = $lookingFor;
         }
         if (array_key_exists('redes_sociales', $input)) {
-            $updateData['redes_sociales'] = $this->sanitizeNullableString($input['redes_sociales']);
+            $updateData['redes_sociales'] = $this->validatedSocialText($input['redes_sociales'], 'redes_sociales', 500);
         }
 
         if (!$this->updateUserAllowingNulls($user->id, $updateData)) {
@@ -878,6 +931,7 @@ class SocialController
     public function uploadPhoto(): void
     {
         $user = AuthMiddleware::authenticate();
+        RateLimiter::enforce('social-photo-upload', (string)$user->id, 20, 3600);
 
         $file = null;
         if (isset($_FILES['photo'])) {
@@ -903,6 +957,10 @@ class SocialController
         }
         if (!$this->hasSocialPhotosColumn()) {
             Response::serverError('La base de datos aún no tiene social_photos_json. Ejecuta la migración 023.');
+        }
+
+        if (!$this->tableExists('social_photo_moderation')) {
+            Response::serverError('La moderacion de fotos no esta disponible. Ejecuta la migracion 082.');
         }
 
         $profile = $this->fetchSocialProfile($user->id);
@@ -935,20 +993,45 @@ class SocialController
         $fotoUrl = $baseUrl . '/uploads/social/' . $filename;
         $photos = $this->uniquePhotoList(array_merge($currentPhotos, [$fotoUrl]));
         $primaryPhoto = $photos[0] ?? $fotoUrl;
+        $pdo = Database::getInstance();
+        $moderationId = 0;
+        try {
+            $pdo->beginTransaction();
+            $insertModeration = $pdo->prepare(
+                "INSERT INTO social_photo_moderation (user_id, photo_url, status, created_at)
+                 VALUES (:user_id, :photo_url, 'pending', NOW())"
+            );
+            $insertModeration->execute([':user_id' => (int)$user->id, ':photo_url' => $fotoUrl]);
+            $moderationId = (int)$pdo->lastInsertId();
+            if ($moderationId <= 0) {
+                throw new \RuntimeException('No se pudo registrar la foto en la cola de moderacion.');
+            }
 
-        if (!$this->updateUserAllowingNulls($user->id, [
-            'foto_url' => $primaryPhoto,
-            'social_photos_json' => json_encode($photos, JSON_UNESCAPED_SLASHES),
-        ])) {
+            $publishPhoto = $pdo->prepare(
+                'UPDATE mobile_usuarios
+                    SET foto_url = :foto_url, social_photos_json = :photos, updated_at = NOW()
+                  WHERE id = :id'
+            );
+            $publishPhoto->execute([
+                ':foto_url' => $primaryPhoto,
+                ':photos' => json_encode($photos, JSON_UNESCAPED_SLASHES),
+                ':id' => (int)$user->id,
+            ]);
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             ImageUploadHelper::deleteLocalUploadFromUrl($fotoUrl, __DIR__ . '/../../uploads/', 'social-' . $user->id . '-');
-            Response::serverError('No se pudo actualizar la foto del perfil social');
+            error_log('SocialController::uploadPhoto MODERATION ERROR: ' . $exception->getMessage());
+            Response::serverError('No se pudo enviar la foto a moderacion');
         }
 
         Response::success([
             'foto_url' => $primaryPhoto,
             'social_photos' => $photos,
             'uploaded_photo_url' => $fotoUrl,
-        ]);
+            'moderation_id' => $moderationId,
+            'moderation_status' => 'pending',
+        ], 'Foto publicada y enviada a revision');
     }
 
     public function deletePhoto(): void
@@ -986,6 +1069,15 @@ class SocialController
             'social_photos_json' => !empty($photos) ? json_encode($photos, JSON_UNESCAPED_SLASHES) : null,
         ])) {
             Response::serverError('No se pudo eliminar la foto del perfil social');
+        }
+
+        if ($this->tableExists('social_photo_moderation')) {
+            Database::rowCount(
+                "UPDATE social_photo_moderation
+                    SET status = 'rejected', review_notes = 'deleted_by_user', reviewed_at = NOW()
+                  WHERE user_id = :user_id AND photo_url = :photo_url AND status = 'pending'",
+                [':user_id' => (int)$user->id, ':photo_url' => $photoUrl]
+            );
         }
 
         ImageUploadHelper::deleteLocalUploadFromUrl(
@@ -1493,6 +1585,13 @@ class SocialController
         if ((string)$cover['payment_mode'] !== 'stripe') Response::error('Esta cobertura no requiere Stripe.', 409);
         if ((string)$cover['status'] !== 'approved' && (string)$cover['status'] !== 'pending_payment') {
             Response::error('El comensal debe aceptar la solicitud antes de pagar.', 409);
+        }
+        if (StripeConfig::isBelowMinimumPaymentMxn((float)$cover['amount_mxn'])) {
+            Response::error(
+                'El pago con tarjeta debe ser de al menos $10.00 MXN.',
+                422,
+                'PAYMENT_AMOUNT_BELOW_MINIMUM'
+            );
         }
 
         try {
@@ -2406,6 +2505,13 @@ class SocialController
         $giftProduct = $this->findGiftProduct($giftProductId, $restaurantId, $giftType);
         if ($giftProduct === null) Response::notFound('Regalo no encontrado');
         $amountCents = (int)round((float)($giftProduct['precio'] ?? 0) * 100);
+        if ($amountCents > 0 && $amountCents < StripeConfig::MINIMUM_PAYMENT_MXN_CENTS) {
+            Response::error(
+                'El pago del regalo con tarjeta debe ser de al menos $10.00 MXN.',
+                422,
+                'PAYMENT_AMOUNT_BELOW_MINIMUM'
+            );
+        }
         if ($amountCents <= 0) Response::error('Este regalo no tiene un precio válido.', 409);
 
         $gift = Database::queryOne(
@@ -5223,6 +5329,25 @@ class SocialController
 
         $trimmed = trim((string)$value);
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function validatedSocialText(mixed $value, string $field, int $maxLength, bool $moderate = true): ?string
+    {
+        $text = $this->sanitizeNullableString($value);
+        if ($text === null) {
+            return null;
+        }
+
+        $length = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+        if ($length > $maxLength) {
+            Response::validationError([$field => ["El campo no puede superar {$maxLength} caracteres"]]);
+        }
+
+        if ($moderate && ContentModerationService::violation($text) !== null) {
+            Response::validationError([$field => ['El contenido incumple las reglas de la comunidad']]);
+        }
+
+        return $text;
     }
 
     private function updateUserAllowingNulls(int $userId, array $data): bool
