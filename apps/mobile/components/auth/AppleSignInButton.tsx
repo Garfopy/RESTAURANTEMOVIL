@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { loginWithApple } from '../../services/auth.service';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { getApiError } from '../../services/api';
@@ -37,8 +38,7 @@ export function AppleSignInButton() {
   }, []);
 
   const AppleModule = appleAuthentication;
-  const AppleButton = AppleModule?.AppleAuthenticationButton;
-  if (!available || !AppleModule || !AppleButton) return null;
+  if (!available || !AppleModule) return null;
 
   async function handleAppleSignIn(module: AppleAuthenticationModule) {
     if (busy) return;
@@ -83,20 +83,55 @@ export function AppleSignInButton() {
   }
 
   return (
-    <View style={[styles.wrapper, busy && styles.disabled]} pointerEvents={busy ? 'none' : 'auto'}>
-      <AppleButton
-        buttonType={AppleModule.AppleAuthenticationButtonType.SIGN_IN}
-        buttonStyle={AppleModule.AppleAuthenticationButtonStyle.BLACK}
-        cornerRadius={18}
-        style={styles.button}
+    <View style={styles.wrapper}>
+      <TouchableOpacity
+        style={[styles.button, busy && styles.disabled]}
+        activeOpacity={0.9}
+        disabled={busy}
         onPress={() => void handleAppleSignIn(AppleModule)}
-      />
+        accessibilityRole="button"
+        accessibilityLabel="Continuar con Apple"
+      >
+        <View style={styles.icon}>
+          <Ionicons name="logo-apple" size={21} color="#FFFFFF" />
+        </View>
+        <Text style={styles.label}>Continuar con Apple</Text>
+        {busy ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { width: '100%', height: 58, marginBottom: 9 },
-  button: { width: '100%', height: 58 },
+  wrapper: { width: '100%', marginBottom: 9 },
+  button: {
+    width: '100%',
+    minHeight: 58,
+    borderRadius: 18,
+    backgroundColor: '#000000',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  icon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  label: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    letterSpacing: 0,
+  },
   disabled: { opacity: 0.6 },
 });
