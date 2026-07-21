@@ -352,6 +352,32 @@ export default function ProfileScreen() {
             />
           </View>
 
+          <Text style={styles.sectionTitle}>Notificaciones</Text>
+          <View style={styles.section}>
+            <View style={styles.preferenceRow}>
+              <View style={[styles.iconBg, { backgroundColor: '#F59E0B12' }]}>
+                <Ionicons name="notifications" size={20} color="#F59E0B" />
+              </View>
+              <View style={styles.preferenceContent}>
+                <Text style={styles.menuLabel}>Promociones y beneficios</Text>
+                <Text style={styles.preferenceHint}>
+                  Recibe avisos de promociones disponibles para tu cuenta.
+                </Text>
+              </View>
+              {savingMarketing ? (
+                <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
+              ) : (
+                <Switch
+                  accessibilityLabel="Recibir promociones y beneficios"
+                  value={Boolean(user?.marketing_opt_in)}
+                  onValueChange={(enabled) => void handleMarketingPreference(enabled)}
+                  trackColor={{ false: '#D1D5DB', true: '#F6C453' }}
+                  thumbColor="#FFFFFF"
+                />
+              )}
+            </View>
+          </View>
+
           <Text style={styles.sectionTitle}>Ayuda y Soporte</Text>
           <View style={styles.section}>
             <MenuItem
@@ -608,6 +634,23 @@ const styles = StyleSheet.create({
     color: Colors.text || '#111827',
     fontWeight: '600',
     letterSpacing: -0.2,
+  },
+  preferenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  preferenceContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  preferenceHint: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   logoutBtn: {
     flexDirection: 'row',

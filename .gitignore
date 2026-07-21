@@ -21,6 +21,9 @@ yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
 
+# Deployment artifacts (may contain environment secrets)
+apps/api-php/*.zip
+
 # Sistema
 .DS_Store
 Thumbs.db

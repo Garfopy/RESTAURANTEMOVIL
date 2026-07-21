@@ -994,6 +994,37 @@ class Order
         return $success;
     }
 
+    public static function attachPaymentIntent(int $orderId, int $userId, string $paymentIntentId): bool
+    {
+        $order = self::findById($orderId, $userId);
+        if (!$order || $paymentIntentId === '' || !empty($order['pagado_at']) || !empty($order['cerrado_at'])) {
+            return false;
+        }
+
+        $column = self::columnExists('rest_pedidos', 'payment_intent_id')
+            ? 'payment_intent_id'
+            : (self::columnExists('rest_pedidos', 'stripe_payment_intent_id') ? 'stripe_payment_intent_id' : null);
+        if ($column === null) {
+            return false;
+        }
+
+        $fields = ["`{$column}` = :payment_intent_id"];
+        if (self::columnExists('rest_pedidos', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
+
+        $statement = Database::getInstance()->prepare(
+            'UPDATE rest_pedidos SET ' . implode(', ', $fields) .
+            ' WHERE id = :id AND mobile_usuario_id = :user_id'
+        );
+
+        return $statement->execute([
+            ':payment_intent_id' => $paymentIntentId,
+            ':id' => $orderId,
+            ':user_id' => $userId,
+        ]);
+    }
+
     public static function applyRewardsPayment(int $orderId, array $reward): bool
     {
         $pdo = Database::getInstance();

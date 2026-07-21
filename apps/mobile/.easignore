@@ -1,6 +1,11 @@
 node_modules/
 .expo/
 .pnpm-store/
+android/.gradle/
+android/build/
+android/app/build/
+android/.cxx/
+android/local.properties
 dist/
 build/
 coverage/

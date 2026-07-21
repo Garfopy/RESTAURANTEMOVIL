@@ -18,7 +18,7 @@ import { apiClient, getApiError } from '../../services/api';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
-import { createOrder, createPaymentIntent } from '../../services/orders.service';
+import { createOrder } from '../../services/orders.service';
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing } from '../../theme';
@@ -449,23 +449,9 @@ export default function OrderTypeScreen() {
         finalAddressId = (await promptToSaveAddress()) ?? undefined;
       }
 
-      const { client_secret, id: intentId } = await createPaymentIntent({
-        amount: orderTotal,
-        currency: 'mxn',
-        restaurante_id: Number(resolvedRestaurantId),
-        items: items.map((item) => ({
-          product_id: item.platillo.id,
-          quantity: item.cantidad,
-          origen: 'menu',
-          modificadores: item.modificadores_seleccionados,
-        })),
-      });
-
       router.push({
         pathname: '/checkout/payment',
         params: {
-          clientSecret: client_secret,
-          intentId,
           restauranteId: String(resolvedRestaurantId),
           tipoPedido,
           direccionId: finalAddressId ? String(finalAddressId) : '',

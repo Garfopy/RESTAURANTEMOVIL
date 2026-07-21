@@ -40,7 +40,9 @@ import {
   subscribePushTokenRefresh,
 } from '../services/push-notifications.service';
 
-void SplashScreen.preventAutoHideAsync().catch(() => undefined);
+void SplashScreen.preventAutoHideAsync().catch((error) => {
+  console.warn('[Startup] No se pudo mantener visible el splash:', error);
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,7 +85,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const inAuth = firstSegment === '(auth)';
   const inPublicLegal = firstSegment === 'legal';
   const inAccountSuspended = firstSegment === 'account-suspended';
-  const inCompleteProfile = inAuth && segments[1] === 'complete-profile';
+  const inCompleteProfile = inAuth && (segments as string[])[1] === 'complete-profile';
   const inWaiter = firstSegment === '(waiter)';
   const inHostess = firstSegment === '(hostess)';
   const isWaiter = user?.rol === 'mesero';
@@ -264,7 +266,11 @@ function PushNotificationRuntime() {
 
     const syncToken = (reason: string, retryOnce = false) => {
       registeredForUserRef.current = userId;
-      void registerPushNotifications({ reason, userId })
+      void registerPushNotifications({
+        reason,
+        userId,
+        requestPermissions: reason === 'authenticated-user-changed',
+      })
         .then((token) => {
           if (!token) {
             registeredForUserRef.current = null;
@@ -437,13 +443,19 @@ export default function RootLayout() {
     let cancelled = false;
 
     async function init() {
-      await Promise.allSettled([
+      const startupResults = await Promise.allSettled([
         hydrateTheme(),
         hydrateFromStorage(),
         hydrateBranchSelection(),
         hydrateCart(),
         hydrateTableSession(),
       ]);
+
+      startupResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`[Startup] Fallo la tarea de inicializacion ${index + 1}:`, result.reason);
+        }
+      });
 
       // Si se restauró un token, validarlo con el servidor
       const { isAuthenticated, token } = useUserStore.getState();
@@ -475,7 +487,14 @@ export default function RootLayout() {
         setAppReady(true);
       }
     }
-    void init();
+    void init()
+      .catch((error) => {
+        console.error('[Startup] La inicializacion de la app fallo:', error);
+        useUserStore.setState({ isLoading: false });
+      })
+      .finally(() => {
+        if (!cancelled) setAppReady(true);
+      });
 
     return () => {
       cancelled = true;

@@ -13,6 +13,9 @@ use Amare\Api\Models\Order;
 use Amare\Api\Models\Product;
 use Amare\Api\Models\User;
 use Amare\Api\Services\RewardsService;
+use Amare\Api\Services\StripeConfig;
+use Stripe\PaymentIntent;
+use Stripe\Stripe;
 
 class OrderController
 {
@@ -119,6 +122,15 @@ class OrderController
         }
 
         // Actualizar pedido con método de pago
+        if (in_array($metodo, ['card', 'apple_pay', 'google_pay'], true)) {
+            $this->assertStripePaymentSucceeded(
+                trim((string)$paymentIntentId),
+                (int)$user->id,
+                $order,
+                !empty($input['use_points'])
+            );
+        }
+
         $reward = null;
         $pdo = Database::getInstance();
         try {
@@ -454,5 +466,63 @@ class OrderController
         $order = Order::findById($orderId, $user->id);
         
         Response::success(['order' => $order], 'Pedido creado exitosamente', 201);
+    }
+
+    private function assertStripePaymentSucceeded(
+        string $paymentIntentId,
+        int $userId,
+        array $order,
+        bool $usePoints
+    ): void {
+        if ($paymentIntentId === '') {
+            Response::validationError(['payment_intent_id' => ['El intento de pago de Stripe es obligatorio']]);
+        }
+
+        $storedIntentId = trim((string)($order['payment_intent_id'] ?? $order['stripe_payment_intent_id'] ?? ''));
+        if ($storedIntentId !== '' && !hash_equals($storedIntentId, $paymentIntentId)) {
+            Response::error('El intento de pago no pertenece a este pedido.', 409, 'PAYMENT_INTENT_MISMATCH');
+        }
+
+        try {
+            Stripe::setApiKey($this->getStripeSecret());
+            $intent = PaymentIntent::retrieve($paymentIntentId);
+        } catch (\Stripe\Exception\ApiErrorException $exception) {
+            error_log('OrderController::assertStripePaymentSucceeded STRIPE ERROR: ' . $exception->getMessage());
+            Response::error('Stripe no pudo verificar este pago.', 409, 'PAYMENT_NOT_VERIFIED');
+        }
+
+        $metadataUserId = (int)($intent->metadata['user_id'] ?? 0);
+        $metadataOrderId = (int)($intent->metadata['order_id'] ?? 0);
+        $metadataUsePoints = (string)($intent->metadata['use_points'] ?? '0') === '1';
+        $orderId = (int)($order['id'] ?? 0);
+        $baseAmount = (float)($order['total'] ?? $order['subtotal'] ?? 0);
+        $rewardsQuote = (new RewardsService())->quote(
+            $userId,
+            $baseAmount,
+            $usePoints,
+            'food',
+            is_array($order['items'] ?? null) ? $order['items'] : [],
+            'external'
+        );
+        $expectedCents = (int)round((float)$rewardsQuote['wallet_total'] * 100);
+        $receivedCents = (int)($intent->amount_received ?: $intent->amount);
+
+        if ($metadataUserId !== $userId || ($metadataOrderId > 0 && $metadataOrderId !== $orderId)) {
+            Response::forbidden('Este pago de Stripe no pertenece a tu cuenta o pedido.');
+        }
+        if ($metadataUsePoints !== $usePoints) {
+            Response::error('La seleccion de puntos no coincide con el importe autorizado.', 409, 'PAYMENT_POINTS_MISMATCH');
+        }
+        if (strtolower((string)$intent->currency) !== 'mxn' || $receivedCents !== $expectedCents) {
+            Response::error('El importe confirmado por Stripe no coincide con el pedido.', 409, 'PAYMENT_AMOUNT_MISMATCH');
+        }
+        if ((string)$intent->status !== 'succeeded') {
+            Response::error('Stripe aun no confirma el pago.', 409, 'PAYMENT_NOT_SUCCEEDED');
+        }
+    }
+
+    private function getStripeSecret(): string
+    {
+        return StripeConfig::secretKey();
     }
 }

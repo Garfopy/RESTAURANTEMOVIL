@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -21,7 +21,7 @@ import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
-import { confirmPayment, createOrder, createPaymentIntent, createPickupOrder, getOrderById } from '../../services/orders.service';
+import { confirmPayment, createOrder, createPaymentIntent, getOrderById } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
 import {
   EMPTY_FISCAL_DATA,
@@ -34,12 +34,22 @@ import { validatePromoCode, type PromotionQuote } from '../../services/promotion
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
-import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { NATIVE_WALLETS_ENABLED, STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { InvoiceRequestForm } from '../../components/shared/InvoiceRequestForm';
 import { Colors, Shadows, Spacing, Typography } from '../../theme';
 import type { MetodoPagoHabilitado } from '@amare/types';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash' | 'amare';
+type PreparedCardPayment = {
+  orderId: number;
+  orderFolio?: string | null;
+  clientSecret: string;
+  intentId: string;
+  amount: number;
+  status: string;
+  usePoints: boolean;
+  createdLocally: boolean;
+};
 
 interface PaymentMethodDef {
   id: PaymentMethod;
@@ -70,8 +80,6 @@ export default function PaymentScreen() {
   const { width } = useWindowDimensions();
   const { confirmPayment: stripeConfirm } = useStripe();
   const {
-    clientSecret,
-    intentId,
     restauranteId,
     tipoPedido,
     direccionId,
@@ -82,8 +90,6 @@ export default function PaymentScreen() {
     amount,
     folio,
   } = useLocalSearchParams<{
-    clientSecret: string;
-    intentId: string;
     restauranteId: string;
     tipoPedido: string;
     direccionId?: string;
@@ -123,6 +129,7 @@ export default function PaymentScreen() {
         ? tableSession?.mesaLabel ?? ''
         : '';
   const [loading, setLoading] = useState(false);
+  const paymentLockRef = useRef(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
   const [useRewardsPoints, setUseRewardsPoints] = useState(false);
   const [rewardsWallet, setRewardsWallet] = useState<RewardsWallet | null>(null);
@@ -135,7 +142,7 @@ export default function PaymentScreen() {
   const [invoiceSaveToProfile, setInvoiceSaveToProfile] = useState(true);
   const [invoiceFiscalData, setInvoiceFiscalData] = useState<FiscalData>(EMPTY_FISCAL_DATA);
   const [pickupPhone, setPickupPhone] = useState('');
-  const [pickupAppOrderId] = useState(() => `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+  const [preparedCardPayment, setPreparedCardPayment] = useState<PreparedCardPayment | null>(null);
   const isPickupOrder = tipoPedido === 'pickup';
 
   const config = useBranchConfigStore((state) => (state.branchId === resolvedRestaurantId ? state.config : null));
@@ -147,7 +154,10 @@ export default function PaymentScreen() {
     : ['card', 'cash', 'amare'];
 
   const enabledMethods = ALL_PAYMENT_METHODS.filter(
-    (method) => enabledMethodIds.includes(method.id) && (method.id !== 'card' || STRIPE_IS_CONFIGURED)
+    (method) =>
+      enabledMethodIds.includes(method.id) &&
+      (method.id !== 'card' || STRIPE_IS_CONFIGURED) &&
+      (method.id !== 'wallet' || NATIVE_WALLETS_ENABLED)
   );
 
   useEffect(() => {
@@ -159,7 +169,9 @@ export default function PaymentScreen() {
 
   useEffect(() => {
     if (!config) return;
-    const ids = [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])];
+    const ids = [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
+      .filter((id) => id !== 'card' || STRIPE_IS_CONFIGURED)
+      .filter((id) => id !== 'wallet' || NATIVE_WALLETS_ENABLED);
     if (!ids.includes(selectedMethod)) {
       setSelectedMethod(ids[0] ?? 'cash');
     }
@@ -255,7 +267,9 @@ export default function PaymentScreen() {
   const pointsApplied = useRewardsPoints ? Math.min(availablePoints, Math.floor(totalAfterMethodDiscount)) : 0;
   const pointsDiscount = pointsApplied;
   const effectivePaymentAmount = Math.max(0, Math.round((totalAfterMethodDiscount - pointsDiscount) * 100) / 100);
-  const pointsEarned = selectedMethod === 'amare' ? 0 : Math.max(0, Math.round(effectivePaymentAmount * 0.05));
+  const displayedPaymentAmount = preparedCardPayment?.amount ?? effectivePaymentAmount;
+  const serverPriceAdjustment = Math.round((displayedPaymentAmount - effectivePaymentAmount) * 100) / 100;
+  const pointsEarned = selectedMethod === 'amare' ? 0 : Math.max(0, Math.round(displayedPaymentAmount * 0.05));
   const walletPreviewDiscount = Math.round(promoAdjustedAmount * 0.1 * 100) / 100;
   const walletPreviewTotalAfterDiscount = Math.max(0, Math.round((promoAdjustedAmount - walletPreviewDiscount) * 100) / 100);
   const walletPreviewPoints = useRewardsPoints ? Math.min(availablePoints, Math.floor(walletPreviewTotalAfterDiscount)) : 0;
@@ -335,6 +349,8 @@ export default function PaymentScreen() {
   }
 
   async function handlePay() {
+    if (paymentLockRef.current) return;
+    paymentLockRef.current = true;
     setLoading(true);
     try {
       if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
@@ -361,57 +377,6 @@ export default function PaymentScreen() {
           Alert.alert('Telefono requerido', 'Ingresa un telefono de 10 digitos para avisarte cuando tu pedido este listo.');
           return;
         }
-
-        if (selectedMethod === 'wallet') {
-          Alert.alert('Metodo no disponible', 'Apple Pay / Google Pay para recoger aun no esta habilitado. Usa tarjeta, efectivo o Saldo Amare.');
-          return;
-        }
-
-        if (selectedMethod === 'cash') {
-          const order = await createPickupOrderBackend('cash', null, false, phone);
-          clear();
-          await refreshRewardsWallet();
-          showInvoiceReceived(invoiceRequest !== null);
-          await finishOrderFlow(order.id, null, order.folio);
-          return;
-        }
-
-        if (selectedMethod === 'amare') {
-          if (!canPayWithAmare) {
-            throw new Error('Tu Saldo Amare no alcanza para cubrir este pago.');
-          }
-          const order = await createPickupOrderBackend('amare_wallet', null, true, phone);
-          clear();
-          await refreshRewardsWallet();
-          showInvoiceReceived(invoiceRequest !== null);
-          await finishOrderFlow(order.id, null, order.folio);
-          return;
-        }
-
-        if (selectedMethod === 'card') {
-          if (!STRIPE_IS_CONFIGURED) {
-            throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
-          }
-          const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
-          if (!paymentIntent.clientSecret) {
-            throw new Error('No se recibio el cliente de pago de Stripe. Intenta de nuevo.');
-          }
-          const { error } = await stripeConfirm(paymentIntent.clientSecret, {
-            paymentMethodType: 'Card',
-          });
-
-          if (error) {
-            Alert.alert('Pago rechazado', error.message);
-            return;
-          }
-
-          const order = await createPickupOrderBackend('card', paymentIntent.intentId, true, phone);
-          clear();
-          await refreshRewardsWallet();
-          showInvoiceReceived(invoiceRequest !== null);
-          await finishOrderFlow(order.id, null, order.folio);
-          return;
-        }
       }
 
       if (selectedMethod === 'cash') {
@@ -419,7 +384,7 @@ export default function PaymentScreen() {
         const targetOrderId = existingOrderId ?? order!.id;
         const confirmation = await confirmPayment({
           pedido_id: targetOrderId,
-          payment_intent_id: intentId ?? '',
+          payment_intent_id: '',
           metodo: 'cash',
           use_points: useRewardsPoints,
           promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
@@ -456,15 +421,43 @@ export default function PaymentScreen() {
         if (!STRIPE_IS_CONFIGURED) {
           throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
         }
-        const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
-        const order = existingOrderId ? null : await createOrderBackend('card', paymentIntent.intentId);
-        const targetOrderId = existingOrderId ?? order!.id;
-        if (!paymentIntent.clientSecret) {
+
+        let prepared = preparedCardPayment;
+        if (!prepared) {
+          const order = existingOrderId ? await getOrderById(existingOrderId) : await createOrderBackend('card');
+          const paymentIntent = await resolvePaymentIntent(order.id, existingOrderId !== null);
+          prepared = {
+            orderId: order.id,
+            orderFolio: order.folio,
+            clientSecret: paymentIntent.clientSecret,
+            intentId: paymentIntent.intentId,
+            amount: paymentIntent.amount,
+            status: paymentIntent.status,
+            usePoints: paymentIntent.usePoints,
+            createdLocally: !existingOrderId,
+          };
+          setPreparedCardPayment(prepared);
+          if (prepared.usePoints !== useRewardsPoints) {
+            setUseRewardsPoints(prepared.usePoints);
+          }
+
+          if (Math.abs(paymentIntent.amount - effectivePaymentAmount) >= 0.01 || prepared.usePoints !== useRewardsPoints) {
+            Alert.alert(
+              'Total actualizado',
+              `El total vigente es $${paymentIntent.amount.toFixed(2)} MXN. Revisa el importe actualizado y vuelve a tocar Pagar para confirmarlo.`
+            );
+            return;
+          }
+        }
+
+        if (!prepared.clientSecret) {
           throw new Error('No se recibio el cliente de pago de Stripe. Intenta de nuevo.');
         }
-        const { error } = await stripeConfirm(paymentIntent.clientSecret, {
-          paymentMethodType: 'Card',
-        });
+        const { error } = prepared.status === 'succeeded'
+          ? { error: undefined }
+          : await stripeConfirm(prepared.clientSecret, {
+              paymentMethodType: 'Card',
+            });
 
         if (error) {
           Alert.alert('Pago rechazado', error.message);
@@ -472,42 +465,31 @@ export default function PaymentScreen() {
         }
 
         const confirmation = await confirmPayment({
-          pedido_id: targetOrderId,
-          payment_intent_id: paymentIntent.intentId,
+          pedido_id: prepared.orderId,
+          payment_intent_id: prepared.intentId,
           metodo: 'card',
-          use_points: useRewardsPoints,
-          promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
+          use_points: prepared.usePoints,
           invoice_request: invoiceRequest,
         });
-        if (!existingOrderId) clear();
+        if (prepared.createdLocally) clear();
         await refreshRewardsWallet();
         showInvoiceReceived(invoiceRequest !== null);
-        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
+        await finishOrderFlow(prepared.orderId, confirmation.exit_pass, prepared.orderFolio);
         return;
       }
 
       if (selectedMethod === 'wallet') {
-        const paymentIntent = await resolvePaymentIntent(effectivePaymentAmount);
-        const walletMethod = isIOS ? 'apple_pay' : 'google_pay';
-        const order = existingOrderId ? null : await createOrderBackend(walletMethod, paymentIntent.intentId);
-        const targetOrderId = existingOrderId ?? order!.id;
-        const confirmation = await confirmPayment({
-          pedido_id: targetOrderId,
-          payment_intent_id: paymentIntent.intentId,
-          metodo: walletMethod,
-          use_points: useRewardsPoints,
-          promo_code: couponQuote?.code ?? (couponCode.trim() || undefined),
-          invoice_request: invoiceRequest,
-        });
-        if (!existingOrderId) clear();
-        await refreshRewardsWallet();
-        showInvoiceReceived(invoiceRequest !== null);
-        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
+        Alert.alert(
+          'Metodo no disponible',
+          `${isIOS ? 'Apple Pay' : 'Google Pay'} se habilitara cuando termine su configuracion nativa.`
+        );
+        return;
       }
     } catch (err: any) {
       Alert.alert('Error', getApiError(err) || err.message || 'No se pudo procesar el pago.');
       console.error('Error detallado en handlePay:', err);
     } finally {
+      paymentLockRef.current = false;
       setLoading(false);
     }
   }
@@ -538,30 +520,26 @@ export default function PaymentScreen() {
     router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
   }
 
-  async function resolvePaymentIntent(amountToCharge: number): Promise<{ clientSecret: string; intentId: string }> {
-    if (clientSecret && intentId && Math.abs(amountToCharge - paymentAmount) < 0.01) {
-      return { clientSecret, intentId };
-    }
-
-    const shouldPriceItemsOnServer = Math.abs(amountToCharge - paymentAmount) < 0.01;
+  async function resolvePaymentIntent(
+    orderId: number,
+    applyPromoToExistingOrder: boolean
+  ): Promise<{ clientSecret: string; intentId: string; amount: number; status: string; usePoints: boolean }> {
     const paymentIntent = await createPaymentIntent({
-      order_id: existingOrderId ?? undefined,
-      amount: amountToCharge,
+      order_id: orderId,
+      amount: displayedPaymentAmount,
       currency: 'mxn',
-      restaurante_id: existingOrderId || !shouldPriceItemsOnServer ? undefined : Number(resolvedRestaurantId),
-      items: existingOrderId || !shouldPriceItemsOnServer
-        ? undefined
-        : items.map((item) => ({
-            product_id: item.platillo.id,
-            quantity: item.cantidad,
-            origen: 'menu',
-            modificadores: item.modificadores_seleccionados,
-          })),
+      promo_code: applyPromoToExistingOrder
+        ? couponQuote?.code ?? (couponCode.trim() || undefined)
+        : undefined,
+      use_points: useRewardsPoints,
     });
 
     return {
       clientSecret: paymentIntent.client_secret,
       intentId: paymentIntent.id,
+      amount: paymentIntent.amount,
+      status: paymentIntent.status,
+      usePoints: Boolean(paymentIntent.use_points),
     };
   }
 
@@ -590,38 +568,11 @@ export default function PaymentScreen() {
           })),
         })),
       })),
-      payment_intent_id: paymentIntentId || intentId || undefined,
+      payment_intent_id: paymentIntentId || undefined,
       promo_code: couponQuote?.code ?? undefined,
-      notas: `Pago via: ${metodoPago}`,
-    });
-  }
-
-  async function createPickupOrderBackend(metodoPago: string, paymentIntentId: string | null, paid: boolean, phone: string) {
-    if (!user?.id) {
-      throw new Error('No se detecto el usuario autenticado.');
-    }
-
-    return await createPickupOrder({
-      restaurante_id: Number(resolvedRestaurantId),
-      usuario_id: Number(user.id),
-      cliente_nombre: String(user.nombre || 'Cliente Amare').trim(),
-      comprador_telefono: phone,
-      metodo_pago: metodoPago,
-      payment_intent_id: paymentIntentId,
-      app_order_id: pickupAppOrderId,
-      pagado: paid,
-      pickup_at: null,
-      items: items.map((item) => ({
-        platillo_id: item.platillo.id,
-        cantidad: item.cantidad,
-        notas: item.notas,
-        modificadores: item.modificadores_seleccionados.flatMap((modifier) =>
-          modifier.opciones.map((option) => ({
-            modificador_id: Number(option.opcion_id || modifier.modificador_id),
-            cantidad: Number(option.cantidad || 1),
-          }))
-        ),
-      })),
+      notas: isPickupOrder
+        ? `Pago via: ${metodoPago} | Telefono pickup: ${normalizePhone(pickupPhone || String(user?.telefono ?? ''))}`
+        : `Pago via: ${metodoPago}`,
     });
   }
 
@@ -672,7 +623,7 @@ export default function PaymentScreen() {
                   isAmareDisabled && styles.methodCardDisabled,
                 ]}
                 onPress={() => setSelectedMethod(method.id)}
-                disabled={isAmareDisabled}
+                disabled={isAmareDisabled || preparedCardPayment !== null}
                 accessibilityLabel={`Pagar con ${method.label}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
@@ -749,14 +700,22 @@ export default function PaymentScreen() {
                 placeholder="CODIGO"
                 placeholderTextColor={Colors.textMuted}
                 style={styles.couponInput}
-                editable={!couponLoading}
+                editable={!couponLoading && preparedCardPayment === null}
               />
               {couponQuote ? (
-                <TouchableOpacity style={styles.couponClearButton} onPress={clearCoupon}>
+                <TouchableOpacity
+                  style={styles.couponClearButton}
+                  onPress={clearCoupon}
+                  disabled={preparedCardPayment !== null}
+                >
                   <Ionicons name="close" size={18} color={Colors.textMuted} />
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity style={styles.couponButton} onPress={() => void applyCoupon()} disabled={couponLoading}>
+                <TouchableOpacity
+                  style={styles.couponButton}
+                  onPress={() => void applyCoupon()}
+                  disabled={couponLoading || preparedCardPayment !== null}
+                >
                   <Text style={styles.couponButtonText}>{couponLoading ? '...' : 'Aplicar'}</Text>
                 </TouchableOpacity>
               )}
@@ -780,6 +739,7 @@ export default function PaymentScreen() {
               <Switch
                 value={useRewardsPoints}
                 onValueChange={setUseRewardsPoints}
+                disabled={preparedCardPayment !== null}
                 trackColor={{ false: '#D1D5DB', true: '#A7F3D0' }}
                 thumbColor={useRewardsPoints ? '#059669' : '#F9FAFB'}
               />
@@ -843,7 +803,7 @@ export default function PaymentScreen() {
               ) : null}
               <View style={styles.rewardsRow}>
                 <Text style={styles.rewardsLabel}>Saldo a usar</Text>
-                <Text style={styles.rewardsValue}>${effectivePaymentAmount.toFixed(2)}</Text>
+                <Text style={styles.rewardsValue}>${displayedPaymentAmount.toFixed(2)}</Text>
               </View>
             </View>
 
@@ -888,9 +848,17 @@ export default function PaymentScreen() {
                 <Text style={styles.totalDiscountValue}>-${pointsDiscount.toFixed(2)}</Text>
               </View>
             ) : null}
+            {Math.abs(serverPriceAdjustment) >= 0.01 ? (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Actualizacion de precios</Text>
+                <Text style={serverPriceAdjustment > 0 ? styles.totalLineValue : styles.totalDiscountValue}>
+                  {serverPriceAdjustment > 0 ? '+' : '-'}${Math.abs(serverPriceAdjustment).toFixed(2)}
+                </Text>
+              </View>
+            ) : null}
             <View style={[styles.totalRow, styles.totalFinalRow]}>
               <Text style={styles.totalFinalLabel}>Total a pagar</Text>
-              <Text style={styles.totalValue}>${effectivePaymentAmount.toFixed(2)} MXN</Text>
+              <Text style={styles.totalValue}>${displayedPaymentAmount.toFixed(2)} MXN</Text>
             </View>
           </View>
         </View>
@@ -900,10 +868,10 @@ export default function PaymentScreen() {
         <Button
           label={
             selectedMethod === 'cash'
-              ? `Confirmar pago ($${effectivePaymentAmount.toFixed(2)})`
+              ? `Confirmar pago ($${displayedPaymentAmount.toFixed(2)})`
               : selectedMethod === 'amare'
-                ? `Pagar con saldo ($${effectivePaymentAmount.toFixed(2)})`
-                : `Pagar $${effectivePaymentAmount.toFixed(2)}`
+                ? `Pagar con saldo ($${displayedPaymentAmount.toFixed(2)})`
+                : `Pagar $${displayedPaymentAmount.toFixed(2)}`
           }
           onPress={handlePay}
           fullWidth
@@ -912,10 +880,10 @@ export default function PaymentScreen() {
           disabled={selectedMethod === 'amare' && (!canPayWithAmare || rewardsLoading)}
           accessibilityLabel={
             selectedMethod === 'cash'
-              ? `Confirmar pago por $${effectivePaymentAmount.toFixed(2)} en efectivo`
+              ? `Confirmar pago por $${displayedPaymentAmount.toFixed(2)} en efectivo`
               : selectedMethod === 'amare'
-                ? `Pagar $${effectivePaymentAmount.toFixed(2)} con Saldo Amare`
-                : `Pagar $${effectivePaymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`
+                ? `Pagar $${displayedPaymentAmount.toFixed(2)} con Saldo Amare`
+                : `Pagar $${displayedPaymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`
           }
           testID="payment-confirm-btn"
         />

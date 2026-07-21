@@ -6,7 +6,7 @@ import { CartButton } from './CartButton';
 export function GlobalCartButton() {
   const segments = useSegments();
   const { isAuthenticated, isLoading, user } = useUserStore();
-  const [rootSegment, childSegment] = segments;
+  const [rootSegment, childSegment] = segments as string[];
 
   if (isLoading || !isAuthenticated) return null;
   const role = String(user?.rol ?? '').toLowerCase();

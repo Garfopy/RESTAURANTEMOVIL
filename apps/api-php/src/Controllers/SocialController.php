@@ -14,6 +14,7 @@ use Amare\Api\Services\FirebaseMessagingService;
 use Amare\Api\Services\RewardsService;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
+use Amare\Api\Services\StripeConfig;
 
 class SocialController
 {
@@ -3710,11 +3711,7 @@ class SocialController
 
     private function getStripeSecret(): string
     {
-        $key = $_ENV['STRIPE_SECRET_KEY'] ?? $_SERVER['STRIPE_SECRET_KEY'] ?? getenv('STRIPE_SECRET_KEY');
-        if (!is_string($key) || trim($key) === '') {
-            throw new \RuntimeException('STRIPE_SECRET_KEY no configurada');
-        }
-        return trim($key);
+        return StripeConfig::secretKey();
     }
 
     /**

@@ -9,6 +9,7 @@ use Amare\Api\Helpers\Response;
 use Amare\Api\Middleware\AuthMiddleware;
 use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Services\RewardsService;
+use Amare\Api\Services\StripeConfig;
 use Stripe\PaymentIntent;
 use Stripe\Stripe;
 
@@ -25,11 +26,7 @@ class RewardsController
 
     private function getStripeSecret(): string
     {
-        $key = $_ENV['STRIPE_SECRET_KEY'] ?? $_SERVER['STRIPE_SECRET_KEY'] ?? getenv('STRIPE_SECRET_KEY');
-        if (!is_string($key) || trim($key) === '') {
-            throw new \RuntimeException('STRIPE_SECRET_KEY no configurada');
-        }
-        return trim($key);
+        return StripeConfig::secretKey();
     }
 
     public function wallet(): void

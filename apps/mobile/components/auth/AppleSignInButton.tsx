@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { loginWithApple } from '../../services/auth.service';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { getApiError } from '../../services/api';
@@ -10,6 +11,7 @@ declare const require: (name: string) => any;
 type AppleAuthenticationModule = typeof import('expo-apple-authentication');
 
 export function AppleSignInButton() {
+  const router = useRouter();
   const login = useUserStore((state) => state.login);
   const setAccountSuspension = useUserStore((state) => state.setAccountSuspension);
   const [appleAuthentication, setAppleAuthentication] = useState<AppleAuthenticationModule | null>(null);
@@ -67,6 +69,7 @@ export function AppleSignInButton() {
         platform: 'ios',
       });
       await login(session);
+      router.replace('/' as never);
     } catch (error: unknown) {
       if ((error as { code?: string })?.code === 'ERR_REQUEST_CANCELED') return;
 

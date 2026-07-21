@@ -15,7 +15,6 @@ import MapView, { Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { apiClient, formatImageUrl, getApiError } from '../../services/api';
-import { createPaymentIntent } from '../../services/orders.service';
 import { ensureLocationPermission } from '../../services/app-permissions.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing, Shadows } from '../../theme';
@@ -252,16 +251,9 @@ export default function StoreCheckoutScreen() {
         finalAddressId = await promptToSaveAddress();
       }
 
-      const { client_secret, id: intentId } = await createPaymentIntent({
-        amount: total,
-        currency: 'mxn',
-      });
-
       router.push({
         pathname: '/checkout/payment-store' as any,
         params: {
-          clientSecret: client_secret,
-          intentId,
           productId: params.productId,
           productName,
           productImage,

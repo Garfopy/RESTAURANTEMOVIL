@@ -205,6 +205,8 @@ export async function createPaymentIntent(params: {
   currency?: string;
   restaurante_id?: number;
   items?: unknown[];
+  promo_code?: string;
+  use_points?: boolean;
 }): Promise<PaymentIntent> {
   const payload: Record<string, unknown> = {
     amount: params.amount,
@@ -218,18 +220,25 @@ export async function createPaymentIntent(params: {
     payload.restaurante_id = params.restaurante_id;
     payload.items = params.items;
   }
+  if (params.promo_code) {
+    payload.promo_code = params.promo_code;
+  }
+  if (params.use_points) {
+    payload.use_points = true;
+  }
 
   const { data } = await apiClient.post<{
     success: boolean;
-    data: { client_secret: string; payment_intent_id: string }
+    data: { client_secret: string; payment_intent_id: string; amount_mxn: number; status?: string; use_points?: boolean }
   }>('/payments/create-intent', payload);
 
   return {
     id: data.data.payment_intent_id,
     client_secret: data.data.client_secret,
-    amount: params.amount,
+    amount: Number(data.data.amount_mxn),
     currency: params.currency ?? 'mxn',
-    status: 'requires_payment',
+    status: data.data.status ?? 'requires_payment',
+    use_points: data.data.use_points ?? false,
   };
 }
 

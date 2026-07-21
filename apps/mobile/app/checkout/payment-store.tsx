@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -16,20 +16,26 @@ import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatImageUrl } from '../../services/api';
 import { createStoreOrder } from '../../services/store.service';
-import { confirmPayment } from '../../services/orders.service';
+import { confirmPayment, createPaymentIntent } from '../../services/orders.service';
 import { Button } from '../../components/ui/Button';
-import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { NATIVE_WALLETS_ENABLED, STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { Colors, Spacing, Shadows } from '../../theme';
 
 type PaymentMethod = 'card' | 'wallet' | 'cash';
 type TipoPedido = 'delivery' | 'pickup';
+type PreparedStorePayment = {
+  orderId: number;
+  clientSecret: string;
+  intentId: string;
+  amount: number;
+  status: string;
+  usePoints: boolean;
+};
 
 export default function StorePaymentScreen() {
   const router = useRouter();
   const { confirmPayment: stripeConfirm } = useStripe();
   const params = useLocalSearchParams<{
-    clientSecret?: string;
-    intentId?: string;
     productId: string;
     productName: string;
     productImage: string;
@@ -52,13 +58,19 @@ export default function StorePaymentScreen() {
   const direccionId = params.direccionId ? parseInt(params.direccionId, 10) : undefined;
 
   const [loading, setLoading] = useState(false);
+  const paymentLockRef = useRef(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(STRIPE_IS_CONFIGURED ? 'card' : 'cash');
+  const [preparedPayment, setPreparedPayment] = useState<PreparedStorePayment | null>(null);
+  const displayedTotal = preparedPayment?.amount ?? total;
+  const serverPriceAdjustment = Math.round((displayedTotal - total) * 100) / 100;
 
   const isIOS = Platform.OS === 'ios';
   const walletName = isIOS ? 'Apple Pay' : 'Google Pay';
   const walletIcon = isIOS ? 'logo-apple' : 'logo-google';
 
   async function handlePay() {
+    if (paymentLockRef.current) return;
+    paymentLockRef.current = true;
     setLoading(true);
     try {
       if (selectedMethod === 'cash') {
@@ -78,22 +90,46 @@ export default function StorePaymentScreen() {
         if (!STRIPE_IS_CONFIGURED) {
           throw new Error('Stripe no esta configurado para este APK. Revisa EXPO_PUBLIC_STRIPE_KEY en EAS.');
         }
-        if (!params.clientSecret) throw new Error('Falta el secreto del cliente para procesar la tarjeta.');
+        let prepared = preparedPayment;
+        if (!prepared) {
+          const order = await createStoreOrder({
+            product_id: Number(params.productId),
+            quantity,
+            unit_price: productPrice,
+            tipo_pedido: tipoPedido,
+            direccion_id: direccionId,
+            direccion_entrega: direccionEntrega || undefined,
+            subtotal: total,
+          });
+          const paymentIntent = await createPaymentIntent({
+            order_id: order.id,
+            amount: Number(order.total),
+            currency: 'mxn',
+          });
+          prepared = {
+            orderId: order.id,
+            clientSecret: paymentIntent.client_secret,
+            intentId: paymentIntent.id,
+            amount: paymentIntent.amount,
+            status: paymentIntent.status,
+            usePoints: Boolean(paymentIntent.use_points),
+          };
+          setPreparedPayment(prepared);
 
-        const order = await createStoreOrder({
-          product_id: Number(params.productId),
-          quantity,
-          unit_price: productPrice,
-          tipo_pedido: tipoPedido,
-          direccion_id: direccionId,
-          direccion_entrega: direccionEntrega || undefined,
-          subtotal: total,
-          payment_intent_id: params.intentId,
-        });
+          if (Math.abs(paymentIntent.amount - total) >= 0.01) {
+            Alert.alert(
+              'Total actualizado',
+              `El total vigente es $${paymentIntent.amount.toFixed(2)} MXN. Revisa el importe actualizado y vuelve a tocar Pagar para confirmarlo.`
+            );
+            return;
+          }
+        }
 
-        const { error } = await stripeConfirm(params.clientSecret, {
-          paymentMethodType: 'Card',
-        });
+        const { error } = prepared.status === 'succeeded'
+          ? { error: undefined }
+          : await stripeConfirm(prepared.clientSecret, {
+              paymentMethodType: 'Card',
+            });
 
         if (error) {
           Alert.alert('Pago rechazado', error.message);
@@ -102,12 +138,12 @@ export default function StorePaymentScreen() {
         }
 
         await confirmPayment({
-          pedido_id: order.id,
-          payment_intent_id: params.intentId!,
+          pedido_id: prepared.orderId,
+          payment_intent_id: prepared.intentId,
           metodo: 'card',
         });
 
-        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } } as any);
+        router.replace({ pathname: '/order/[id]', params: { id: String(prepared.orderId) } } as any);
         return;
       }
 
@@ -120,6 +156,7 @@ export default function StorePaymentScreen() {
       Alert.alert('Error', err.message || 'No se pudo procesar el pago.');
       console.error('🔴 Error en handlePay store:', err);
     } finally {
+      paymentLockRef.current = false;
       setLoading(false);
     }
   }
@@ -197,6 +234,7 @@ export default function StorePaymentScreen() {
             <TouchableOpacity
               style={[styles.methodCard, selectedMethod === 'card' && styles.methodCardActive]}
               onPress={() => setSelectedMethod('card')}
+              disabled={preparedPayment !== null}
             >
               <Ionicons
                 name="card-outline"
@@ -212,26 +250,30 @@ export default function StorePaymentScreen() {
             </TouchableOpacity>
           ) : null}
 
-          <TouchableOpacity
-            style={[styles.methodCard, selectedMethod === 'wallet' && styles.methodCardActive]}
-            onPress={() => setSelectedMethod('wallet')}
-          >
-            <Ionicons
-              name={walletIcon}
-              size={26}
-              color={selectedMethod === 'wallet' ? Colors.primary : Colors.textMuted}
-            />
-            <Text
-              numberOfLines={2}
-              style={[styles.methodText, selectedMethod === 'wallet' && styles.methodTextActive]}
+          {NATIVE_WALLETS_ENABLED ? (
+            <TouchableOpacity
+              style={[styles.methodCard, selectedMethod === 'wallet' && styles.methodCardActive]}
+              onPress={() => setSelectedMethod('wallet')}
+              disabled={preparedPayment !== null}
             >
-              {walletName}
-            </Text>
-          </TouchableOpacity>
+              <Ionicons
+                name={walletIcon}
+                size={26}
+                color={selectedMethod === 'wallet' ? Colors.primary : Colors.textMuted}
+              />
+              <Text
+                numberOfLines={2}
+                style={[styles.methodText, selectedMethod === 'wallet' && styles.methodTextActive]}
+              >
+                {walletName}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity
             style={[styles.methodCard, selectedMethod === 'cash' && styles.methodCardActive]}
             onPress={() => setSelectedMethod('cash')}
+            disabled={preparedPayment !== null}
           >
             <Ionicons
               name="cash-outline"
@@ -271,7 +313,12 @@ export default function StorePaymentScreen() {
 
         <View style={styles.totalBox}>
           <Text style={styles.totalLabel}>Total a pagar</Text>
-          <Text style={styles.totalValue}>${total.toFixed(2)} MXN</Text>
+          {Math.abs(serverPriceAdjustment) >= 0.01 ? (
+            <Text style={styles.totalAdjustment}>
+              Precio actualizado por el servidor: {serverPriceAdjustment > 0 ? '+' : '-'}${Math.abs(serverPriceAdjustment).toFixed(2)}
+            </Text>
+          ) : null}
+          <Text style={styles.totalValue}>${displayedTotal.toFixed(2)} MXN</Text>
         </View>
       </ScrollView>
 
@@ -279,8 +326,8 @@ export default function StorePaymentScreen() {
         <Button
           label={
             selectedMethod === 'cash'
-              ? `Confirmar pedido ($${total.toFixed(2)})`
-              : `Pagar $${total.toFixed(2)}`
+              ? `Confirmar pedido ($${displayedTotal.toFixed(2)})`
+              : `Pagar $${displayedTotal.toFixed(2)}`
           }
           onPress={handlePay}
           fullWidth
@@ -455,15 +502,14 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   totalBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 4,
     backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: Spacing.md,
   },
   totalLabel: { fontSize: 14, fontWeight: '600', color: Colors.textMuted },
-  totalValue: { fontSize: 20, fontWeight: '800', color: Colors.primary },
+  totalAdjustment: { fontSize: 12, fontWeight: '700', color: Colors.warning },
+  totalValue: { fontSize: 20, fontWeight: '800', color: Colors.primary, alignSelf: 'flex-end' },
   secureNote: { fontSize: 12, color: Colors.success, textAlign: 'center', marginTop: 4 },
   footer: {
     position: 'absolute',

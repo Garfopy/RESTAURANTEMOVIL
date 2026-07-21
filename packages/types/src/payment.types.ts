@@ -4,6 +4,7 @@ export interface PaymentIntent {
   amount: number;
   currency: string;
   status: string;
+  use_points?: boolean;
 }
 
 export type MetodoPago = 'card' | 'apple_pay' | 'google_pay' | 'cash' | 'amare_wallet';
