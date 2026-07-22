@@ -2,6 +2,7 @@
   "expo": {
     "name": "Amare",
     "slug": "amare-app",
+    "newArchEnabled": false,
     "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/amare_icon.png",

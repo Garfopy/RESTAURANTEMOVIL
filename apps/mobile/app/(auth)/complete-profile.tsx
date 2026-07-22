@@ -43,6 +43,23 @@ function onlyDigits(value: string): string {
   return value.replace(/\D+/g, '');
 }
 
+function mexicanLocalPhone(value?: string | null): string {
+  const digits = onlyDigits(value ?? '');
+
+  // iOS autofill may provide +52, 0052 or the legacy mobile prefix +52 1.
+  if (digits.length > 10 && digits.startsWith('0052')) {
+    return digits.slice(4, 14);
+  }
+  if (digits.length > 12 && digits.startsWith('521')) {
+    return digits.slice(3, 13);
+  }
+  if (digits.length > 10 && digits.startsWith('52')) {
+    return digits.slice(2, 12);
+  }
+
+  return digits.slice(0, 10);
+}
+
 function initialAccountName(value?: string | null): string {
   const name = value?.trim() ?? '';
   return name.toLowerCase() === 'usuario amare' ? '' : name;
@@ -128,10 +145,7 @@ export default function CompleteProfileScreen() {
   const setUser = useUserStore((state) => state.setUser);
   const logout = useUserStore((state) => state.logout);
   const [name, setName] = useState(() => initialAccountName(user?.nombre));
-  const [phone, setPhone] = useState(() => {
-    const current = onlyDigits(user?.telefono ?? '');
-    return current.startsWith('52') && current.length === 12 ? current.slice(2) : current;
-  });
+  const [phone, setPhone] = useState(() => mexicanLocalPhone(user?.telefono));
   const [birthday, setBirthday] = useState(user?.fecha_nacimiento ?? '');
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -251,15 +265,20 @@ export default function CompleteProfileScreen() {
                   </View>
                   <TextInput
                     value={phone}
-                    onChangeText={(value) => setPhone(onlyDigits(value).slice(0, 10))}
+                    onChangeText={(value) => {
+                      setPhone(mexicanLocalPhone(value));
+                      setError(null);
+                    }}
                     keyboardType="phone-pad"
                     textContentType="telephoneNumber"
                     placeholder="10 dígitos"
                     placeholderTextColor="#857D71"
                     style={styles.input}
-                    maxLength={10}
                   />
                 </View>
+                <Text style={[styles.phoneHint, phoneDigits.length === 10 && styles.phoneHintComplete]}>
+                  {phoneDigits.length === 10 ? 'Número completo' : `${phoneDigits.length}/10 dígitos`}
+                </Text>
               </View>
 
               <View style={styles.field}>
@@ -491,6 +510,8 @@ const styles = StyleSheet.create({
   },
   prefixText: { color: '#E9DDC8', fontSize: 15, fontWeight: '900' },
   input: { flex: 1, color: '#F6F0E6', fontSize: 16, fontWeight: '700', paddingHorizontal: 14 },
+  phoneHint: { color: '#AAA396', fontSize: 11, lineHeight: 15, textAlign: 'right' },
+  phoneHintComplete: { color: '#9ED8B3' },
   dateButton: {
     minHeight: 56,
     borderRadius: 18,

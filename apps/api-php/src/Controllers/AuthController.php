@@ -15,7 +15,15 @@ class AuthController
 {
     private static function normalizePhone(?string $value): string
     {
-        return preg_replace('/\D+/', '', (string)($value ?? ''));
+        $phone = preg_replace('/\D+/', '', (string)($value ?? ''));
+        if (str_starts_with($phone, '0052') && strlen($phone) === 14) {
+            return substr($phone, 2);
+        }
+        if (str_starts_with($phone, '521') && strlen($phone) === 13) {
+            return '52' . substr($phone, 3);
+        }
+
+        return $phone;
     }
 
     private static function normalizeExternalName(?string $value): string

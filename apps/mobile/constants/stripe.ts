@@ -1,5 +1,10 @@
 export const STRIPE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_STRIPE_KEY?.trim() ?? '';
 
+const STRIPE_PUBLISHABLE_KEY_PATTERN = /^pk_(?:test|live)_[A-Za-z0-9]{32,}$/;
+const STRIPE_KEY_LOOKS_VALID =
+  STRIPE_PUBLISHABLE_KEY_PATTERN.test(STRIPE_PUBLISHABLE_KEY) &&
+  !/(?:replace|reemplazar|example|placeholder|your[_-]?key)/i.test(STRIPE_PUBLISHABLE_KEY);
+
 export const CARD_PAYMENTS_ENABLED = process.env.EXPO_PUBLIC_ENABLE_CARD_PAYMENTS === 'true';
 export const STRIPE_LIVE_MODE = process.env.EXPO_PUBLIC_STRIPE_LIVE_MODE === 'true';
 
@@ -11,6 +16,7 @@ export const STRIPE_KEY_MODE = STRIPE_PUBLISHABLE_KEY.startsWith('pk_live_')
 
 export const STRIPE_IS_CONFIGURED =
   CARD_PAYMENTS_ENABLED &&
+  STRIPE_KEY_LOOKS_VALID &&
   STRIPE_KEY_MODE !== 'invalid' &&
   (!STRIPE_LIVE_MODE || STRIPE_KEY_MODE === 'live');
 

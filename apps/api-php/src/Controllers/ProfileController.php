@@ -57,6 +57,12 @@ class ProfileController
 
         if (isset($input['telefono'])) {
             $phone = preg_replace('/\D+/', '', (string)$input['telefono']);
+            if (str_starts_with($phone, '0052') && strlen($phone) === 14) {
+                $phone = substr($phone, 2);
+            }
+            if (str_starts_with($phone, '521') && strlen($phone) === 13) {
+                $phone = '52' . substr($phone, 3);
+            }
             if (strlen($phone) === 10) {
                 $phone = '52' . $phone;
             }
