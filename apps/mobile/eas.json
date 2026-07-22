@@ -17,7 +17,10 @@
       "environment": "preview",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
-        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true"
+        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true",
+        "EXPO_PUBLIC_ENABLE_CARD_PAYMENTS": "true",
+        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "false",
+        "EXPO_PUBLIC_ENABLE_NATIVE_WALLETS": "true"
       },
       "android": {
         "buildType": "apk"
@@ -26,7 +29,10 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true"
+        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true",
+        "EXPO_PUBLIC_ENABLE_CARD_PAYMENTS": "true",
+        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "false",
+        "EXPO_PUBLIC_ENABLE_NATIVE_WALLETS": "true"
       }
     },
     "production-apk": {
@@ -35,7 +41,10 @@
       "credentialsSource": "remote",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
-        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true"
+        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true",
+        "EXPO_PUBLIC_ENABLE_CARD_PAYMENTS": "true",
+        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "true",
+        "EXPO_PUBLIC_ENABLE_NATIVE_WALLETS": "true"
       },
       "android": {
         "buildType": "apk"
@@ -47,7 +56,10 @@
       "credentialsSource": "remote",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://amarerestaurant.club/api_restaurante",
-        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true"
+        "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "true",
+        "EXPO_PUBLIC_ENABLE_CARD_PAYMENTS": "true",
+        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "true",
+        "EXPO_PUBLIC_ENABLE_NATIVE_WALLETS": "true"
       }
     }
   },

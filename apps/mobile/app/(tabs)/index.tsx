@@ -654,6 +654,12 @@ export default function HomeScreen() {
               nearbyBranch.kind === 'inside'
                 ? `Estás en ${nearbyBranch.branch.nombre}. Escanea el QR de tu mesa para continuar.`
                 : `Estás cerca de ${nearbyBranch.branch.nombre}. En el restaurante solo necesitas escanear tu mesa.`;
+            if (nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near') {
+              if (!cancelled) {
+                await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
+              }
+              return;
+            }
           }
         }
       }

@@ -9,6 +9,7 @@ use Amare\Api\Config\Database;
 class Promotion
 {
     private static array $tableColumns = [];
+    private static ?bool $usageTableAvailable = null;
 
     private static function columnExists(string $column): bool
     {
@@ -141,8 +142,44 @@ class Promotion
                 FROM mobile_promociones
                 WHERE activo = 1
                   AND usuario_id = :usuario_id
-                  AND (expires_at IS NULL OR expires_at > NOW())
-                ORDER BY created_at DESC";
+                  AND (expires_at IS NULL OR expires_at > NOW())";
+
+        if (self::usageTableExists()) {
+            $sql .= "
+                  AND NOT EXISTS (
+                      SELECT 1
+                        FROM mobile_promocion_usos pu
+                       WHERE pu.promocion_id = mobile_promociones.id
+                         AND pu.usuario_id = mobile_promociones.usuario_id
+                         AND pu.estado = 'usado'
+                  )";
+        }
+
+        $sql .= " ORDER BY created_at DESC";
+
+        return Database::query($sql, [':usuario_id' => $userId]);
+    }
+
+    /**
+     * Historial de promociones consumidas por el usuario autenticado.
+     */
+    public static function getUsageHistory(int $userId): array
+    {
+        if (!self::usageTableExists()) {
+            return [];
+        }
+
+        $sql = "SELECT " . self::selectColumns('p') . ",
+                       pu.pedido_id AS uso_pedido_id,
+                       pu.codigo AS uso_codigo,
+                       pu.descuento_mxn AS uso_descuento_mxn,
+                       pu.estado AS uso_estado,
+                       pu.usado_at
+                  FROM mobile_promocion_usos pu
+                  INNER JOIN mobile_promociones p ON p.id = pu.promocion_id
+                 WHERE pu.usuario_id = :usuario_id
+                   AND pu.estado = 'usado'
+                 ORDER BY pu.usado_at DESC";
 
         return Database::query($sql, [':usuario_id' => $userId]);
     }
@@ -415,7 +452,7 @@ class Promotion
     /**
      * Validar un código promocional para un usuario específico (app móvil).
      */
-    public static function validateCode(string $code, ?int $userId = null): ?array
+    public static function validateCode(string $code, ?int $userId = null, bool $onlyUnused = false): ?array
     {
         $sql = "SELECT " . self::selectColumns() . "
                 FROM mobile_promociones
@@ -428,6 +465,16 @@ class Promotion
         if ($userId !== null) {
             $sql .= " AND usuario_id = :usuario_id";
             $params[':usuario_id'] = $userId;
+
+            if ($onlyUnused && self::usageTableExists()) {
+                $sql .= " AND NOT EXISTS (
+                              SELECT 1
+                                FROM mobile_promocion_usos pu
+                               WHERE pu.promocion_id = mobile_promociones.id
+                                 AND pu.usuario_id = mobile_promociones.usuario_id
+                                 AND pu.estado = 'usado'
+                          )";
+            }
         }
 
         $sql .= " LIMIT 1";
@@ -442,7 +489,7 @@ class Promotion
      */
     public static function quoteCode(string $code, int $userId, array $items): ?array
     {
-        $promotion = self::validateCode(trim($code), $userId);
+        $promotion = self::validateCode(trim($code), $userId, true);
         if (!$promotion) {
             return null;
         }
@@ -478,6 +525,63 @@ class Promotion
             'total' => round(max(0, $subtotal - $discount), 2),
             'applicable_product_ids' => $applicableProductIds,
         ];
+    }
+
+    /**
+     * Marca una promocion como usada de forma idempotente.
+     * Debe llamarse dentro de la misma transaccion que confirma el pedido.
+     */
+    public static function recordUsageForOrder(\PDO $pdo, int $userId, array $order): bool
+    {
+        $code = strtoupper(trim((string)($order['promo_code'] ?? $order['coupon_code'] ?? '')));
+        if ($userId <= 0 || $code === '') {
+            return false;
+        }
+
+        if (!self::usageTableExists()) {
+            throw new \RuntimeException('Falta aplicar la migracion de uso unico de promociones.');
+        }
+
+        $promotion = Database::queryOne(
+            'SELECT id, code FROM mobile_promociones
+              WHERE usuario_id = :usuario_id AND UPPER(code) = :code
+              ORDER BY id ASC LIMIT 1',
+            [':usuario_id' => $userId, ':code' => $code]
+        );
+        if (!$promotion) {
+            throw new \RuntimeException('No se encontro la promocion aplicada al pedido.');
+        }
+
+        $statement = $pdo->prepare(
+            "INSERT IGNORE INTO mobile_promocion_usos
+                (promocion_id, usuario_id, pedido_id, codigo, descuento_mxn, estado, usado_at, created_at)
+             VALUES (:promocion_id, :usuario_id, :pedido_id, :codigo, :descuento_mxn, 'usado', NOW(), NOW())"
+        );
+        $statement->execute([
+            ':promocion_id' => (int)$promotion['id'],
+            ':usuario_id' => $userId,
+            ':pedido_id' => (int)($order['id'] ?? 0) ?: null,
+            ':codigo' => (string)($promotion['code'] ?? $code),
+            ':descuento_mxn' => round((float)($order['descuento'] ?? $order['promo_discount'] ?? 0), 2),
+        ]);
+
+        return $statement->rowCount() > 0;
+    }
+
+    private static function usageTableExists(): bool
+    {
+        if (self::$usageTableAvailable !== null) {
+            return self::$usageTableAvailable;
+        }
+
+        $row = Database::queryOne(
+            "SELECT COUNT(*) AS total
+               FROM information_schema.TABLES
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'mobile_promocion_usos'"
+        );
+        self::$usageTableAvailable = (int)($row['total'] ?? 0) > 0;
+        return self::$usageTableAvailable;
     }
 
     private static function filterEligibleItems(array $promotion, array $normalizedItems): array

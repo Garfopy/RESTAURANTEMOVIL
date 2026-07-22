@@ -39,6 +39,16 @@ class PromotionsController
     }
 
     /**
+     * GET /promotions/history
+     * Devuelve los codigos que el usuario ya consumio.
+     */
+    public function history(): void
+    {
+        $user = AuthMiddleware::authenticate();
+        Response::success(Promotion::getUsageHistory((int)$user->id));
+    }
+
+    /**
      * GET /promotions/:id
      * Detalle de una promoción específica.
      */

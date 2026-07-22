@@ -14,6 +14,7 @@ use Stripe\Webhook;
 use Stripe\Charge;
 use Amare\Api\Models\InvoiceRequest;
 use Amare\Api\Models\Order;
+use Amare\Api\Models\Promotion;
 use Amare\Api\Services\RewardsService;
 use Amare\Api\Services\StripeConfig;
 
@@ -520,6 +521,7 @@ class PaymentController
             if (empty($reward['already_applied'])) {
                 Order::applyExternalRewardsSummary($orderId, $reward, true);
             }
+            Promotion::recordUsageForOrder($pdo, $userId, $order);
             $pdo->commit();
         } catch (\Throwable $exception) {
             if ($pdo->inTransaction()) $pdo->rollBack();

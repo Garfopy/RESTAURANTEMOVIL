@@ -151,6 +151,7 @@ $routes = [
     
     // Promotions routes (app movil - SOLO LECTURA)
     ['GET', '/promotions', ['Amare\Api\Controllers\PromotionsController', 'index']],
+    ['GET', '/promotions/history', ['Amare\Api\Controllers\PromotionsController', 'history']],
     ['POST', '/promotions/validate', ['Amare\Api\Controllers\PromotionsController', 'validateCode']],
     ['GET', '/promotions/:id', ['Amare\Api\Controllers\PromotionsController', 'show']],
 

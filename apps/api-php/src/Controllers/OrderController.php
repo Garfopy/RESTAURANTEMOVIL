@@ -11,6 +11,7 @@ use Amare\Api\Middleware\ValidationMiddleware;
 use Amare\Api\Models\InvoiceRequest;
 use Amare\Api\Models\Order;
 use Amare\Api\Models\Product;
+use Amare\Api\Models\Promotion;
 use Amare\Api\Models\User;
 use Amare\Api\Services\RewardsService;
 use Amare\Api\Services\StripeConfig;
@@ -87,6 +88,7 @@ class OrderController
                     is_array($order['items'] ?? null) ? $order['items'] : []
                 );
                 Order::applyRewardsPayment($id, $reward);
+                Promotion::recordUsageForOrder($pdo, (int)$user->id, $order);
                 $pdo->commit();
             } catch (\DomainException $exception) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
@@ -152,6 +154,7 @@ class OrderController
             if (empty($reward['already_applied'])) {
                 Order::applyExternalRewardsSummary($id, $reward, $metodo !== 'cash');
             }
+            Promotion::recordUsageForOrder($pdo, (int)$user->id, $order);
             $pdo->commit();
         } catch (\DomainException $exception) {
             if ($pdo->inTransaction()) {

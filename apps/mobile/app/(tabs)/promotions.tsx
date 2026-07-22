@@ -20,6 +20,7 @@ import { apiClient, formatImageUrl } from '../../services/api';
 import { normalizeAppDeepLink } from '../../services/deep-links.service';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import type { BannerItem } from '../../components/shared/BannerCarousel';
+import { getMyPromotionHistory, type UsedPromotion } from '../../services/promotions.service';
 import { useBranchStore } from '../../store/branch.store';
 import { useUserStore } from '../../store/user.store';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
@@ -53,6 +54,11 @@ export default function PromotionsScreen() {
       return res.data.data ?? [];
     },
     staleTime: 5 * 60 * 1000,
+  });
+  const { data: usedPromos = [] } = useQuery<UsedPromotion[]>({
+    queryKey: ['promotions', 'history'],
+    queryFn: getMyPromotionHistory,
+    staleTime: 60 * 1000,
   });
 
   // Filtrar los destacados para el carrusel superior
@@ -139,7 +145,7 @@ export default function PromotionsScreen() {
         <Text style={styles.subtitle}>Aprovecha los beneficios que Amare tiene para ti</Text>
       </View>
 
-      {promos && promos.length > 0 ? (
+      {((promos && promos.length > 0) || usedPromos.length > 0) ? (
         <FlatList
           data={promos}
           keyExtractor={(p) => String(p.id)}
@@ -160,6 +166,9 @@ export default function PromotionsScreen() {
                 <BannerCarousel items={bannerItems} onPress={(item) => handlePromoPress(item.deepLink)} />
               </View>
             ) : null
+          }
+          ListFooterComponent={
+            usedPromos.length > 0 ? <PromotionHistorySection promotions={usedPromos} /> : null
           }
           renderItem={({ item }) => {
             const hasImage = !!item.imagen;
@@ -278,6 +287,35 @@ export default function PromotionsScreen() {
   );
 }
 
+function PromotionHistorySection({ promotions }: { promotions: UsedPromotion[] }) {
+  return (
+    <View style={styles.historySection}>
+      <View style={styles.historyHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>Historial de promociones</Text>
+          <Text style={styles.historySubtitle}>Estos códigos ya fueron utilizados en tu cuenta.</Text>
+        </View>
+        <Ionicons name="checkmark-done-outline" size={22} color={Colors.success || '#15803D'} />
+      </View>
+      {promotions.map((promo) => (
+        <View key={`${promo.id}-${promo.usado_at ?? promo.uso_pedido_id ?? 'used'}`} style={styles.historyCard}>
+          <View style={styles.historyIcon}>
+            <Ionicons name="pricetag-outline" size={19} color={Colors.textMuted} />
+          </View>
+          <View style={styles.historyCopy}>
+            <Text style={styles.historyTitle} numberOfLines={2}>{promo.titulo}</Text>
+            <Text style={styles.historyCode}>{promo.uso_codigo || promo.code || 'Código promocional'}</Text>
+            <Text style={styles.historyDate}>
+              Usado {formatPromoDate(promo.usado_at || promo.created_at)}
+            </Text>
+          </View>
+          <Ionicons name="checkmark-circle" size={21} color={Colors.success || '#15803D'} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function getPromoDeepLink(promo?: Promocion | null): string | undefined {
   return promo?.deep_link || promo?.deepLink || undefined;
 }
@@ -373,6 +411,68 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginHorizontal: 24,
     marginBottom: Spacing.sm,
+  },
+  historySection: {
+    marginTop: 12,
+    marginHorizontal: 24,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border || '#E5E7EB',
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  historySubtitle: {
+    marginHorizontal: 24,
+    marginTop: -4,
+    marginBottom: 10,
+    color: Colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  historyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    marginBottom: 10,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border || '#E5E7EB',
+  },
+  historyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.borderLight,
+  },
+  historyCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  historyTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  historyCode: {
+    marginTop: 2,
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  historyDate: {
+    marginTop: 2,
+    color: Colors.textMuted,
+    fontSize: 11,
   },
   
   // Refactorización total de Cards (Horizontal Layout con soporte multimedia)

@@ -456,6 +456,8 @@ class Order
         $paidAt = null;
         $closedAt = null;
         $paymentMethod = null;
+        $promoCode = null;
+        $promoDiscount = 0.0;
         $allPaid = true;
         $allClosed = true;
 
@@ -467,6 +469,8 @@ class Order
             $paidAt = $paidAt ?? ($order['pagado_at'] ?? null);
             $closedAt = $closedAt ?? ($order['cerrado_at'] ?? null);
             $paymentMethod = $paymentMethod ?? ($order['metodo_pago'] ?? null);
+            $promoCode = $promoCode ?? (trim((string)($order['promo_code'] ?? '')) ?: null);
+            $promoDiscount += (float)($order['descuento'] ?? 0);
             $allPaid = $allPaid && !empty($order['pagado_at']);
             $allClosed = $allClosed && !empty($order['cerrado_at']);
 
@@ -527,6 +531,8 @@ class Order
         $anchor['pagado_at'] = (!$isOpen && $allPaid) ? $paidAt : null;
         $anchor['cerrado_at'] = (!$isOpen && $allClosed) ? $closedAt : null;
         $anchor['metodo_pago'] = $paymentMethod;
+        $anchor['promo_code'] = $promoCode;
+        $anchor['descuento'] = round($promoDiscount, 2);
         $anchor['pedidos_count'] = count($orders);
         $anchor['es_consumo'] = true;
         $anchor['consumo_id'] = $anchor['consumo_id'] ?? null;
@@ -1276,6 +1282,10 @@ class Order
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            if (self::columnExists('rest_pedidos', 'promo_code')) {
+                $pedidoData['promo_code'] = $data['promo_code'] ?? null;
+            }
+
             // tipo_origen solo si la columna existe (migración 012)
             if (self::columnExists('rest_pedidos', 'tipo_origen')) {
                 $pedidoData['tipo_origen'] = $tipoOrigen;
@@ -1644,6 +1654,10 @@ class Order
             }
             if (in_array('total', $columns, true)) {
                 $fields[] = 'total = :total';
+            }
+            if (in_array('promo_code', $columns, true) && !empty($quote['code'])) {
+                $fields[] = 'promo_code = :promo_code';
+                $params[':promo_code'] = (string)$quote['code'];
             }
             if (in_array('updated_at', $columns, true)) {
                 $fields[] = 'updated_at = NOW()';

@@ -23,6 +23,14 @@ export interface Promotion {
   usuario_email?: string;
 }
 
+export interface UsedPromotion extends Promotion {
+  uso_pedido_id?: number | null;
+  uso_codigo?: string | null;
+  uso_descuento_mxn?: number | null;
+  uso_estado?: string | null;
+  usado_at?: string | null;
+}
+
 export type PromotionDiscountType = 'percent' | 'amount' | 'fixed_price' | 'free_item' | 'bogo';
 
 export interface PromotionQuote {
@@ -82,6 +90,12 @@ export type UpdatePromotionPayload = Partial<CreatePromotionPayload>;
 /** GET /promotions  -  Promociones activas del usuario autenticado */
 export async function getMyPromotions(): Promise<Promotion[]> {
   const res = await apiClient.get('/promotions');
+  return res.data.data ?? [];
+}
+
+/** GET /promotions/history - codigos ya consumidos por el usuario */
+export async function getMyPromotionHistory(): Promise<UsedPromotion[]> {
+  const res = await apiClient.get('/promotions/history');
   return res.data.data ?? [];
 }
 
