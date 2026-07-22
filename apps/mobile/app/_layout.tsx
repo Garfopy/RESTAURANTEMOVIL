@@ -111,7 +111,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       ? '/account-suspended'
       : !isLoading && !isAuthenticated && !inAuth && !inPublicLegal && !inAccountSuspended
       ? '/(auth)/login'
-      : !isLoading && needsOnboarding && !inCompleteProfile
+      : !isLoading && needsOnboarding && !inCompleteProfile && !inPublicLegal
         ? '/(auth)/complete-profile'
         : !isLoading && isAuthenticated && isWaiter && !inWaiter
         ? '/(waiter)'
