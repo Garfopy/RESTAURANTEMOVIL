@@ -15,7 +15,11 @@ import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
 type GoogleSignInModule = {
   configure: (options: { webClientId: string; iosClientId?: string; offlineAccess?: boolean; scopes?: string[] }) => void;
   hasPlayServices: (options?: { showPlayServicesUpdateDialog?: boolean }) => Promise<boolean>;
-  signIn: () => Promise<{ idToken?: string | null; data?: { idToken?: string | null } | null }>;
+  signIn: () => Promise<{
+    type?: 'success' | 'cancelled';
+    idToken?: string | null;
+    data?: { idToken?: string | null } | null;
+  }>;
 };
 
 let GoogleSignin: GoogleSignInModule | null = null;
@@ -90,6 +94,11 @@ export default function GoogleAuthScreen() {
       }
 
       const userInfo = await GoogleSignin.signIn();
+      if (userInfo.type === 'cancelled') {
+        goToLogin();
+        return;
+      }
+
       const idToken = userInfo.data?.idToken ?? userInfo.idToken;
       if (!idToken) {
         throw new Error('No se obtuvo el ID token de Google');
