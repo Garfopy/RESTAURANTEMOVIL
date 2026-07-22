@@ -56,6 +56,7 @@ class Database
             $stmt->execute($params);
             return $stmt->fetchAll();
         } catch (PDOException $e) {
+            error_log('Database::query ERROR: ' . $e->getMessage());
             if (Environment::bool('APP_DEBUG')) {
                 throw $e;
             }
@@ -71,6 +72,7 @@ class Database
             $result = $stmt->fetch();
             return $result ?: null;
         } catch (PDOException $e) {
+            error_log('Database::queryOne ERROR: ' . $e->getMessage());
             if (Environment::bool('APP_DEBUG')) {
                 throw $e;
             }
@@ -86,6 +88,7 @@ class Database
             
             return (int) self::getInstance()->lastInsertId();
         } catch (PDOException $e) {
+            error_log('Database::execute ERROR: ' . $e->getMessage());
             if (Environment::bool('APP_DEBUG')) {
                 throw $e;
             }

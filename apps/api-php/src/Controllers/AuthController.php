@@ -343,14 +343,17 @@ class AuthController
             );
         }
 
+        $appleAuthStage = 'verify_identity_token';
         try {
             $identity = AppleIdentityService::verifyIdentityToken($identityToken);
             $appleId = $identity['sub'];
             $email = $identity['email'];
             $name = self::normalizeExternalName($input['full_name'] ?? null);
 
+            $appleAuthStage = 'find_apple_account';
             $user = User::findByAppleId($appleId);
             if (!$user && $email !== null) {
+                $appleAuthStage = 'find_email_account';
                 $user = User::findByEmail($email);
                 if ($user) {
                     if (!$identity['email_verified']) {
@@ -377,6 +380,7 @@ class AuthController
                             'APPLE_LINK_FAILED'
                         );
                     }
+                    $appleAuthStage = 'reload_linked_account';
                     $user = User::findById((int)$user['id']);
                 }
             }
@@ -390,12 +394,14 @@ class AuthController
                     );
                 }
 
+                $appleAuthStage = 'create_account';
                 $userId = User::create([
                     'nombre' => $name !== '' ? substr($name, 0, 100) : 'Usuario Amare',
                     'email' => $email,
                     'password_hash' => password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT),
                     'apple_id' => $appleId,
                 ]);
+                $appleAuthStage = 'load_created_account';
                 $user = User::findById($userId);
             }
 
@@ -412,6 +418,7 @@ class AuthController
                 }
             }
 
+            $appleAuthStage = 'generate_session';
             $token = AuthMiddleware::generateToken([
                 'id' => $user['id'],
                 'email' => $user['email'],
@@ -424,9 +431,18 @@ class AuthController
             $user['requires_onboarding'] = $this->requiresExternalOnboarding($user);
             Response::success(['user' => $user, 'token' => $token], 'Inicio de sesion con Apple exitoso');
         } catch (\InvalidArgumentException $exception) {
+            error_log(
+                'AuthController::apple INVALID_TOKEN stage=' . $appleAuthStage
+                . ' type=' . get_class($exception)
+                . ' message=' . $exception->getMessage()
+            );
             Response::error($exception->getMessage(), 400, 'APPLE_TOKEN_INVALID');
         } catch (\Throwable $exception) {
-            error_log('AuthController::apple ERROR: ' . $exception->getMessage());
+            error_log(
+                'AuthController::apple ERROR stage=' . $appleAuthStage
+                . ' type=' . get_class($exception)
+                . ' message=' . $exception->getMessage()
+            );
             Response::error('No se pudo validar el inicio con Apple.', 401, 'APPLE_AUTH_FAILED');
         }
     }

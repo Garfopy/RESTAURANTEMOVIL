@@ -21,6 +21,9 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
         "aps-environment": "production",
+        "com.apple.developer.applesignin": [
+          "Default"
+        ],
         "com.apple.developer.in-app-payments": [
           "merchant.com.amare.app"
         ]
