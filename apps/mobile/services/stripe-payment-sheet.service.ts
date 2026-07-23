@@ -165,3 +165,13 @@ export function stripePaymentLabel(): string {
   if (Platform.OS === 'android' && NATIVE_WALLETS_ENABLED) return 'Tarjeta y Google Pay';
   return 'Tarjeta';
 }
+
+export function stripePaymentSheetNote(): string {
+  if (Platform.OS === 'ios' && NATIVE_WALLETS_ENABLED) {
+    return 'Al pagar se abrira Stripe con tarjeta y Apple Pay en dispositivos compatibles.';
+  }
+  if (Platform.OS === 'android' && NATIVE_WALLETS_ENABLED) {
+    return 'Al pagar se abrira Stripe con tarjeta y Google Pay en dispositivos compatibles.';
+  }
+  return 'Al pagar se abrira la ventana segura de Stripe.';
+}

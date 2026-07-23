@@ -41,6 +41,7 @@ import {
   showStripeMinimumAmountAlert,
   STRIPE_MINIMUM_PAYMENT_MXN,
   stripePaymentLabel,
+  stripePaymentSheetNote,
 } from '../../services/stripe-payment-sheet.service';
 import { InvoiceRequestForm } from '../../components/shared/InvoiceRequestForm';
 import { Colors, Shadows, Spacing, Typography } from '../../theme';
@@ -659,7 +660,7 @@ export default function PaymentScreen() {
         {selectedMethod === 'card' && STRIPE_IS_CONFIGURED ? (
           <View style={styles.stripeContainer}>
             <Text style={styles.secureNote}>
-              <Ionicons name="lock-closed-outline" size={12} color={Colors.success} /> Al pagar se abrira la ventana segura de Stripe
+              <Ionicons name="lock-closed-outline" size={12} color={Colors.success} /> {stripePaymentSheetNote()}
             </Text>
           </View>
         ) : null}

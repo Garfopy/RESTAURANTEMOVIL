@@ -23,6 +23,7 @@ import {
   presentAmarePaymentSheet,
   showStripeMinimumAmountAlert,
   stripePaymentLabel,
+  stripePaymentSheetNote,
 } from '../../services/stripe-payment-sheet.service';
 import { Colors, Spacing, Shadows } from '../../theme';
 
@@ -278,7 +279,7 @@ export default function StorePaymentScreen() {
           <View style={styles.stripeContainer}>
             <Text style={styles.secureNote}>
               <Ionicons name="lock-closed-outline" size={12} color={Colors.success} />
-              {' '}Al pagar se abrira la ventana segura de Stripe
+              {' '}{stripePaymentSheetNote()}
             </Text>
           </View>
         )}
