@@ -10,6 +10,11 @@ final class StripeConfig
 {
     public const MINIMUM_PAYMENT_MXN_CENTS = 1000;
 
+    public static function minimumPaymentMxn(): float
+    {
+        return round(self::MINIMUM_PAYMENT_MXN_CENTS / 100, 2);
+    }
+
     public static function isBelowMinimumPaymentMxn(float $amount): bool
     {
         $amountCents = (int)round($amount * 100);

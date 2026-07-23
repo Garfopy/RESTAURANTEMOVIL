@@ -53,7 +53,7 @@ class RewardsController
         if (!in_array($context, ['food', 'gift'], true)) {
             $errors['context'] = ['Contexto de recompensa no valido'];
         }
-        if (!in_array($paymentMode, ['wallet', 'external'], true)) {
+        if (!in_array($paymentMode, ['wallet', 'external', 'stripe'], true)) {
             $errors['payment_mode'] = ['Modo de pago no valido'];
         }
         if ($amount <= 0) {
@@ -64,7 +64,17 @@ class RewardsController
         }
 
         try {
-            Response::success((new RewardsService())->quote((int)$user->id, $amount, $usePoints, $context, $items, $paymentMode));
+            $minimumPayableTotal = $paymentMode === 'stripe' ? StripeConfig::minimumPaymentMxn() : null;
+            $quoteMode = $paymentMode === 'stripe' ? 'external' : $paymentMode;
+            Response::success((new RewardsService())->quote(
+                (int)$user->id,
+                $amount,
+                $usePoints,
+                $context,
+                $items,
+                $quoteMode,
+                $minimumPayableTotal
+            ));
         } catch (\Throwable $exception) {
             error_log('RewardsController::quote ERROR: ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
             Response::serverError('No se pudo cotizar tu saldo Amare.');

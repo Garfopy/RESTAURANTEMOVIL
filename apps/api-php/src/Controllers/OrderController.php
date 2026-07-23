@@ -141,6 +141,9 @@ class OrderController
             if (!Order::updatePaymentMethod($id, $metodo, $paymentIntentId)) {
                 throw new \RuntimeException('No se pudo actualizar el estado de pago del pedido.');
             }
+            $minimumPayableTotal = in_array($metodo, ['card', 'apple_pay', 'google_pay'], true)
+                ? StripeConfig::minimumPaymentMxn()
+                : null;
             $reward = (new RewardsService())->awardPoints(
                 $pdo,
                 (int)$user->id,
@@ -149,7 +152,8 @@ class OrderController
                 'food',
                 'order',
                 $id,
-                'Puntos generados por compra de alimentos'
+                'Puntos generados por compra de alimentos',
+                $minimumPayableTotal
             );
             if (empty($reward['already_applied'])) {
                 Order::applyExternalRewardsSummary($id, $reward, $metodo !== 'cash');
@@ -518,7 +522,8 @@ class OrderController
             $usePoints,
             'food',
             is_array($order['items'] ?? null) ? $order['items'] : [],
-            'external'
+            'external',
+            StripeConfig::minimumPaymentMxn()
         );
         $expectedCents = (int)round((float)$rewardsQuote['wallet_total'] * 100);
         $receivedCents = (int)($intent->amount_received ?: $intent->amount);

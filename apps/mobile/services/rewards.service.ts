@@ -57,6 +57,8 @@ export type RewardsQuote = {
   balance_mxn: number;
   points: number;
   points_value_mxn: number;
+  minimum_payable_total?: number;
+  points_limited_by_minimum?: boolean;
   simulated: boolean;
 };
 
@@ -128,6 +130,9 @@ function normalizeQuote(quote: RewardsQuote): RewardsQuote {
     balance_mxn: Number(quote.balance_mxn || 0),
     points: Number(quote.points || 0),
     points_value_mxn: Number(quote.points_value_mxn || 0),
+    minimum_payable_total:
+      quote.minimum_payable_total === undefined ? undefined : Number(quote.minimum_payable_total || 0),
+    points_limited_by_minimum: Boolean(quote.points_limited_by_minimum),
     simulated: Boolean(quote.simulated),
   };
 }
@@ -141,7 +146,7 @@ export async function quoteRewards(params: {
   context: RewardsContext;
   amount: number;
   use_points?: boolean;
-  payment_mode?: 'wallet' | 'external';
+  payment_mode?: 'wallet' | 'external' | 'stripe';
   items?: QuoteItem[];
 }): Promise<RewardsQuote> {
   const response = await apiClient.post<ApiEnvelope<RewardsQuote> | RewardsQuote>('/rewards/quote', {

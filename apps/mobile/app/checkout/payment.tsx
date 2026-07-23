@@ -39,6 +39,7 @@ import {
   assertStripeMinimumPaymentAmount,
   presentAmarePaymentSheet,
   showStripeMinimumAmountAlert,
+  STRIPE_MINIMUM_PAYMENT_MXN,
   stripePaymentLabel,
 } from '../../services/stripe-payment-sheet.service';
 import { InvoiceRequestForm } from '../../components/shared/InvoiceRequestForm';
@@ -220,7 +221,7 @@ export default function PaymentScreen() {
     setPickupPhone((current) => current || normalizePhone(String(user?.telefono ?? '')));
   }, [isPickupOrder, user?.telefono]);
 
-  const rewardsPaymentMode = selectedMethod === 'amare' ? 'wallet' : 'external';
+  const rewardsPaymentMode = selectedMethod === 'amare' ? 'wallet' : selectedMethod === 'card' ? 'stripe' : 'external';
   const couponDiscount = Math.max(0, Number(couponQuote?.discount ?? 0));
   const promoAdjustedAmount = Math.max(0, Math.round((paymentAmount - couponDiscount) * 100) / 100);
 
@@ -264,7 +265,14 @@ export default function PaymentScreen() {
   const walletBalance = Number(rewardsWallet?.balance_mxn ?? rewardsQuote?.balance_mxn ?? 0);
   const methodDiscount = selectedMethod === 'amare' ? Math.round(promoAdjustedAmount * 0.1 * 100) / 100 : 0;
   const totalAfterMethodDiscount = Math.max(0, Math.round((promoAdjustedAmount - methodDiscount) * 100) / 100);
-  const pointsApplied = useRewardsPoints ? Math.min(availablePoints, Math.floor(totalAfterMethodDiscount)) : 0;
+  const maximumPointsForMethod =
+    selectedMethod === 'card'
+      ? Math.max(0, Math.floor(Math.max(0, totalAfterMethodDiscount - STRIPE_MINIMUM_PAYMENT_MXN)))
+      : Math.floor(totalAfterMethodDiscount);
+  const quotedPointsApplied = useRewardsPoints && rewardsQuote ? Number(rewardsQuote.points_redeemed ?? 0) : null;
+  const pointsApplied = useRewardsPoints
+    ? quotedPointsApplied ?? Math.min(availablePoints, maximumPointsForMethod)
+    : 0;
   const pointsDiscount = pointsApplied;
   const effectivePaymentAmount = Math.max(0, Math.round((totalAfterMethodDiscount - pointsDiscount) * 100) / 100);
   const displayedPaymentAmount = preparedCardPayment?.amount ?? effectivePaymentAmount;
@@ -763,6 +771,8 @@ export default function PaymentScreen() {
             <Text style={styles.pointsHint}>Aún no tienes puntos disponibles para usar en este pedido.</Text>
           ) : selectedMethod === 'amare' ? (
             <Text style={styles.pointsHint}>Con Saldo Amare obtienes 10% de descuento directo.</Text>
+          ) : selectedMethod === 'card' && useRewardsPoints && rewardsQuote?.points_limited_by_minimum ? (
+            <Text style={styles.pointsHint}>Limitamos los puntos para dejar el minimo de $10.00 MXN requerido por Stripe.</Text>
           ) : (
             <Text style={styles.pointsHint}>Si no pagas con Saldo Amare, recibes 5% del total pagado en puntos.</Text>
           )}

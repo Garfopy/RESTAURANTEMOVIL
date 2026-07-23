@@ -93,13 +93,11 @@ class PaymentController
                 $usePoints,
                 'food',
                 $pricingItems,
-                'external'
+                'external',
+                StripeConfig::minimumPaymentMxn()
             );
             $amount = round((float)$rewardsQuote['wallet_total'], 2);
-            if ($amount <= 0) {
-                Response::error('El total a cobrar debe ser mayor a cero.', 409, 'PAYMENT_AMOUNT_ZERO');
-            }
-            if (StripeConfig::isBelowMinimumPaymentMxn($amount)) {
+            if ($amount <= 0 || StripeConfig::isBelowMinimumPaymentMxn($amount)) {
                 Response::error(
                     'El pago con tarjeta debe ser de al menos $10.00 MXN. Ajusta tu compra o elige otro método de pago.',
                     422,
@@ -476,7 +474,8 @@ class PaymentController
             $usePoints,
             'food',
             is_array($order['items'] ?? null) ? $order['items'] : [],
-            'external'
+            'external',
+            StripeConfig::minimumPaymentMxn()
         );
         $expectedCents = (int)round((float)$quote['wallet_total'] * 100);
         $receivedCents = (int)($paymentIntent->amount_received ?: $paymentIntent->amount);
@@ -516,7 +515,8 @@ class PaymentController
                 'food',
                 'order',
                 $orderId,
-                'Puntos generados por compra de alimentos'
+                'Puntos generados por compra de alimentos',
+                StripeConfig::minimumPaymentMxn()
             );
             if (empty($reward['already_applied'])) {
                 Order::applyExternalRewardsSummary($orderId, $reward, true);

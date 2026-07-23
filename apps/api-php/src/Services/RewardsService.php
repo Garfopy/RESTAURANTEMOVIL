@@ -36,13 +36,14 @@ class RewardsService
         bool $usePoints = false,
         string $context = 'food',
         array $items = [],
-        string $paymentMode = 'wallet'
+        string $paymentMode = 'wallet',
+        ?float $minimumPayableTotal = null
     ): array {
         $pdo = Database::getInstance();
         $this->ensureSchema($pdo);
         $wallet = $this->ensureWallet($pdo, $userId);
 
-        return $this->buildQuote($wallet, $amount, $context, $usePoints, $paymentMode === 'wallet');
+        return $this->buildQuote($wallet, $amount, $context, $usePoints, $paymentMode === 'wallet', $minimumPayableTotal);
     }
 
     public function charge(
@@ -132,7 +133,8 @@ class RewardsService
         string $context,
         string $referenceType,
         int $referenceId,
-        string $description
+        string $description,
+        ?float $minimumPayableTotal = null
     ): array {
         $this->ensureSchema($pdo);
 
@@ -147,7 +149,7 @@ class RewardsService
             ];
         }
 
-        $quote = $this->buildQuote($wallet, $amount, $context, $usePoints, false);
+        $quote = $this->buildQuote($wallet, $amount, $context, $usePoints, false, $minimumPayableTotal);
         $newPoints = max(0, (int)$wallet['points'] - (int)$quote['points_redeemed'] + (int)$quote['points_earned']);
 
         $stmt = $pdo->prepare(
@@ -614,17 +616,32 @@ class RewardsService
         ];
     }
 
-    private function buildQuote(array $wallet, float $amount, string $context, bool $usePoints, bool $walletPayment): array
+    private function buildQuote(
+        array $wallet,
+        float $amount,
+        string $context,
+        bool $usePoints,
+        bool $walletPayment,
+        ?float $minimumPayableTotal = null
+    ): array
     {
         $original = round(max(0, $amount), 2);
         $discount = $walletPayment ? round($original * self::WALLET_DISCOUNT_RATE, 2) : 0;
         $afterDiscount = round(max(0, $original - $discount), 2);
         $availablePoints = (int)($wallet['points'] ?? 0);
-        $pointsRedeemed = $usePoints ? min($availablePoints, (int)floor($afterDiscount)) : 0;
+        $minimumPayableTotal = $walletPayment ? 0 : round(max(0, (float)($minimumPayableTotal ?? 0)), 2);
+        $maximumPointValue = $minimumPayableTotal > 0
+            ? round(max(0, $afterDiscount - $minimumPayableTotal), 2)
+            : $afterDiscount;
+        $pointsRedeemed = $usePoints ? min($availablePoints, (int)floor($maximumPointValue)) : 0;
         $pointsDiscount = (float)$pointsRedeemed;
         $payableTotal = round(max(0, $afterDiscount - $pointsDiscount), 2);
         $pointsEarned = $walletPayment ? 0 : $this->calculateNonWalletPoints($payableTotal);
         $balance = round((float)($wallet['balance_mxn'] ?? 0), 2);
+        $pointsLimitedByMinimum = $usePoints
+            && $minimumPayableTotal > 0
+            && $afterDiscount > 0
+            && $availablePoints > $pointsRedeemed;
 
         return [
             'context' => $context,
@@ -639,6 +656,8 @@ class RewardsService
             'balance_mxn' => $balance,
             'points' => $availablePoints,
             'points_value_mxn' => $availablePoints,
+            'minimum_payable_total' => $minimumPayableTotal,
+            'points_limited_by_minimum' => $pointsLimitedByMinimum,
             'simulated' => (bool)($wallet['simulated_balance'] ?? false),
         ];
     }

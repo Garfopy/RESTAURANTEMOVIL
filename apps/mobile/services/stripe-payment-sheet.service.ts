@@ -27,7 +27,6 @@ export function assertStripeMinimumPaymentAmount(amountMxn?: number): void {
   if (
     typeof amountMxn === 'number' &&
     Number.isFinite(amountMxn) &&
-    amountMxn > 0 &&
     amountMxn < STRIPE_MINIMUM_PAYMENT_MXN
   ) {
     throw new StripeMinimumAmountError(amountMxn);
