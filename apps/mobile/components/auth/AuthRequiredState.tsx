@@ -12,6 +12,7 @@ type AuthRequiredStateProps = {
   icon?: keyof typeof Ionicons.glyphMap;
   primaryLabel?: string;
   secondaryLabel?: string;
+  benefits?: string[];
 };
 
 export function AuthRequiredState({
@@ -21,6 +22,7 @@ export function AuthRequiredState({
   icon = 'person-circle-outline',
   primaryLabel = 'Crear cuenta gratis',
   secondaryLabel = 'Ya tengo cuenta',
+  benefits = ['Ofertas', 'Historial', 'Favoritos'],
 }: AuthRequiredStateProps) {
   const router = useRouter();
 
@@ -36,6 +38,14 @@ export function AuthRequiredState({
       </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.message}>{message}</Text>
+      <View style={styles.benefitsRow}>
+        {benefits.slice(0, 3).map((benefit) => (
+          <View key={benefit} style={styles.benefitChip}>
+            <Ionicons name="checkmark-circle-outline" size={13} color={Colors.primary || '#111827'} />
+            <Text style={styles.benefitText}>{benefit}</Text>
+          </View>
+        ))}
+      </View>
       <TouchableOpacity style={styles.primaryButton} onPress={() => goTo('/(auth)/register')} activeOpacity={0.86}>
         <Text style={styles.primaryText}>{primaryLabel}</Text>
       </TouchableOpacity>
@@ -81,6 +91,29 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: '#6B7280',
     textAlign: 'center',
+  },
+  benefitsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  benefitChip: {
+    minHeight: 30,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  benefitText: {
+    color: Colors.text || '#111827',
+    fontSize: 11,
+    fontWeight: '800',
   },
   primaryButton: {
     minHeight: 50,

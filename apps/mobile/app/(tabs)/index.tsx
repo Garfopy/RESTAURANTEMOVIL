@@ -39,7 +39,7 @@ import { getNearestBranches } from '../../services/branches.service';
 import { ensureCameraPermission, ensureLocationPermission } from '../../services/app-permissions.service';
 import { createReservation, getReservationAvailability, type ReservationTable } from '../../services/reservations.service';
 import { getApiError } from '../../services/api';
-import { requireAuth } from '../../services/auth-gate.service';
+import { requireAuth, saveAuthReturnTo } from '../../services/auth-gate.service';
 import { Colors } from '../../theme';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
@@ -1050,6 +1050,15 @@ export default function HomeScreen() {
     });
   }
 
+  function openCreateAccountFromHome() {
+    void saveAuthReturnTo('/(tabs)');
+    router.push({ pathname: '/(auth)/register', params: { returnTo: '/(tabs)' } } as never);
+  }
+
+  function openPublicPromotions() {
+    router.push('/(tabs)/promotions' as never);
+  }
+
   const firstName = token ? user?.nombre?.split(' ')[0] ?? '' : '';
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Buenos días' : currentHour < 19 ? 'Buenas tardes' : 'Buenas noches';
@@ -1161,6 +1170,23 @@ export default function HomeScreen() {
                 <Text style={styles.heroFeatureText}>Pedido sencillo</Text>
               </View>
             </View>
+
+            {!token ? (
+              <View style={styles.guestAccountStrip}>
+                <View style={styles.guestAccountCopy}>
+                  <Text style={styles.guestAccountTitle}>Ofertas y pedidos guardados</Text>
+                  <Text style={styles.guestAccountText}>Crea tu cuenta cuando quieras usar beneficios.</Text>
+                </View>
+                <View style={styles.guestAccountActions}>
+                  <TouchableOpacity style={styles.guestAccountPrimary} onPress={openCreateAccountFromHome} activeOpacity={0.86}>
+                    <Text style={styles.guestAccountPrimaryText}>Crear cuenta</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.guestAccountIconButton} onPress={openPublicPromotions} activeOpacity={0.86}>
+                    <Ionicons name="pricetag-outline" size={16} color="#E9DDC8" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
           </LinearGradient>
         </Animated.View>
 
@@ -1704,6 +1730,60 @@ const styles = StyleSheet.create({
   heroFeature: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   heroFeatureText: { color: '#AAA294', fontSize: 10, fontWeight: '700' },
   heroDivider: { width: 1, height: 15, backgroundColor: 'rgba(233,221,200,0.14)' },
+  guestAccountStrip: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  guestAccountCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  guestAccountTitle: {
+    color: '#F7F1E7',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  guestAccountText: {
+    color: '#BEB6A9',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  guestAccountActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  guestAccountPrimary: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    backgroundColor: '#E9DDC8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestAccountPrimaryText: {
+    color: '#202228',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  guestAccountIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(233,221,200,0.18)',
+    backgroundColor: 'rgba(233,221,200,0.08)',
+  },
 
   orderTypeWrapper: {
     marginVertical: 10,

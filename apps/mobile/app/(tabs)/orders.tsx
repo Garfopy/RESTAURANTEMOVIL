@@ -102,6 +102,7 @@ export default function OrdersScreen() {
         icon="receipt-outline"
         title="Registra tu cuenta para seguir pedidos"
         message="Guarda tu historial, recibe actualizaciones y vuelve a pedir tus favoritos sin capturar todo otra vez."
+        benefits={['Seguimiento', 'Historial', 'Reordenar']}
         returnTo="/(tabs)/orders"
       />
     );

@@ -56,6 +56,7 @@ export default function FavoritesScreen() {
         icon="heart-outline"
         title="Regístrate para guardar favoritos"
         message="Crea tu cuenta para guardar platillos, recibir ofertas y encontrarlos rapido en tu proxima visita."
+        benefits={['Favoritos', 'Ofertas', 'Repetir pedido']}
         returnTo="/(tabs)/favorites"
       />
     );

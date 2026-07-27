@@ -12,6 +12,7 @@ export default function SocialTabScreen() {
         icon="people-outline"
         title="Regístrate para activar el modo social"
         message="Crea tu perfil para conectar dentro del restaurante, enviar momentos y recibir beneficios sociales."
+        benefits={['Perfil social', 'Momentos', 'Beneficios']}
         returnTo="/(tabs)/social"
       />
     );

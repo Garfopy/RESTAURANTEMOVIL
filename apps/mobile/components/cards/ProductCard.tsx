@@ -14,6 +14,8 @@ import { formatImageUrl } from '../../services/api';
 import type { Platillo } from '@amare/types';
 import { useThemeColors } from '../../store/theme.store';
 import { requireAuth } from '../../services/auth-gate.service';
+import { useCartStore } from '../../store/cart.store';
+import { useToast } from '../../context/ToastContext';
 
 import { useFavorites } from '../../hooks/useFavorites';
 
@@ -33,11 +35,17 @@ export function ProductCard({
   const router = useRouter();
   const scale = useRef(new Animated.Value(1)).current;
   const theme = useThemeColors();
+  const addItem = useCartStore((state) => state.addItem);
+  const toast = useToast();
 
   // ✅ React Query source of truth
   const { data: favorites = [], toggle } = useFavorites();
 
   const isFavorite = favorites.some((p) => p.id === platillo.id);
+  const requiresCustomization = Boolean(
+    platillo.selector ||
+      platillo.modificadores?.some((mod) => mod.requerido || Number(mod.min_selecciones ?? 0) > 0)
+  );
 
   const animStyle = { transform: [{ scale }] };
 
@@ -55,6 +63,18 @@ export function ProductCard({
       damping: 12,
       useNativeDriver: true,
     }).start();
+  }
+
+  function handleQuickAdd() {
+    if (platillo.disponible === false) return;
+
+    if (requiresCustomization) {
+      onPress(platillo);
+      return;
+    }
+
+    addItem(platillo, 1, [], '');
+    toast.success('Agregado al carrito');
   }
 
   return (
@@ -109,6 +129,24 @@ export function ProductCard({
             name={isFavorite ? 'heart' : 'heart-outline'}
             size={14}
             color={Colors.error}
+          />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickAddBadge, platillo.disponible === false && styles.quickAddBadgeDisabled]}
+          onPress={(event) => {
+            event.stopPropagation();
+            handleQuickAdd();
+          }}
+          disabled={platillo.disponible === false}
+          accessibilityLabel={requiresCustomization ? 'Personalizar platillo' : 'Agregar al carrito'}
+          accessibilityRole="button"
+          testID={`quick-add-btn-${platillo.id}`}
+        >
+          <Ionicons
+            name={requiresCustomization ? 'options-outline' : 'add'}
+            size={16}
+            color={platillo.disponible === false ? Colors.textMuted : Colors.white}
           />
         </TouchableOpacity>
       </View>
@@ -174,6 +212,21 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: 6,
+  },
+  quickAddBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.sm,
+  },
+  quickAddBadgeDisabled: {
+    backgroundColor: '#E5E7EB',
   },
   info: {
     padding: Spacing.sm,

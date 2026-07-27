@@ -104,6 +104,7 @@ export default function ProfileScreen() {
         icon="person-outline"
         title="Crea tu cuenta Amare"
         message="Accede a ofertas, direcciones guardadas, beneficios, historial y preferencias personales."
+        benefits={['Direcciones', 'Rewards', 'Preferencias']}
         returnTo="/(tabs)/profile"
       />
     );
