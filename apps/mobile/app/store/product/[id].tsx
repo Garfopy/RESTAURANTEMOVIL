@@ -54,7 +54,7 @@ export default function StoreProductScreen() {
   function handleBuyNow() {
     if (!product) return;
     if (!requireAuth(router, {
-      message: 'Inicia sesion para comprar este producto y dar seguimiento a tu pedido.',
+      message: 'Crea tu cuenta para comprar este producto y dar seguimiento a tu pedido.',
       returnTo: `/store/product/${product.id}`,
     })) {
       return;

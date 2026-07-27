@@ -96,7 +96,7 @@ export function ProductCard({
           ]}
           onPress={() => {
             if (!requireAuth(router, {
-              message: 'Inicia sesion para guardar platillos en tus favoritos.',
+              message: 'Crea tu cuenta para guardar favoritos, recibir ofertas y encontrarlos rapido despues.',
               returnTo: '/(tabs)/favorites',
             })) return;
             void toggle(platillo.id);

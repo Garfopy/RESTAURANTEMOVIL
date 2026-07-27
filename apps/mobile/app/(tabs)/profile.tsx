@@ -101,8 +101,9 @@ export default function ProfileScreen() {
   if (!token) {
     return (
       <AuthRequiredState
-        title="Tu cuenta Amare"
-        message="Inicia sesion para ver tu perfil, direcciones, beneficios y actividad."
+        icon="person-outline"
+        title="Crea tu cuenta Amare"
+        message="Accede a ofertas, direcciones guardadas, beneficios, historial y preferencias personales."
         returnTo="/(tabs)/profile"
       />
     );

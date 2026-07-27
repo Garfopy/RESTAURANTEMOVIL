@@ -99,8 +99,9 @@ export default function OrdersScreen() {
   if (!token) {
     return (
       <AuthRequiredState
-        title="Tus pedidos viven en tu cuenta"
-        message="Inicia sesion para ver pedidos activos, historial y seguimiento."
+        icon="receipt-outline"
+        title="Registra tu cuenta para seguir pedidos"
+        message="Guarda tu historial, recibe actualizaciones y vuelve a pedir tus favoritos sin capturar todo otra vez."
         returnTo="/(tabs)/orders"
       />
     );

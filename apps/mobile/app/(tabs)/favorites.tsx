@@ -53,8 +53,9 @@ export default function FavoritesScreen() {
   if (!token) {
     return (
       <AuthRequiredState
-        title="Guarda tus favoritos"
-        message="Inicia sesion para guardar platillos y encontrarlos rapido en tu proxima visita."
+        icon="heart-outline"
+        title="Regístrate para guardar favoritos"
+        message="Crea tu cuenta para guardar platillos, recibir ofertas y encontrarlos rapido en tu proxima visita."
         returnTo="/(tabs)/favorites"
       />
     );

@@ -25,13 +25,20 @@ export function requireAuth(router: RouterLike, options: RequireAuthOptions): bo
   if (isSignedIn()) return true;
 
   const returnTo = options.returnTo ?? '/(tabs)';
-  Alert.alert(options.title ?? 'Inicia sesion', options.message, [
+  Alert.alert(options.title ?? 'Crea tu cuenta', options.message, [
     { text: 'Ahora no', style: 'cancel' },
     {
       text: 'Iniciar sesion',
       onPress: () => {
         void saveAuthReturnTo(returnTo);
         router.push({ pathname: '/(auth)/login', params: { returnTo } });
+      },
+    },
+    {
+      text: 'Crear cuenta',
+      onPress: () => {
+        void saveAuthReturnTo(returnTo);
+        router.push({ pathname: '/(auth)/register', params: { returnTo } });
       },
     },
   ]);

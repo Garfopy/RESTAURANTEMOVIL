@@ -68,7 +68,7 @@ export default function CartScreen() {
 
   function handleCheckout() {
     if (!requireAuth(router, {
-      message: 'Inicia sesion para completar tu pedido y darle seguimiento.',
+      message: 'Crea tu cuenta para completar el pedido, guardar tus datos y darle seguimiento.',
       returnTo: '/checkout/order-type',
     })) {
       return;

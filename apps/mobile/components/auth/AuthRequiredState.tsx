@@ -9,9 +9,19 @@ type AuthRequiredStateProps = {
   title: string;
   message: string;
   returnTo: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+  primaryLabel?: string;
+  secondaryLabel?: string;
 };
 
-export function AuthRequiredState({ title, message, returnTo }: AuthRequiredStateProps) {
+export function AuthRequiredState({
+  title,
+  message,
+  returnTo,
+  icon = 'person-circle-outline',
+  primaryLabel = 'Crear cuenta gratis',
+  secondaryLabel = 'Ya tengo cuenta',
+}: AuthRequiredStateProps) {
   const router = useRouter();
 
   function goTo(pathname: '/(auth)/login' | '/(auth)/register') {
@@ -22,15 +32,18 @@ export function AuthRequiredState({ title, message, returnTo }: AuthRequiredStat
   return (
     <View style={styles.wrap}>
       <View style={styles.iconWrap}>
-        <Ionicons name="person-circle-outline" size={42} color={Colors.primary || '#111827'} />
+        <Ionicons name={icon} size={42} color={Colors.primary || '#111827'} />
       </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.message}>{message}</Text>
-      <TouchableOpacity style={styles.primaryButton} onPress={() => goTo('/(auth)/login')} activeOpacity={0.86}>
-        <Text style={styles.primaryText}>Iniciar sesion</Text>
+      <TouchableOpacity style={styles.primaryButton} onPress={() => goTo('/(auth)/register')} activeOpacity={0.86}>
+        <Text style={styles.primaryText}>{primaryLabel}</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.secondaryButton} onPress={() => goTo('/(auth)/register')} activeOpacity={0.86}>
-        <Text style={styles.secondaryText}>Crear cuenta</Text>
+      <TouchableOpacity style={styles.secondaryButton} onPress={() => goTo('/(auth)/login')} activeOpacity={0.86}>
+        <Text style={styles.secondaryText}>{secondaryLabel}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.exploreButton} onPress={() => router.replace('/(tabs)' as never)} activeOpacity={0.86}>
+        <Text style={styles.exploreText}>Seguir explorando menu</Text>
       </TouchableOpacity>
     </View>
   );
@@ -95,5 +108,17 @@ const styles = StyleSheet.create({
     color: Colors.primary || '#111827',
     fontSize: 14,
     fontWeight: '900',
+  },
+  exploreButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    marginTop: 2,
+  },
+  exploreText: {
+    color: '#6B7280',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

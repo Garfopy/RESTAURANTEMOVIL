@@ -360,7 +360,7 @@ export default function OrderTypeScreen() {
 
   async function handleContinue() {
     if (!requireAuth(router, {
-      message: 'Inicia sesion para completar tu pedido y darle seguimiento.',
+      message: 'Crea tu cuenta para confirmar el pedido, guardar tus datos y darle seguimiento.',
       returnTo: '/checkout/order-type',
     })) {
       return;

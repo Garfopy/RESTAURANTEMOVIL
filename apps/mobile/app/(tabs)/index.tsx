@@ -298,7 +298,7 @@ export default function HomeScreen() {
 
   function openReservationModal() {
     if (!requireAuth(router, {
-      message: 'Inicia sesion para reservar una mesa y recibir la confirmacion en tu cuenta.',
+      message: 'Crea tu cuenta para reservar una mesa y recibir la confirmacion.',
       returnTo: '/(tabs)',
     })) {
       return;
@@ -546,6 +546,18 @@ export default function HomeScreen() {
     return types.filter((type) => type !== 'eat_in');
   }
 
+  function getOutsideRestaurantTypes(types: TipoPedido[]): TipoPedido[] {
+    const baseTypes: TipoPedido[] = types.length ? types : ['delivery', 'pickup'];
+    const outsideTypes = getTypesWithoutEatIn(baseTypes);
+    return outsideTypes.length ? outsideTypes : ['delivery', 'pickup'];
+  }
+
+  function isInRestaurantRange(
+    nearbyBranch: NearbyBranchState
+  ): nearbyBranch is { kind: 'inside' | 'near'; branch: Sucursal; distanceMeters: number } {
+    return nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near';
+  }
+
   function getFirstEatInBranch(): Sucursal | null {
     return sucursales.find((item) => item.tipos_entrega?.includes('eat_in')) ?? sucursales[0] ?? null;
   }
@@ -649,28 +661,25 @@ export default function HomeScreen() {
       let nextDetectedMessage: string | null = null;
 
       if (enabledTypes.includes('eat_in')) {
-        const permission = await Location.getForegroundPermissionsAsync();
+        const nearbyBranch = await evaluateNearbyBranch();
 
-        // El arranque nunca solicita ubicacion por sorpresa. Si el usuario ya la
-        // concedio, usamos esa señal para no ofrecer entrega externa dentro del local.
-        if (permission.granted) {
-          const nearbyBranch = await evaluateNearbyBranch();
-
-          if (nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near') {
+        if (isInRestaurantRange(nearbyBranch)) {
+          if (!cancelled) {
             syncDetectedBranchIfSafe(nearbyBranch.branch);
-            nextAvailableTypes = ['eat_in'];
-            nextDetectedMessage =
-              nearbyBranch.kind === 'inside'
-                ? `Estás en ${nearbyBranch.branch.nombre}. Escanea el QR de tu mesa para continuar.`
-                : `Estás cerca de ${nearbyBranch.branch.nombre}. En el restaurante solo necesitas escanear tu mesa.`;
-            if (nearbyBranch.kind === 'inside' || nearbyBranch.kind === 'near') {
-              if (!cancelled) {
-                await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
-              }
-              return;
-            }
+            setAvailableTypes(['eat_in']);
+            setSelectingPickupBranch(false);
+            setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre}. Abriendo el escaner de mesa.`);
+            setShowTypeModal(false);
+            await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
           }
+          return;
         }
+
+        nextAvailableTypes = getOutsideRestaurantTypes(enabledTypes);
+        nextDetectedMessage =
+          nearbyBranch.kind === 'far'
+            ? 'Para pedir en restaurante, acercate a una sucursal y escanea el QR de tu mesa.'
+            : 'No pudimos confirmar que estes en restaurante. Te mostramos las opciones para pedir fuera.';
       }
 
       if (!cancelled) {
@@ -680,7 +689,6 @@ export default function HomeScreen() {
         setShowTypeModal(true);
       }
     }
-
     void bootstrapOrderFlow();
 
     return () => {
@@ -699,23 +707,22 @@ export default function HomeScreen() {
     if (enabledTypes.includes('eat_in')) {
       const nearbyBranch = await evaluateNearbyBranch();
 
-      if (nearbyBranch.kind === 'inside') {
+      if (isInRestaurantRange(nearbyBranch)) {
         syncDetectedBranchIfSafe(nearbyBranch.branch);
-        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre}. Escanea tu mesa cuando quieras pedir aquí.`);
-        nextAvailableTypes = ['eat_in'];
+        setAvailableTypes(['eat_in']);
+        setSelectingPickupBranch(false);
+        setDetectedBranchMessage(`Detectamos ${nearbyBranch.branch.nombre}. Abriendo el escaner de mesa.`);
+        setShowTypeModal(false);
+        await openEatInScanner(nearbyBranch.branch, { forceScanner: true });
+        return;
       }
 
-      else if (nearbyBranch.kind === 'near') {
-        syncDetectedBranchIfSafe(nearbyBranch.branch);
-        setDetectedBranchMessage(`Estás cerca de ${nearbyBranch.branch.nombre}. Puedes escanear tu mesa después.`);
-        nextAvailableTypes = ['eat_in'];
-      } else if (nearbyBranch.kind === 'far') {
-        nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
-        setDetectedBranchMessage('Para pedir en restaurante, acércate a una sucursal y escanea el QR de tu mesa.');
-      } else {
-        nextAvailableTypes = getTypesWithoutEatIn(enabledTypes);
-        setDetectedBranchMessage('No pudimos confirmar que estés en restaurante. Te mostramos las opciones para pedir fuera.');
-      }
+      nextAvailableTypes = getOutsideRestaurantTypes(enabledTypes);
+      setDetectedBranchMessage(
+        nearbyBranch.kind === 'far'
+          ? 'Para pedir en restaurante, acercate a una sucursal y escanea el QR de tu mesa.'
+          : 'No pudimos confirmar que estes en restaurante. Te mostramos las opciones para pedir fuera.'
+      );
     }
 
     setAvailableTypes(nextAvailableTypes);
@@ -726,7 +733,6 @@ export default function HomeScreen() {
       void getDetectedCoords({ silentOnDenied: true });
     }
   }
-
   function closeDeliveryFlow() {
     setShowTypeModal(false);
     setSelectingPickupBranch(false);
@@ -806,7 +812,7 @@ export default function HomeScreen() {
     if (tipo === 'eat_in') {
       try {
         const nearbyBranch = await evaluateNearbyBranch();
-        if (nearbyBranch.kind !== 'inside') {
+        if (!isInRestaurantRange(nearbyBranch)) {
           Alert.alert(
             'Acercate a una sucursal',
             'Para escanear el QR de tu mesa necesitamos confirmar que estas dentro del restaurante.'
@@ -1084,7 +1090,7 @@ export default function HomeScreen() {
         <TouchableOpacity 
           onPress={() => {
             if (!requireAuth(router, {
-              message: 'Inicia sesion para ver tu perfil, direcciones y beneficios.',
+              message: 'Crea tu cuenta para ver beneficios, direcciones guardadas y actividad.',
               returnTo: '/(tabs)/profile',
             })) return;
             router.push('/(tabs)/profile');

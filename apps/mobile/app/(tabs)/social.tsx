@@ -9,8 +9,9 @@ export default function SocialTabScreen() {
   if (!token) {
     return (
       <AuthRequiredState
-        title="Modo social"
-        message="Inicia sesion para activar tu perfil social y conectar dentro del restaurante."
+        icon="people-outline"
+        title="Regístrate para activar el modo social"
+        message="Crea tu perfil para conectar dentro del restaurante, enviar momentos y recibir beneficios sociales."
         returnTo="/(tabs)/social"
       />
     );

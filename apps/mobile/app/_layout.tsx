@@ -96,11 +96,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const inWaiter = firstSegment === '(waiter)';
   const inHostess = firstSegment === '(hostess)';
   const inPublicCatalog =
+    firstSegment === '' ||
+    firstSegment === 'index' ||
     firstSegment === '(tabs)' ||
     firstSegment === 'branch-selector' ||
     firstSegment === 'cart' ||
     firstSegment === 'category' ||
     firstSegment === 'product' ||
+    firstSegment === 'table-scanner' ||
     (firstSegment === 'store' && (secondSegment === '' || secondSegment === 'index' || secondSegment === 'product'));
   const isWaiter = user?.rol === 'mesero';
   const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
@@ -623,6 +626,7 @@ export default function RootLayout() {
                 <StatusBar style="auto" />
                 <View style={{ flex: 1 }}>
                   <Stack
+                    initialRouteName="(tabs)"
                     screenOptions={{
                       headerShown: false,
                       gestureEnabled: true,
@@ -630,8 +634,9 @@ export default function RootLayout() {
                       animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
                     }}
                   >
-                    <Stack.Screen name="(auth)" />
                     <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="(auth)" />
                     <Stack.Screen name="(waiter)" />
                     <Stack.Screen name="(hostess)" />
                     <Stack.Screen name="account-suspended" />

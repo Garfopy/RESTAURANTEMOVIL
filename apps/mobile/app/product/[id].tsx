@@ -287,7 +287,7 @@ export default function ProductScreen() {
                 style={[styles.iconBtn, styles.favoriteBtn]}
                 onPress={() => {
                   if (!requireAuth(router, {
-                    message: 'Inicia sesion para guardar este platillo en tus favoritos.',
+                    message: 'Crea tu cuenta para guardar este platillo y recibir ofertas personalizadas.',
                     returnTo: `/product/${platillo.id}?restauranteId=${parsedRestaurantId ?? platillo.restaurante_id}`,
                   })) return;
                   void toggle(platillo.id);
