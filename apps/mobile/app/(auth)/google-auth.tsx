@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,7 @@ import { getApiError } from '../../services/api';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { Colors, Typography } from '../../theme';
 import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
+import { finishAuthFlow } from '../../services/auth-gate.service';
 
 type GoogleSignInModule = {
   configure: (options: { webClientId: string; iosClientId?: string; offlineAccess?: boolean; scopes?: string[] }) => void;
@@ -42,6 +43,7 @@ const WEB_CLIENT_ID =
 
 export default function GoogleAuthScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const login = useUserStore((state) => state.login);
   const setAccountSuspension = useUserStore((state) => state.setAccountSuspension);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +67,7 @@ export default function GoogleAuthScreen() {
   }, []);
 
   function goToLogin() {
-    router.replace('/(auth)/login' as never);
+    router.replace({ pathname: '/(auth)/login', params: returnTo ? { returnTo } : undefined } as never);
   }
 
   function isGoogleSignInCancelled(authError: unknown): boolean {
@@ -109,6 +111,7 @@ export default function GoogleAuthScreen() {
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
       });
       await login(sesion);
+      await finishAuthFlow(router);
     } catch (authError: unknown) {
       if (isGoogleSignInCancelled(authError)) {
         goToLogin();

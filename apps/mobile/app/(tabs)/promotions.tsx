@@ -46,6 +46,7 @@ export default function PromotionsScreen() {
   const [selectedPromo, setSelectedPromo] = React.useState<Promocion | null>(null);
   const selectedBranchId = useBranchStore((state) => state.seleccionada?.id ?? null);
   const userBranchId = useUserStore((state) => state.user?.current_restaurante_id ?? null);
+  const token = useUserStore((state) => state.token);
 
   const { data: promos, isLoading, refetch, isFetching } = useQuery<Promocion[]>({
     queryKey: ['promotions'],
@@ -59,6 +60,7 @@ export default function PromotionsScreen() {
     queryKey: ['promotions', 'history'],
     queryFn: getMyPromotionHistory,
     staleTime: 60 * 1000,
+    enabled: Boolean(token),
   });
 
   // Filtrar los destacados para el carrusel superior

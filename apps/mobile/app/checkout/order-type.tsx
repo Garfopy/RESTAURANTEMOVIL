@@ -18,8 +18,10 @@ import { apiClient, getApiError } from '../../services/api';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
 import { useTableSessionStore } from '../../store/table-session.store';
+import { useUserStore } from '../../store/user.store';
 import { createOrder } from '../../services/orders.service';
 import { tableSessionKeys } from '../../services/table-session.service';
+import { requireAuth } from '../../services/auth-gate.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing } from '../../theme';
 
@@ -74,6 +76,7 @@ function getItemCostBreakdown(item: ReturnType<typeof useCartStore.getState>['it
 export default function OrderTypeScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const token = useUserStore((state) => state.token);
   const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress, clear } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
   const tableSession = useTableSessionStore((s) => s.session);
@@ -104,8 +107,9 @@ export default function OrderTypeScreen() {
   const [coords, setCoords] = useState<Region | null>(null);
 
   useEffect(() => {
+    if (!token) return;
     cargarDirecciones();
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     if (tipoPedido !== 'delivery' || !deliveryAddress || direccionSeleccionada || addressData) {
@@ -173,6 +177,7 @@ export default function OrderTypeScreen() {
   }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, tableSession, tipoPedido]);
 
   async function cargarDirecciones() {
+    if (!token) return;
     try {
       const res = await apiClient.get('/profile/addresses');
       if (res.data.success || res.data.ok) {
@@ -354,6 +359,13 @@ export default function OrderTypeScreen() {
   }
 
   async function handleContinue() {
+    if (!requireAuth(router, {
+      message: 'Inicia sesion para completar tu pedido y darle seguimiento.',
+      returnTo: '/checkout/order-type',
+    })) {
+      return;
+    }
+
     if (!tipoPedido) {
       Alert.alert('Selección requerida', 'Vuelve al inicio y elige cómo quieres recibir tu pedido.');
       return;

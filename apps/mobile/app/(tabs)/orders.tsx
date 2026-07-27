@@ -13,7 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useOrders } from '../../hooks/useOrders';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
+import { useUserStore } from '../../store/user.store';
 import type { Pedido } from '@amare/types';
 
 const ESTADO_COLOR: Record<string, string> = {
@@ -91,7 +93,18 @@ function getOrderModeMeta(order: Pedido) {
 
 export default function OrdersScreen() {
   const router = useRouter();
+  const token = useUserStore((state) => state.token);
   const { data: orders, isLoading } = useOrders();
+
+  if (!token) {
+    return (
+      <AuthRequiredState
+        title="Tus pedidos viven en tu cuenta"
+        message="Inicia sesion para ver pedidos activos, historial y seguimiento."
+        returnTo="/(tabs)/orders"
+      />
+    );
+  }
 
   function handleOrder(order: Pedido) {
     router.push({ pathname: '/order/[id]', params: { id: String(order.id) } });

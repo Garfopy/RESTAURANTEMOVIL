@@ -7,6 +7,7 @@ import { loginWithApple } from '../../services/auth.service';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
 import { getApiError } from '../../services/api';
 import { useUserStore } from '../../store/user.store';
+import { finishAuthFlow } from '../../services/auth-gate.service';
 
 declare const require: (name: string) => any;
 type AppleAuthenticationModule = typeof import('expo-apple-authentication');
@@ -78,7 +79,7 @@ export function AppleSignInButton() {
       });
       await SecureStore.deleteItemAsync(appleNameKey);
       await login(session);
-      router.replace('/' as never);
+      await finishAuthFlow(router);
     } catch (error: unknown) {
       if ((error as { code?: string })?.code === 'ERR_REQUEST_CANCELED') return;
 

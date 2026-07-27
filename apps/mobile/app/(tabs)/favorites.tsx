@@ -17,8 +17,10 @@ import { useBranchStore } from '../../store/branch.store';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { Colors, Spacing, Typography } from '../../theme';
 import type { Platillo } from '@amare/types';
+import { useUserStore } from '../../store/user.store';
 
 // Calculamos el ancho de la tarjeta para que respire perfectamente en la cuadrícula
 const { width } = Dimensions.get('window');
@@ -28,6 +30,7 @@ const CARD_WIDTH = (width - PADDING_HORIZONTAL * 2 - CARD_MARGIN) / 2;
 
 export default function FavoritesScreen() {
   const router = useRouter();
+  const token = useUserStore((state) => state.token);
   const syncFromServer = useFavoritesStore((s) => s.syncFromServer);
   const restauranteId = useBranchStore((s) => s.seleccionada?.id);
 
@@ -38,6 +41,7 @@ export default function FavoritesScreen() {
       return res.data.data;
     },
     staleTime: 2 * 60 * 1000,
+    enabled: Boolean(token),
   });
 
   useEffect(() => {
@@ -45,6 +49,16 @@ export default function FavoritesScreen() {
       syncFromServer(favorites.map((p) => p.id));
     }
   }, [favorites, syncFromServer]);
+
+  if (!token) {
+    return (
+      <AuthRequiredState
+        title="Guarda tus favoritos"
+        message="Inicia sesion para guardar platillos y encontrarlos rapido en tu proxima visita."
+        returnTo="/(tabs)/favorites"
+      />
+    );
+  }
 
   function handleDish(p: Platillo) {
     if (!restauranteId) return;

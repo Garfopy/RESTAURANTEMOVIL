@@ -14,6 +14,7 @@ import { useStoreProduct } from '../../../hooks/useStore';
 import { formatImageUrl } from '../../../services/api';
 import { Colors, Spacing, Shadows } from '../../../theme';
 import { Skeleton } from '../../../components/ui/Skeleton';
+import { requireAuth } from '../../../services/auth-gate.service';
 
 type DeliveryMode = 'pickup' | 'delivery';
 
@@ -52,6 +53,12 @@ export default function StoreProductScreen() {
 
   function handleBuyNow() {
     if (!product) return;
+    if (!requireAuth(router, {
+      message: 'Inicia sesion para comprar este producto y dar seguimiento a tu pedido.',
+      returnTo: `/store/product/${product.id}`,
+    })) {
+      return;
+    }
 
     if (deliveryMode === 'pickup') {
       // Pickup: va directo a pago sin datos de envío

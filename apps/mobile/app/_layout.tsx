@@ -43,6 +43,7 @@ import {
 } from '../services/push-notifications.service';
 import { ensureLocationPermission, ensureNotificationPermission } from '../services/app-permissions.service';
 import { STRIPE_IS_CONFIGURED, STRIPE_PUBLISHABLE_KEY } from '../constants/stripe';
+import { hasPendingAuthReturnTo } from '../services/auth-gate.service';
 
 void SplashScreen.preventAutoHideAsync().catch((error) => {
   console.warn('[Startup] No se pudo mantener visible el splash:', error);
@@ -87,12 +88,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const { isAuthenticated, isLoading, user, accountSuspension } = useUserStore();
   const firstSegment = String(segments[0] ?? '');
+  const secondSegment = String((segments as string[])[1] ?? '');
   const inAuth = firstSegment === '(auth)';
   const inPublicLegal = firstSegment === 'legal';
   const inAccountSuspended = firstSegment === 'account-suspended';
   const inCompleteProfile = inAuth && (segments as string[])[1] === 'complete-profile';
   const inWaiter = firstSegment === '(waiter)';
   const inHostess = firstSegment === '(hostess)';
+  const inPublicCatalog =
+    firstSegment === '(tabs)' ||
+    firstSegment === 'branch-selector' ||
+    firstSegment === 'cart' ||
+    firstSegment === 'category' ||
+    firstSegment === 'product' ||
+    (firstSegment === 'store' && (secondSegment === '' || secondSegment === 'index' || secondSegment === 'product'));
   const isWaiter = user?.rol === 'mesero';
   const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
     String(user?.rol ?? '').toLowerCase()
@@ -109,7 +118,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const redirectTo =
     !isLoading && accountSuspension && !inAccountSuspended
       ? '/account-suspended'
-      : !isLoading && !isAuthenticated && !inAuth && !inPublicLegal && !inAccountSuspended
+      : !isLoading && !isAuthenticated && !inAuth && !inPublicLegal && !inAccountSuspended && !inPublicCatalog
       ? '/(auth)/login'
       : !isLoading && needsOnboarding && !inCompleteProfile && !inPublicLegal
         ? '/(auth)/complete-profile'
@@ -118,6 +127,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         : !isLoading && isAuthenticated && isHostess && !inHostess
           ? '/(hostess)'
           : !isLoading && isAuthenticated && !needsOnboarding && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)
+            && !(inAuth && hasPendingAuthReturnTo())
             ? '/(tabs)'
             : null;
 

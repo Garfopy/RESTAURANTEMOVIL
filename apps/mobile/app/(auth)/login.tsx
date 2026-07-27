@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
@@ -29,6 +29,7 @@ const LOGIN_LOGO = require('../../assets/amare_logo_login.png');
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { height } = useWindowDimensions();
   const hero = useRef(new Animated.Value(0)).current;
   const actions = useRef(new Animated.Value(0)).current;
@@ -49,7 +50,7 @@ export default function LoginScreen() {
 
   function navigate(path: '/(auth)/email-login' | '/(auth)/register' | '/(auth)/google-auth') {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(path);
+    router.push({ pathname: path, params: returnTo ? { returnTo } : undefined } as never);
   }
 
   const compact = height < 740;

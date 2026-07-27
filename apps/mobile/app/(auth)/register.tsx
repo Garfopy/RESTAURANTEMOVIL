@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { register } from '../../services/auth.service';
@@ -30,6 +30,7 @@ import {
   validateOptionalEmail,
   validatePassword,
 } from '../../services/error.service';
+import { finishAuthFlow, saveAuthReturnTo } from '../../services/auth-gate.service';
 
 const AuthColors = {
   bg: '#24272D',
@@ -169,6 +170,7 @@ function validateLocalPhone10(value: string): string | null {
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const loginStore = useUserStore((s) => s.login);
   const toast = useToast();
 
@@ -314,6 +316,7 @@ export default function RegisterScreen() {
       });
       await loginStore(sesion);
       toast.success('Cuenta creada exitosamente');
+      await finishAuthFlow(router);
     } catch (err: unknown) {
       const friendlyError = mapErrorToFriendly(err);
       toast.error(friendlyError.message, { icon: friendlyError.icon });
@@ -499,7 +502,10 @@ export default function RegisterScreen() {
 
             <TouchableOpacity
               style={styles.loginLink}
-              onPress={() => router.replace('/(auth)/email-login')}
+              onPress={() => {
+                if (returnTo) void saveAuthReturnTo(returnTo);
+                router.replace({ pathname: '/(auth)/email-login', params: returnTo ? { returnTo } : undefined } as never);
+              }}
               accessibilityLabel="Ir a iniciar sesión"
               accessibilityRole="link"
               testID="login-link"

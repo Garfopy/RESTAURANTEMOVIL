@@ -21,6 +21,7 @@ import { TableContextBanner } from '../components/shared/TableContextBanner';
 import { Colors, Spacing, Shadows } from '../theme';
 import { formatImageUrl } from '../services/api';
 import { getDishById } from '../services/menu.service';
+import { requireAuth } from '../services/auth-gate.service';
 import type { CarritoItem } from '@amare/types';
 import { useThemeColors } from '../store/theme.store';
 
@@ -66,6 +67,13 @@ export default function CartScreen() {
   );
 
   function handleCheckout() {
+    if (!requireAuth(router, {
+      message: 'Inicia sesion para completar tu pedido y darle seguimiento.',
+      returnTo: '/checkout/order-type',
+    })) {
+      return;
+    }
+
     if (!tipoPedido && tableSession) {
       setTipoPedido('eat_in');
       router.replace('/checkout/order-type');

@@ -39,6 +39,7 @@ import { getNearestBranches } from '../../services/branches.service';
 import { ensureCameraPermission, ensureLocationPermission } from '../../services/app-permissions.service';
 import { createReservation, getReservationAvailability, type ReservationTable } from '../../services/reservations.service';
 import { getApiError } from '../../services/api';
+import { requireAuth } from '../../services/auth-gate.service';
 import { Colors } from '../../theme';
 import { BannerCarousel } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
@@ -160,6 +161,7 @@ export default function HomeScreen() {
   const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const user = useUserStore((s) => s.user);
+  const token = useUserStore((s) => s.token);
   const toast = useToast();
   const { seleccionada: branch, sucursales, seleccionar } = useBranchStore();
   const { tipoPedido, setTipoPedido, setDeliveryAddress, itemCount, restauranteId: cartRestaurantId, clear } = useCartStore();
@@ -295,6 +297,13 @@ export default function HomeScreen() {
   }
 
   function openReservationModal() {
+    if (!requireAuth(router, {
+      message: 'Inicia sesion para reservar una mesa y recibir la confirmacion en tu cuenta.',
+      returnTo: '/(tabs)',
+    })) {
+      return;
+    }
+
     const userAny = user as any;
     const nextSlot = getNextReservationSlot();
     const currentSelection = parseReservationDateTime(reservationDate, reservationTime);
@@ -1035,7 +1044,7 @@ export default function HomeScreen() {
     });
   }
 
-  const firstName = user?.nombre?.split(' ')[0] ?? '';
+  const firstName = token ? user?.nombre?.split(' ')[0] ?? '' : '';
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Buenos días' : currentHour < 19 ? 'Buenas tardes' : 'Buenas noches';
 
@@ -1073,7 +1082,13 @@ export default function HomeScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          onPress={() => router.push('/(tabs)/profile')}
+          onPress={() => {
+            if (!requireAuth(router, {
+              message: 'Inicia sesion para ver tu perfil, direcciones y beneficios.',
+              returnTo: '/(tabs)/profile',
+            })) return;
+            router.push('/(tabs)/profile');
+          }}
           style={styles.profileTrigger}
           activeOpacity={0.7}
         >
@@ -1081,7 +1096,11 @@ export default function HomeScreen() {
             {user?.foto_url ? (
               <Image source={{ uri: user.foto_url }} style={styles.miniAvatarImg} />
             ) : (
-              <Text style={styles.avatarText}>{user?.nombre?.[0] ?? '?'}</Text>
+              token ? (
+                <Text style={styles.avatarText}>{user?.nombre?.[0] ?? '?'}</Text>
+              ) : (
+                <Ionicons name="person-outline" size={20} color={Colors.primary} />
+              )
             )}
           </View>
         </TouchableOpacity>

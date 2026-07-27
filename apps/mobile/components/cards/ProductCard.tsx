@@ -8,10 +8,12 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Colors, Spacing, Shadows, Typography } from '../../theme';
 import { formatImageUrl } from '../../services/api';
 import type { Platillo } from '@amare/types';
 import { useThemeColors } from '../../store/theme.store';
+import { requireAuth } from '../../services/auth-gate.service';
 
 import { useFavorites } from '../../hooks/useFavorites';
 
@@ -28,6 +30,7 @@ export function ProductCard({
   onPress,
   width = 180,
 }: ProductCardProps) {
+  const router = useRouter();
   const scale = useRef(new Animated.Value(1)).current;
   const theme = useThemeColors();
 
@@ -91,7 +94,13 @@ export function ProductCard({
             styles.favBadge,
             isFavorite && { backgroundColor: '#FFE4E6' },
           ]}
-          onPress={() => toggle(platillo.id)}
+          onPress={() => {
+            if (!requireAuth(router, {
+              message: 'Inicia sesion para guardar platillos en tus favoritos.',
+              returnTo: '/(tabs)/favorites',
+            })) return;
+            void toggle(platillo.id);
+          }}
           accessibilityLabel={isFavorite ? "Eliminar de favoritos" : "Agregar a favoritos"}
           accessibilityRole="button"
           testID={`favorite-btn-${platillo.id}`}

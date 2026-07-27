@@ -18,6 +18,7 @@ import { useCartStore } from '../../store/cart.store';
 import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranchConfigStore } from '../../store/branch.store';
 import { useFavorites } from '../../hooks/useFavorites';
+import { requireAuth } from '../../services/auth-gate.service';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { CartButton } from '../../components/shared/CartButton';
@@ -284,7 +285,13 @@ export default function ProductScreen() {
 
               <TouchableOpacity
                 style={[styles.iconBtn, styles.favoriteBtn]}
-                onPress={() => toggle(platillo.id)}
+                onPress={() => {
+                  if (!requireAuth(router, {
+                    message: 'Inicia sesion para guardar este platillo en tus favoritos.',
+                    returnTo: `/product/${platillo.id}?restauranteId=${parsedRestaurantId ?? platillo.restaurante_id}`,
+                  })) return;
+                  void toggle(platillo.id);
+                }}
                 activeOpacity={0.85}
               >
                 <Ionicons

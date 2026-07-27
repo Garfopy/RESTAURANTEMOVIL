@@ -8,9 +8,9 @@ export function GlobalCartButton() {
   const { isAuthenticated, isLoading, user } = useUserStore();
   const [rootSegment, childSegment] = segments as string[];
 
-  if (isLoading || !isAuthenticated) return null;
+  if (isLoading) return null;
   const role = String(user?.rol ?? '').toLowerCase();
-  if (role === 'mesero' || ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(role)) return null;
+  if (isAuthenticated && (role === 'mesero' || ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(role))) return null;
 
   if (
     rootSegment === '(auth)' ||

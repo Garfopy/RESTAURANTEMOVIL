@@ -16,6 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { apiClient, getApiError } from '../../services/api';
+import { isSignedIn } from '../../services/auth-gate.service';
 import { Button } from '../ui/Button';
 import { FormField } from '../ui/FormField';
 import { Colors, Spacing } from '../../theme';
@@ -89,6 +90,14 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
   }, [visible]);
 
   async function loadAddresses() {
+    if (!isSignedIn()) {
+      setAddresses([]);
+      setSelectedAddressId(null);
+      setMode('new');
+      await startNewAddress();
+      return;
+    }
+
     try {
       setLoadingAddresses(true);
       const response = await apiClient.get('/profile/addresses');
@@ -238,6 +247,18 @@ export function DeliveryAddressModal({ visible, onDismiss, onConfirm }: Delivery
 
     try {
       setSaving(true);
+      if (!isSignedIn()) {
+        await Promise.resolve(onConfirm({
+          id: null,
+          alias: finalAlias,
+          text: [draft.calle.trim(), numero.trim(), draft.colonia.trim(), draft.ciudad.trim()].filter(Boolean).join(', '),
+          lat: draft.lat,
+          lng: draft.lng,
+          instrucciones: instrucciones.trim() || null,
+        }));
+        return;
+      }
+
       const response = await apiClient.post('/profile/addresses', {
         alias: finalAlias,
         calle: draft.calle.trim(),

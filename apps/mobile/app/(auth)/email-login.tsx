@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { loginWithEmail } from '../../services/auth.service';
 import { useUserStore } from '../../store/user.store';
@@ -21,6 +21,7 @@ import { FormField } from '../../components/ui/FormField';
 import { useToast } from '../../context/ToastContext';
 import { mapErrorToFriendly, validateLoginIdentifier, validatePassword } from '../../services/error.service';
 import { extractAccountSuspension } from '../../services/account-suspension.service';
+import { finishAuthFlow, saveAuthReturnTo } from '../../services/auth-gate.service';
 
 const AuthColors = {
   bg: '#24272D',
@@ -39,6 +40,7 @@ const AuthColors = {
 
 export default function EmailLoginScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const login = useUserStore((s) => s.login);
   const setAccountSuspension = useUserStore((s) => s.setAccountSuspension);
   const toast = useToast();
@@ -107,6 +109,7 @@ export default function EmailLoginScreen() {
       const identifier = email.trim();
       const sesion = await loginWithEmail({ email: identifier.includes('@') ? identifier.toLowerCase() : identifier, password });
       await login(sesion);
+      await finishAuthFlow(router);
     } catch (err: unknown) {
       const accountSuspension = extractAccountSuspension(err);
       if (accountSuspension) {
@@ -247,7 +250,10 @@ export default function EmailLoginScreen() {
             <View style={styles.footer}>
               <Text style={styles.footerText}>No tienes una cuenta?</Text>
               <TouchableOpacity
-                onPress={() => router.push('/(auth)/register')}
+                onPress={() => {
+                  if (returnTo) void saveAuthReturnTo(returnTo);
+                  router.push({ pathname: '/(auth)/register', params: returnTo ? { returnTo } : undefined } as never);
+                }}
                 accessibilityLabel="Ir a registro"
                 accessibilityRole="link"
                 testID="signup-link"

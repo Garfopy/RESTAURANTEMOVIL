@@ -23,11 +23,13 @@ import { ensureNotificationPermission } from '../../services/app-permissions.ser
 import { registerPushNotifications } from '../../services/push-notifications.service';
 import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { Colors, Shadows } from '../../theme';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
+  const token = useUserStore((s) => s.token);
   const setUser = useUserStore((s) => s.setUser);
   const logoutStore = useUserStore((s) => s.logout);
 
@@ -91,9 +93,20 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
+      if (!token) return;
       void refreshWallet();
-    }, [])
+    }, [token])
   );
+
+  if (!token) {
+    return (
+      <AuthRequiredState
+        title="Tu cuenta Amare"
+        message="Inicia sesion para ver tu perfil, direcciones, beneficios y actividad."
+        returnTo="/(tabs)/profile"
+      />
+    );
+  }
 
   async function refreshWallet() {
     setWalletLoading(true);
