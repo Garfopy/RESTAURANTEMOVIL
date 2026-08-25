@@ -43,7 +43,7 @@
         "EXPO_PUBLIC_API_URL": "https://idactivos.digital/cafeuteq/api-php",
         "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "false",
         "EXPO_PUBLIC_ENABLE_CARD_PAYMENTS": "true",
-        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "true",
+        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "false",
         "EXPO_PUBLIC_ENABLE_NATIVE_WALLETS": "true"
       },
       "android": {
@@ -58,7 +58,7 @@
         "EXPO_PUBLIC_API_URL": "https://idactivos.digital/cafeuteq/api-php",
         "EXPO_PUBLIC_ENABLE_PUSH_REGISTRATION": "false",
         "EXPO_PUBLIC_ENABLE_CARD_PAYMENTS": "true",
-        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "true",
+        "EXPO_PUBLIC_STRIPE_LIVE_MODE": "false",
         "EXPO_PUBLIC_ENABLE_NATIVE_WALLETS": "true"
       }
     }
