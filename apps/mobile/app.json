@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Amare",
+    "name": "UTEQ Cafetería",
     "slug": "amare-app",
     "newArchEnabled": false,
     "version": "1.0.2",
@@ -11,28 +11,22 @@
     "splash": {
       "image": "./assets/amare_icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#191A2E"
+      "backgroundColor": "#FAECE0"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.amare.app",
-      "buildNumber": "2",
+      "bundleIdentifier": "com.uteq.cafeteria",
+      "buildNumber": "1",
       "icon": "./assets/amare_icon_store.png",
-      "usesAppleSignIn": true,
-      "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
-        "aps-environment": "production",
-        "com.apple.developer.applesignin": [
-          "Default"
-        ],
         "com.apple.developer.in-app-payments": [
-          "merchant.com.amare.app"
+          "merchant.com.uteq.cafeteria"
         ]
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Amare necesita tu ubicacion para encontrar la sucursal mas cercana.",
-        "NSCameraUsageDescription": "Amare necesita la camara para escanear codigos QR y actualizar tu perfil.",
-        "NSPhotoLibraryUsageDescription": "Amare necesita acceso a tus fotos para elegir imagenes de perfil.",
+        "NSLocationWhenInUseUsageDescription": "UTEQ Cafetería necesita tu ubicacion para encontrar la sucursal mas cercana.",
+        "NSCameraUsageDescription": "UTEQ Cafetería necesita la camara para escanear codigos QR y actualizar tu perfil.",
+        "NSPhotoLibraryUsageDescription": "UTEQ Cafetería necesita acceso a tus fotos para elegir imagenes de perfil.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
           "NSExceptionDomains": {
@@ -45,31 +39,26 @@
         "CFBundleAllowMixedLocalizations": true,
         "CFBundleLocalizations": [
           "es"
-        ],
-        "UIBackgroundModes": [
-          "remote-notification"
         ]
       },
       "splash": {
         "image": "./assets/amare_icon.png",
         "resizeMode": "contain",
-        "backgroundColor": "#191A2E"
+        "backgroundColor": "#FAECE0"
       }
     },
     "android": {
       "allowBackup": false,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/amare_icon.png",
-        "backgroundColor": "#191A2E"
+        "foregroundImage": "./assets/amare_icon_adaptive.png",
+        "backgroundColor": "#FAECE0"
       },
-      "package": "com.amare.app",
-      "versionCode": 2,
-      "googleServicesFile": "./google-services.json",
+      "package": "com.uteq.cafeteria",
+      "versionCode": 1,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "CAMERA",
-        "POST_NOTIFICATIONS"
+        "CAMERA"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
@@ -80,18 +69,16 @@
       "splash": {
         "image": "./assets/amare_icon.png",
         "resizeMode": "contain",
-        "backgroundColor": "#191A2E"
+        "backgroundColor": "#FAECE0"
       }
     },
     "plugins": [
       "expo-router",
       "expo-font",
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Amare necesita tu ubicacion para encontrar sucursales cercanas y preparar entregas.",
+          "locationWhenInUsePermission": "UTEQ Cafetería necesita tu ubicacion para encontrar sucursales cercanas y preparar entregas.",
           "locationAlwaysAndWhenInUsePermission": false,
           "locationAlwaysPermission": false,
           "isIosBackgroundLocationEnabled": false,
@@ -101,35 +88,23 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Amare necesita la camara para escanear codigos QR y actualizar tu perfil.",
+          "cameraPermission": "UTEQ Cafetería necesita la camara para escanear codigos QR y actualizar tu perfil.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
       ],
-      "expo-notifications",
-      "expo-apple-authentication",
       [
         "expo-build-properties",
         {
           "ios": {
-            "useFrameworks": "static",
-            "forceStaticLinking": [
-              "RNFBApp",
-              "RNFBMessaging"
-            ]
+            "useFrameworks": "static"
           }
-        }
-      ],
-      [
-        "@react-native-google-signin/google-signin",
-        {
-          "iosUrlScheme": "com.googleusercontent.apps.859009059542-3c3159vd6maibhhgpjng9t63q5rjmsl1"
         }
       ],
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.amare.app",
+          "merchantIdentifier": "merchant.com.uteq.cafeteria",
           "enableGooglePay": true
         }
       ],
@@ -140,7 +115,6 @@
     },
     "extra": {
       "router": {},
-      "googleWebClientId": "859009059542-0k2foa27gsah58utigs0kvp2nnsnvgnl.apps.googleusercontent.com",
       "eas": {
         "projectId": "db96a1b2-b362-4950-98a7-287432fb19c7"
       }

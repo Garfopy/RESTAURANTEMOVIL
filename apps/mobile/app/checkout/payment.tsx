@@ -35,6 +35,7 @@ import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet }
 import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { WALLET_ENABLED } from '../../constants/features';
 import {
   assertStripeMinimumPaymentAmount,
   presentAmarePaymentSheet,
@@ -153,9 +154,11 @@ export default function PaymentScreen() {
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
   const invoiceEnabled = Boolean(config?.facturacion?.habilitada);
 
-  const enabledMethodIds: PaymentMethod[] = config
-    ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
-    : ['card', 'cash', 'amare'];
+  const enabledMethodIds: PaymentMethod[] = (
+    config
+      ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
+      : ['card', 'cash', 'amare']
+  ).filter((id) => id !== 'amare' || WALLET_ENABLED);
 
   const enabledMethods = ALL_PAYMENT_METHODS.filter(
     (method) =>
@@ -173,7 +176,8 @@ export default function PaymentScreen() {
   useEffect(() => {
     if (!config) return;
     const ids = [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
-      .filter((id) => id !== 'card' || STRIPE_IS_CONFIGURED);
+      .filter((id) => id !== 'card' || STRIPE_IS_CONFIGURED)
+      .filter((id) => id !== 'amare' || WALLET_ENABLED);
     if (!ids.includes(selectedMethod)) {
       setSelectedMethod(ids[0] ?? 'cash');
     }
@@ -200,6 +204,7 @@ export default function PaymentScreen() {
   }, [invoiceEnabled]);
 
   useEffect(() => {
+    if (!WALLET_ENABLED) return;
     let cancelled = false;
 
     async function loadRewards() {
@@ -227,6 +232,7 @@ export default function PaymentScreen() {
   const promoAdjustedAmount = Math.max(0, Math.round((paymentAmount - couponDiscount) * 100) / 100);
 
   useEffect(() => {
+    if (!WALLET_ENABLED) return;
     let cancelled = false;
 
     async function loadQuote() {
@@ -732,6 +738,7 @@ export default function PaymentScreen() {
             ) : null}
         </View>
 
+        {WALLET_ENABLED ? (
         <View style={styles.pointsBox}>
           <View style={styles.pointsHeader}>
             <View style={{ flex: 1 }}>
@@ -778,8 +785,9 @@ export default function PaymentScreen() {
             <Text style={styles.pointsHint}>Si no pagas con Saldo Amare, recibes 5% del total pagado en puntos.</Text>
           )}
         </View>
+        ) : null}
 
-        {selectedMethod === 'amare' ? (
+        {WALLET_ENABLED && selectedMethod === 'amare' ? (
           <View style={styles.rewardsBox}>
             <View style={styles.rewardsHeader}>
               <View style={styles.rewardsHeaderCopy}>

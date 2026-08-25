@@ -20,9 +20,10 @@ import { useUserStore } from '../../store/user.store';
 import { apiClient } from '../../services/api';
 import { deleteAccount, logout, updateProfileSettings } from '../../services/auth.service';
 import { ensureNotificationPermission } from '../../services/app-permissions.service';
-import { registerPushNotifications } from '../../services/push-notifications.service';
+import { isPushRegistrationEnabled, registerPushNotifications } from '../../services/push-notifications.service';
 import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.service';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
+import { WALLET_ENABLED } from '../../constants/features';
 import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
 import { Colors, Shadows } from '../../theme';
 
@@ -93,7 +94,7 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (!token) return;
+      if (!token || !WALLET_ENABLED) return;
       void refreshWallet();
     }, [token])
   );
@@ -296,37 +297,39 @@ export default function ProfileScreen() {
           <Text style={styles.email}>{user?.email ?? ''}</Text>
         </View>
 
-        <View style={styles.rewardsSummaryGrid}>
-          <View style={styles.summaryCardsRow}>
-            <TouchableOpacity
-              style={[styles.summaryCard, styles.summaryCardBalance]}
-              activeOpacity={0.88}
-              onPress={() => router.push('/profile/amare-balance' as any)}
-            >
-              <View style={styles.summaryTopRow}>
-                <View style={styles.summaryIconWrap}>
-                  <Ionicons name="wallet-outline" size={20} color="#064E3B" />
+        {WALLET_ENABLED ? (
+          <View style={styles.rewardsSummaryGrid}>
+            <View style={styles.summaryCardsRow}>
+              <TouchableOpacity
+                style={[styles.summaryCard, styles.summaryCardBalance]}
+                activeOpacity={0.88}
+                onPress={() => router.push('/profile/amare-balance' as any)}
+              >
+                <View style={styles.summaryTopRow}>
+                  <View style={styles.summaryIconWrap}>
+                    <Ionicons name="wallet-outline" size={20} color="#064E3B" />
+                  </View>
+                  {walletLoading ? <ActivityIndicator size="small" color="#064E3B" /> : <Ionicons name="chevron-forward" size={18} color="#065F46" />}
                 </View>
-                {walletLoading ? <ActivityIndicator size="small" color="#064E3B" /> : <Ionicons name="chevron-forward" size={18} color="#065F46" />}
-              </View>
-              <Text style={styles.summaryTitle}>Saldo Amare</Text>
-              <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
-              <Text style={styles.summaryHint}>Toca para recargar tu prepago</Text>
-            </TouchableOpacity>
+                <Text style={styles.summaryTitle}>Saldo Amare</Text>
+                <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
+                <Text style={styles.summaryHint}>Toca para recargar tu prepago</Text>
+              </TouchableOpacity>
 
-            <View style={[styles.summaryCard, styles.summaryCardPoints]}>
-              <View style={styles.summaryTopRow}>
-                <View style={styles.summaryIconWrap}>
-                  <Ionicons name="trophy-outline" size={20} color="#7C2D12" />
+              <View style={[styles.summaryCard, styles.summaryCardPoints]}>
+                <View style={styles.summaryTopRow}>
+                  <View style={styles.summaryIconWrap}>
+                    <Ionicons name="trophy-outline" size={20} color="#7C2D12" />
+                  </View>
+                  {walletLoading ? <ActivityIndicator size="small" color="#7C2D12" /> : null}
                 </View>
-                {walletLoading ? <ActivityIndicator size="small" color="#7C2D12" /> : null}
+                <Text style={styles.summaryTitle}>Puntos Amare</Text>
+                <Text style={styles.summaryValue}>{Number(wallet?.points ?? 0)}</Text>
+                <Text style={styles.summaryHint}>1 punto = 1 peso. Puedes usarlos al pagar.</Text>
               </View>
-              <Text style={styles.summaryTitle}>Puntos Amare</Text>
-              <Text style={styles.summaryValue}>{Number(wallet?.points ?? 0)}</Text>
-              <Text style={styles.summaryHint}>1 punto = 1 peso. Puedes usarlos al pagar.</Text>
             </View>
           </View>
-        </View>
+        ) : null}
 
         <View style={styles.menuContainer}>
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
@@ -345,13 +348,15 @@ export default function ProfileScreen() {
               onPress={() => router.push('/(tabs)/orders')}
               showDivider
             />
-            <MenuItem
-              icon="time"
-              label="Actividad reciente"
-              color="#F59E0B"
-              onPress={() => router.push('/profile/activity' as any)}
-              showDivider
-            />
+            {WALLET_ENABLED ? (
+              <MenuItem
+                icon="time"
+                label="Actividad reciente"
+                color="#F59E0B"
+                onPress={() => router.push('/profile/activity' as any)}
+                showDivider
+              />
+            ) : null}
             <MenuItem
               icon="people"
               label="Perfil social"
@@ -367,31 +372,35 @@ export default function ProfileScreen() {
             />
           </View>
 
-          <Text style={styles.sectionTitle}>Notificaciones</Text>
-          <View style={styles.section}>
-            <View style={styles.preferenceRow}>
-              <View style={[styles.iconBg, { backgroundColor: '#F59E0B12' }]}>
-                <Ionicons name="notifications" size={20} color="#F59E0B" />
+          {isPushRegistrationEnabled() ? (
+            <>
+              <Text style={styles.sectionTitle}>Notificaciones</Text>
+              <View style={styles.section}>
+                <View style={styles.preferenceRow}>
+                  <View style={[styles.iconBg, { backgroundColor: '#F59E0B12' }]}>
+                    <Ionicons name="notifications" size={20} color="#F59E0B" />
+                  </View>
+                  <View style={styles.preferenceContent}>
+                    <Text style={styles.menuLabel}>Promociones y beneficios</Text>
+                    <Text style={styles.preferenceHint}>
+                      Recibe avisos de promociones disponibles para tu cuenta.
+                    </Text>
+                  </View>
+                  {savingMarketing ? (
+                    <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
+                  ) : (
+                    <Switch
+                      accessibilityLabel="Recibir promociones y beneficios"
+                      value={Boolean(user?.marketing_opt_in)}
+                      onValueChange={(enabled) => void handleMarketingPreference(enabled)}
+                      trackColor={{ false: '#D1D5DB', true: '#F6C453' }}
+                      thumbColor="#FFFFFF"
+                    />
+                  )}
+                </View>
               </View>
-              <View style={styles.preferenceContent}>
-                <Text style={styles.menuLabel}>Promociones y beneficios</Text>
-                <Text style={styles.preferenceHint}>
-                  Recibe avisos de promociones disponibles para tu cuenta.
-                </Text>
-              </View>
-              {savingMarketing ? (
-                <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
-              ) : (
-                <Switch
-                  accessibilityLabel="Recibir promociones y beneficios"
-                  value={Boolean(user?.marketing_opt_in)}
-                  onValueChange={(enabled) => void handleMarketingPreference(enabled)}
-                  trackColor={{ false: '#D1D5DB', true: '#F6C453' }}
-                  thumbColor="#FFFFFF"
-                />
-              )}
-            </View>
-          </View>
+            </>
+          ) : null}
 
           <Text style={styles.sectionTitle}>Ayuda y Soporte</Text>
           <View style={styles.section}>

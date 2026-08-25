@@ -71,7 +71,7 @@ const HOME_BANNERS = [
   },
   {
     id: '3',
-    titulo: 'Nuevos Postres',
+    titulo: 'Nueva Dulcería',
     subtitulo: 'Descubre nuestra selección de repostería artesanal.',
     imagen: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&w=800',
     deepLink: '/(tabs)/index',

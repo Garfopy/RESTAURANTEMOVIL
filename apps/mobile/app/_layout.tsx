@@ -447,6 +447,8 @@ function InitialPermissionsRuntime() {
         await ensureLocationPermission();
         if (cancelled) return;
 
+        if (!isPushRegistrationEnabled()) return;
+
         const notificationPermission = await ensureNotificationPermission();
         if (cancelled || !notificationPermission.granted) return;
 

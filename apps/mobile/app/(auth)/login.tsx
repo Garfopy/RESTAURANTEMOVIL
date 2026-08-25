@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { GoogleGIcon } from '../../components/ui/GoogleGIcon';
 import { AppleSignInButton } from '../../components/auth/AppleSignInButton';
+import { GOOGLE_SIGNIN_ENABLED, APPLE_SIGNIN_ENABLED } from '../../constants/features';
 
 const BENEFITS = [
   { icon: 'sparkles-outline' as const, label: 'Experiencias' },
@@ -54,7 +55,7 @@ export default function LoginScreen() {
   }
 
   const compact = height < 740;
-  const showGoogleSignIn = true;
+  const showGoogleSignIn = GOOGLE_SIGNIN_ENABLED;
 
   return (
     <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
@@ -135,7 +136,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
             ) : null}
 
-            <AppleSignInButton />
+            {APPLE_SIGNIN_ENABLED ? <AppleSignInButton /> : null}
 
             <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
               <View style={styles.primaryIcon}>
