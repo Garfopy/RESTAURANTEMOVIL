@@ -14,10 +14,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '../store/cart.store';
-import { useTableSessionStore } from '../store/table-session.store';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
-import { TableContextBanner } from '../components/shared/TableContextBanner';
 import { Colors, Spacing, Shadows } from '../theme';
 import { formatImageUrl } from '../services/api';
 import { getDishById } from '../services/menu.service';
@@ -58,9 +56,7 @@ export default function CartScreen() {
   const router = useRouter();
   const theme = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { items, removeItem, updateQty, clear, tipoPedido, setTipoPedido } = useCartStore();
-  const tableSession = useTableSessionStore((s) => s.session);
-  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
+  const { items, removeItem, updateQty, clear } = useCartStore();
   const displayTotal = useMemo(
     () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
     [items]
@@ -71,37 +67,6 @@ export default function CartScreen() {
       message: 'Crea tu cuenta para completar el pedido, guardar tus datos y darle seguimiento.',
       returnTo: '/checkout/order-type',
     })) {
-      return;
-    }
-
-    if (!tipoPedido && tableSession) {
-      setTipoPedido('eat_in');
-      router.replace('/checkout/order-type');
-      return;
-    }
-
-    if (!tipoPedido && deferredBranch?.id) {
-      setTipoPedido('eat_in');
-      router.push({
-        pathname: '/table-scanner',
-        params: {
-          returnTo: '/checkout/order-type',
-          mode: 'eat_in',
-          branchId: String(deferredBranch.id),
-        },
-      });
-      return;
-    }
-
-    if (tipoPedido === 'eat_in' && !tableSession) {
-      router.push({
-        pathname: '/table-scanner',
-        params: {
-          returnTo: '/checkout/order-type',
-          mode: 'eat_in',
-          branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
-        },
-      });
       return;
     }
 
@@ -149,10 +114,6 @@ export default function CartScreen() {
           <Text style={styles.clearText}>Vaciar</Text>
         </TouchableOpacity>
       </View>
-
-      {tipoPedido === 'eat_in' ? (
-        <TableContextBanner session={tableSession} style={styles.tableBannerWrap} />
-      ) : null}
 
       <FlatList
         data={items}
@@ -386,10 +347,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     paddingHorizontal: 8,
-  },
-  tableBannerWrap: {
-    marginHorizontal: Spacing.base || 16,
-    marginBottom: 10,
   },
   list: { paddingBottom: 140 },
 

@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,10 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient, formatImageUrl } from '../../services/api';
-import { getOrders, getOrderTracking, getPickupOrderById } from '../../services/orders.service';
-import { useTableSessionStore } from '../../store/table-session.store';
+import { getOrderTracking, getPickupOrderById } from '../../services/orders.service';
 import { useUserStore } from '../../store/user.store';
-import { Colors, Spacing, Shadows } from '../../theme';
+import { Colors, Shadows } from '../../theme';
 import LottieView from 'lottie-react-native';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTimeline } from '../../components/tracking/OrderTimeline';
@@ -32,47 +30,8 @@ const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }
   cancelado: { label: 'Cancelado', color: '#EF4444', icon: 'close-circle-outline' },
 };
 
-function buildOrderTimeline(order: Pedido | null | undefined, isEatInConsumption: boolean): TrackingEvent[] {
+function buildOrderTimeline(order: Pedido | null | undefined): TrackingEvent[] {
   if (!order) return [];
-
-  if (isEatInConsumption) {
-    const hasExitQr = Boolean(order.salida_qr_generado_at);
-    const isValidated = Boolean(order.salida_validado_at);
-    return [
-      {
-        estado: 'pendiente',
-        label: 'Pedido recibido',
-        descripcion: 'La cuenta quedó abierta para esta mesa.',
-        completado: true,
-        en_curso: false,
-        timestamp: order.created_at ?? null,
-      },
-      {
-        estado: 'en_preparacion',
-        label: 'Cuenta abierta',
-        descripcion: 'Puedes seguir pidiendo antes de pagar.',
-        completado: hasExitQr || isValidated,
-        en_curso: !hasExitQr && !isValidated,
-        timestamp: order.updated_at ?? order.created_at ?? null,
-      },
-      {
-        estado: 'listo',
-        label: 'QR de salida',
-        descripcion: 'Se genera al pagar la cuenta.',
-        completado: hasExitQr || isValidated,
-        en_curso: hasExitQr && !isValidated,
-        timestamp: order.salida_qr_generado_at ?? null,
-      },
-      {
-        estado: 'entregado',
-        label: 'Salida validada',
-        descripcion: 'Hostess cierra la visita al escanear el QR.',
-        completado: isValidated,
-        en_curso: false,
-        timestamp: order.salida_validado_at ?? null,
-      },
-    ];
-  }
 
   const statusOrder: Array<Pedido['estado']> = ['pendiente', 'en_preparacion', 'listo', 'entregado'];
   const currentIndex = Math.max(0, statusOrder.indexOf(order.estado ?? 'pendiente'));
@@ -115,8 +74,6 @@ function buildOrderTimeline(order: Pedido | null | undefined, isEatInConsumption
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const [payingAccount, setPayingAccount] = useState(false);
-  const tableSession = useTableSessionStore((s) => s.session);
   const user = useUserStore((s) => s.user);
 
   function handleBackToOrders() {
@@ -138,20 +95,8 @@ export default function OrderDetailScreen() {
           try {
             return await getPickupOrderById(Number(id), Number(user.id));
           } catch {
-            // Continue with the existing open-account fallback below.
+            // Ignorar y relanzar el error original de abajo.
           }
-        }
-
-        const orders = await getOrders();
-        const fallback = orders.find(
-          (item) =>
-            item.tipo_pedido === 'eat_in' &&
-            Number(item.cuenta_abierta ?? 0) === 1 &&
-            !item.salida_qr_generado_at
-        );
-
-        if (fallback) {
-          return fallback;
         }
 
         throw error;
@@ -182,72 +127,9 @@ export default function OrderDetailScreen() {
   );
 
   const status = ESTADO_INFO[order?.estado ?? 'pendiente'];
-  const isOpenEatInAccount =
-    order?.tipo_pedido === 'eat_in' &&
-    Number(order?.cuenta_abierta ?? 0) === 1 &&
-    !order?.salida_qr_generado_at;
-  const openAccountTotal = Number(order?.total ?? 0);
-  const canPayOpenAccount = isOpenEatInAccount && openAccountTotal > 0;
-  const canGenerateExitQr = isOpenEatInAccount && openAccountTotal <= 0;
-  const isEatInConsumption =
-    order?.tipo_pedido === 'eat_in' &&
-    (order?.es_consumo ||
-      Boolean(order?.consumo_id) ||
-      Number(order?.pedidos_count ?? 0) > 1 ||
-      Number(order?.cuenta_abierta ?? 0) === 1);
-  const canGenerateSocialCoverExitQr =
-    isEatInConsumption &&
-    !order?.salida_validado_at &&
-    (order?.metodo_pago === 'social_cover' || Boolean(order?.pagado_at || order?.cerrado_at));
-  const accountStatusLabel = order?.salida_validado_at
-    ? 'Cuenta cerrada'
-    : order?.pagado_at || order?.cerrado_at
-      ? 'Cuenta saldada'
-    : order?.salida_qr_generado_at
-      ? 'Cuenta pagada'
-      : 'Cuenta abierta';
-  const orderMesaLabel =
-    order?.mesa_nombre ||
-    (order?.mesa_id ? `Mesa ${order.mesa_id}` : tableSession?.mesaLabel ?? 'tu mesa');
   const timelineSteps = trackingData?.tracking?.length
     ? trackingData.tracking
-    : buildOrderTimeline(order, isEatInConsumption);
-
-  async function handlePayOpenAccount() {
-    if (!order) return;
-
-    setPayingAccount(true);
-    router.push({
-      pathname: '/checkout/payment',
-      params: {
-        restauranteId: String(order.restaurante_id),
-        tipoPedido: 'eat_in',
-        orderId: String(order.id),
-        amount: String(order.total || 0),
-        folio: order.folio,
-        mesaId: order.mesa_id ? String(order.mesa_id) : '',
-        mesaLabel: orderMesaLabel,
-      },
-    });
-    setPayingAccount(false);
-  }
-
-  function handleOrderMore() {
-    router.replace('/(tabs)' as never);
-  }
-
-  function handleGenerateExitQr() {
-    if (!order) return;
-
-    router.push({
-      pathname: '/checkout/exit-pass',
-      params: {
-        orderId: String(order.id),
-        folio: order.folio ?? '',
-        mesaLabel: orderMesaLabel,
-      },
-    });
-  }
+    : buildOrderTimeline(order);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -261,47 +143,16 @@ export default function OrderDetailScreen() {
             {new Date(order?.created_at ?? '').toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}
           </Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: (isEatInConsumption ? Colors.primary || '#111827' : status.color) + '15' }]}>
-          <Text style={[styles.statusText, { color: isEatInConsumption ? Colors.primary || '#111827' : status.color }]}>
-            {isEatInConsumption ? accountStatusLabel : status.label}
+        <View style={[styles.statusBadge, { backgroundColor: status.color + '15' }]}>
+          <Text style={[styles.statusText, { color: status.color }]}>
+            {status.label}
           </Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {isEatInConsumption ? (
-          <View style={styles.card}>
-            <View style={styles.trackingRow}>
-              <View style={[styles.iconContainer, { backgroundColor: Colors.primary || '#111827' }]}>
-                <Ionicons name="restaurant-outline" size={24} color="#FFF" />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.trackingTitle}>Consumo en restaurante</Text>
-                <Text style={styles.trackingDesc}>
-                  {accountStatusLabel} en {orderMesaLabel}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.accountStats}>
-              <View style={styles.accountStat}>
-                <Text style={styles.accountStatLabel}>Tandas enviadas</Text>
-                <Text style={styles.accountStatValue}>{Number(order?.pedidos_count ?? 1)}</Text>
-              </View>
-              <View style={styles.accountStat}>
-                <Text style={styles.accountStatLabel}>Total acumulado</Text>
-                <Text style={styles.accountStatValue}>${Number(order?.total || 0).toFixed(2)}</Text>
-              </View>
-            </View>
-
-            <View style={styles.timelineWrap}>
-              <OrderTimeline steps={timelineSteps} />
-            </View>
-          </View>
-        ) : null}
-        
         {/* SECCIÓN DE TRACKING VISUAL */}
-        {!isEatInConsumption ? <View style={styles.card}>
+        <View style={styles.card}>
           <View style={styles.trackingRow}>
             {order?.estado === 'en_camino' ? (
               <View style={styles.lottieContainer}>
@@ -337,27 +188,25 @@ export default function OrderDetailScreen() {
           <View style={styles.timelineWrap}>
             <OrderTimeline steps={timelineSteps} />
           </View>
-        </View> : null}
+        </View>
 
         {/* DETALLES DE ENTREGA */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{isEatInConsumption ? 'Detalles del consumo' : 'Detalles de entrega'}</Text>
+          <Text style={styles.sectionTitle}>Detalles de entrega</Text>
         </View>
         <View style={styles.card}>
           <View style={styles.detailItem}>
             <Ionicons
-              name={order?.tipo_pedido === 'delivery' ? "location-outline" : order?.tipo_pedido === 'eat_in' ? 'restaurant-outline' : "storefront-outline"}
+              name={order?.tipo_pedido === 'delivery' ? "location-outline" : "storefront-outline"}
               size={20}
               color="#6B7280"
             />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.detailLabel}>
-                {order?.tipo_pedido === 'delivery' ? 'Dirección de envío' : order?.tipo_pedido === 'eat_in' ? 'Mesa' : 'Recoges en sucursal'}
+                {order?.tipo_pedido === 'delivery' ? 'Dirección de envío' : 'Recoges en sucursal'}
               </Text>
               <Text style={styles.detailValue}>
-                {order?.tipo_pedido === 'eat_in'
-                  ? `${orderMesaLabel} · ${order?.restaurante_nombre}`
-                  : order?.direccion_entrega || order?.restaurante_nombre}
+                {order?.direccion_entrega || order?.restaurante_nombre}
               </Text>
             </View>
           </View>
@@ -374,7 +223,7 @@ export default function OrderDetailScreen() {
 
         {/* PRODUCTOS */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{isEatInConsumption ? 'Productos pedidos' : 'Tu pedido'}</Text>
+          <Text style={styles.sectionTitle}>Tu pedido</Text>
           <Text style={styles.itemCount}>{order?.items?.length} {order?.items?.length === 1 ? 'producto' : 'productos'}</Text>
         </View>
         <View style={styles.card}>
@@ -435,9 +284,6 @@ export default function OrderDetailScreen() {
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.productName} numberOfLines={2}>{item.platillo_nombre}</Text>
-                  {isEatInConsumption && item.pedido_folio ? (
-                    <Text style={styles.productBatch} numberOfLines={1}>Tanda {item.pedido_folio}</Text>
-                  ) : null}
                   {/* Desglose de precio */}
                   <View style={styles.priceBreakdown}>
                     <Text style={styles.productPrice}>Precio base: ${precioBase.toFixed(2)}</Text>
@@ -490,57 +336,6 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        {isOpenEatInAccount && (
-          <TouchableOpacity
-            style={styles.orderMoreButton}
-            onPress={handleOrderMore}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
-            <Text style={styles.orderMoreText}>Pedir más</Text>
-          </TouchableOpacity>
-        )}
-
-        {canPayOpenAccount && (
-          <TouchableOpacity
-            style={styles.payAccountButton}
-            onPress={handlePayOpenAccount}
-            activeOpacity={0.85}
-            disabled={payingAccount}
-          >
-            {payingAccount ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <>
-                <Ionicons name="card-outline" size={20} color="#FFFFFF" />
-                <Text style={styles.payAccountText}>Pagar cuenta y generar QR de salida</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {canGenerateExitQr && (
-          <TouchableOpacity
-            style={styles.payAccountButton}
-            onPress={handleGenerateExitQr}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.payAccountText}>Generar QR de salida</Text>
-          </TouchableOpacity>
-        )}
-
-        {canGenerateSocialCoverExitQr && (
-          <TouchableOpacity
-            style={styles.socialExitButton}
-            onPress={handleGenerateExitQr}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="qr-code-outline" size={20} color="#111827" />
-            <Text style={styles.socialExitButtonText}>Ya no pediré nada más, generar QR de salida</Text>
-          </TouchableOpacity>
-        )}
-
         <TouchableOpacity style={styles.helpButton} activeOpacity={0.8}>
           <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
           <Text style={styles.helpButtonText}>Necesito ayuda con mi pedido</Text>
@@ -591,36 +386,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F3F4F6',
   },
-  accountStats: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 18,
-  },
   timelineWrap: {
     marginTop: 18,
     marginHorizontal: -20,
   },
-  accountStat: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  accountStatLabel: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  accountStatValue: {
-    fontSize: 18,
-    color: '#111827',
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  
+
   trackingRow: { flexDirection: 'row', alignItems: 'center' },
   iconContainer: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   trackingTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
@@ -679,7 +449,6 @@ const styles = StyleSheet.create({
   },
   qtyText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
   productName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 4 },
-  productBatch: { fontSize: 11, color: '#6B7280', fontWeight: '700', marginBottom: 2 },
   priceBreakdown: { marginTop: 2 },
   productPrice: { fontSize: 13, color: '#6B7280' },
   extraItem: { fontSize: 12, color: '#8B5CF6', fontWeight: '500', marginLeft: 4, marginTop: 1 },
@@ -698,65 +467,6 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
   totalLabel: { fontSize: 16, fontWeight: '700', color: '#111827' },
   totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary },
-
-  orderMoreButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
-    ...Shadows.sm,
-  },
-  orderMoreText: {
-    color: Colors.primary,
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-
-  payAccountButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderRadius: 16,
-    backgroundColor: Colors.primary,
-    ...Shadows.md,
-  },
-  payAccountText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-
-  socialExitButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderRadius: 16,
-    backgroundColor: '#F8E8C8',
-    borderWidth: 1,
-    borderColor: '#E7C987',
-    ...Shadows.sm,
-  },
-  socialExitButtonText: {
-    color: '#111827',
-    fontSize: 14,
-    fontWeight: '800',
-    textAlign: 'center',
-    flexShrink: 1,
-  },
 
   helpButton: {
     flexDirection: 'row',

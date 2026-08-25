@@ -4,8 +4,6 @@ import type { MobileUser, Sesion } from '@amare/types';
 import { API_BASE_URL } from '../constants/api';
 import { useBranchConfigStore, useBranchStore } from './branch.store';
 import { useCartStore } from './cart.store';
-import { useTableSessionStore } from './table-session.store';
-import { useWaiterCartStore } from './waiter-cart.store';
 import type { AccountSuspensionNotice } from '../services/account-suspension.service';
 
 const TOKEN_KEY = 'amare_auth_token';
@@ -105,7 +103,5 @@ function normalizeApiBase(url: string): string {
 function clearSessionState(): void {
   useBranchConfigStore.getState().clear();
   useBranchStore.getState().clearSelection();
-  useTableSessionStore.getState().clearSession();
   useCartStore.getState().clear();
-  useWaiterCartStore.getState().clear();
 }

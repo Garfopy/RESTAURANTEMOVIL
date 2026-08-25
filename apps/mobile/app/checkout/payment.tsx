@@ -19,7 +19,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchConfigStore, useBranchStore } from '../../store/branch.store';
-import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
 import { confirmPayment, createOrder, createPaymentIntent, getOrderById } from '../../services/orders.service';
 import { getApiError } from '../../services/api';
@@ -32,7 +31,6 @@ import {
 } from '../../services/fiscal.service';
 import { validatePromoCode, type PromotionQuote } from '../../services/promotions.service';
 import { getRewardsWallet, quoteRewards, type RewardsQuote, type RewardsWallet } from '../../services/rewards.service';
-import { tableSessionKeys } from '../../services/table-session.service';
 import { Button } from '../../components/ui/Button';
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { WALLET_ENABLED } from '../../constants/features';
@@ -51,7 +49,6 @@ import type { MetodoPagoHabilitado } from '@amare/types';
 type PaymentMethod = 'card' | 'cash' | 'amare';
 type PreparedCardPayment = {
   orderId: number;
-  orderFolio?: string | null;
   clientSecret: string;
   intentId: string;
   amount: number;
@@ -89,27 +86,20 @@ export default function PaymentScreen() {
     tipoPedido,
     direccionId,
     direccionEntrega,
-    mesaId,
-    mesaLabel,
     orderId,
     amount,
-    folio,
   } = useLocalSearchParams<{
     restauranteId: string;
     tipoPedido: string;
     direccionId?: string;
     direccionEntrega?: string;
-    mesaId?: string;
-    mesaLabel?: string;
     orderId?: string;
     amount?: string;
-    folio?: string;
   }>();
 
   const { items, total, clear, restauranteId: cartRestaurantId } = useCartStore();
   const user = useUserStore((s) => s.user);
   const selectedBranchId = useBranchStore((s) => s.seleccionada?.id);
-  const tableSession = useTableSessionStore((s) => s.session);
   const resolvedRestaurantId =
     Number(restauranteId) ||
     cartRestaurantId ||
@@ -120,19 +110,6 @@ export default function PaymentScreen() {
   const existingOrderId = typeof orderId === 'string' && orderId !== '' ? Number(orderId) : null;
   const parsedAmount = typeof amount === 'string' && amount !== '' ? Number(amount) : NaN;
   const paymentAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : total;
-  const routeMesaId = typeof mesaId === 'string' && mesaId !== '' ? Number(mesaId) : null;
-  const resolvedMesaId =
-    routeMesaId !== null && Number.isFinite(routeMesaId)
-      ? routeMesaId
-      : tipoPedido === 'eat_in'
-        ? tableSession?.mesaId
-        : undefined;
-  const resolvedMesaLabel =
-    typeof mesaLabel === 'string' && mesaLabel !== ''
-      ? mesaLabel
-      : tipoPedido === 'eat_in'
-        ? tableSession?.mesaLabel ?? ''
-        : '';
   const [loading, setLoading] = useState(false);
   const paymentLockRef = useRef(false);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('card');
@@ -398,7 +375,7 @@ export default function PaymentScreen() {
       if (selectedMethod === 'cash') {
         const order = existingOrderId ? null : await createOrderBackend('cash');
         const targetOrderId = existingOrderId ?? order!.id;
-        const confirmation = await confirmPayment({
+        await confirmPayment({
           pedido_id: targetOrderId,
           payment_intent_id: '',
           metodo: 'cash',
@@ -409,7 +386,7 @@ export default function PaymentScreen() {
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
         showInvoiceReceived(invoiceRequest !== null);
-        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
+        await finishOrderFlow(targetOrderId);
         return;
       }
 
@@ -419,7 +396,7 @@ export default function PaymentScreen() {
         }
         const order = existingOrderId ? null : await createOrderBackend('amare_wallet');
         const targetOrderId = existingOrderId ?? order!.id;
-        const confirmation = await confirmPayment({
+        await confirmPayment({
           pedido_id: targetOrderId,
           metodo: 'amare_wallet',
           use_points: useRewardsPoints,
@@ -429,7 +406,7 @@ export default function PaymentScreen() {
         if (!existingOrderId) clear();
         await refreshRewardsWallet();
         showInvoiceReceived(invoiceRequest !== null);
-        await finishOrderFlow(targetOrderId, confirmation.exit_pass, order?.folio);
+        await finishOrderFlow(targetOrderId);
         return;
       }
 
@@ -445,7 +422,6 @@ export default function PaymentScreen() {
           const paymentIntent = await resolvePaymentIntent(order.id, existingOrderId !== null, invoiceRequest);
           prepared = {
             orderId: order.id,
-            orderFolio: order.folio,
             clientSecret: paymentIntent.clientSecret,
             intentId: paymentIntent.intentId,
             amount: paymentIntent.amount,
@@ -480,7 +456,7 @@ export default function PaymentScreen() {
         }
         stripeCompletedOrderId = prepared.orderId;
 
-        const confirmation = await confirmPayment({
+        await confirmPayment({
           pedido_id: prepared.orderId,
           payment_intent_id: prepared.intentId,
           metodo: 'card',
@@ -491,7 +467,7 @@ export default function PaymentScreen() {
         if (prepared.createdLocally) clear();
         await refreshRewardsWallet();
         showInvoiceReceived(invoiceRequest !== null);
-        await finishOrderFlow(prepared.orderId, confirmation.exit_pass, prepared.orderFolio);
+        await finishOrderFlow(prepared.orderId);
         return;
       }
 
@@ -521,22 +497,8 @@ export default function PaymentScreen() {
     }
   }
 
-  async function finishOrderFlow(targetOrderId: number, exitPass: any, orderFolio?: string | null) {
+  async function finishOrderFlow(targetOrderId: number) {
     refreshRealtimeState(queryClient);
-
-    if (tipoPedido === 'eat_in' && exitPass) {
-      router.replace({
-        pathname: '/checkout/exit-pass',
-        params: {
-          orderId: String(targetOrderId),
-          payload: exitPass.payload,
-          folio: exitPass.folio || folio || orderFolio || '',
-          mesaLabel: resolvedMesaLabel,
-        },
-      });
-      return;
-    }
-
     router.replace({ pathname: '/order/[id]', params: { id: String(targetOrderId) } });
   }
 
@@ -571,7 +533,6 @@ export default function PaymentScreen() {
       direccion_id: typeof direccionId === 'string' && direccionId !== '' ? Number(direccionId) : undefined,
       direccion_entrega:
         typeof direccionEntrega === 'string' && direccionEntrega !== '' ? direccionEntrega : undefined,
-      mesa_id: resolvedMesaId,
       items: items.map((item) => ({
         platillo_id: item.platillo.id,
         cantidad: item.cantidad,
@@ -909,7 +870,6 @@ export default function PaymentScreen() {
 function refreshRealtimeState(queryClient: ReturnType<typeof useQueryClient>): void {
   void queryClient.invalidateQueries({ queryKey: ['orders'] });
   void queryClient.invalidateQueries({ queryKey: ['social'] });
-  void queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic });
 }
 
 function normalizePhone(value: string): string {

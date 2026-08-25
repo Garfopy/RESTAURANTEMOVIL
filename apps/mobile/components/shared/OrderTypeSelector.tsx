@@ -8,7 +8,6 @@ import type { TipoPedido } from '@amare/types';
 const OPTIONS: { tipo: TipoPedido; label: string; icon: keyof typeof Ionicons.glyphMap; desc: string }[] = [
   { tipo: 'pickup',   label: 'Recoger',    icon: 'walk-outline',     desc: 'Recoge en sucursal' },
   { tipo: 'delivery', label: 'Domicilio',  icon: 'bicycle-outline',  desc: 'Entrega a tu dirección' },
-  { tipo: 'eat_in',   label: 'En mesa',   icon: 'restaurant-outline', desc: 'Come aquí' },
 ];
 
 interface OrderTypeSelectorProps {
@@ -20,7 +19,7 @@ interface OrderTypeSelectorProps {
 export function OrderTypeSelector({
   value,
   onChange,
-  available = ['pickup', 'delivery', 'eat_in'],
+  available = ['pickup', 'delivery'],
 }: OrderTypeSelectorProps) {
   const theme = useThemeColors();
   const visibleOptions = OPTIONS.filter((o) => available.includes(o.tipo));

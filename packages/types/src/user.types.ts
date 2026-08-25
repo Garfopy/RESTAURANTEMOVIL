@@ -10,28 +10,17 @@ export interface MobileUser {
   marketing_opt_in?: boolean | number | null;
   requires_onboarding?: boolean | null;
   foto_url: string | null;
-  social_photos?: string[];
   google_id: string | null;
   apple_id?: string | null;
   activo: boolean;
   created_at: string;
-  // Social profile fields (frontend names)
-  edad?: number | null;
-  genero?: string | null;
-  sexualidad?: string | null;
-  gustos?: string | null; // -> columna: intereses
-  biografia?: string | null; // -> columna: descripcion
-  que_busca?: string | null;
-  redes_sociales?: string | null;
-  instagram?: string | null; // -> columna: redes_sociales (JSON o texto)
-  tiktok?: string | null; // -> columna: redes_sociales (JSON)
-  is_social_active?: boolean; // -> columna: is_social_active
-  modo_social?: boolean; // -> alias de is_social_active
+  // is_social_active/modo_social ya no activan el modo social (Sprint 2), pero
+  // se conservan porque el flujo de mesa (Sprint 3, pendiente) los sigue usando
+  // para limpiar la sesión al salir de una mesa.
+  is_social_active?: boolean;
+  modo_social?: boolean;
   current_restaurante_id?: number | null;
   mesa?: string | null;
-  social_consent_accepted_at?: string | null;
-  social_consent_version?: string | null;
-  requires_social_consent?: boolean | null;
 }
 
 export interface Sesion {

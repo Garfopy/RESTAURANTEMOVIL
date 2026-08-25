@@ -1,26 +1,9 @@
 import { apiClient, formatImageUrl } from './api';
-import type { Sucursal, TipoPedido } from '@amare/types';
+import type { Sucursal } from '@amare/types';
 import { DEFAULT_RESTAURANT_LOGO_PATH } from '../constants/branding';
 
 export async function getBranches(): Promise<Sucursal[]> {
   const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>('/branches');
-  return data.data.branches.map(normalizeBranch);
-}
-
-export async function getBranchById(id: number): Promise<Sucursal> {
-  const { data } = await apiClient.get<{ success: boolean; data: { branch: Sucursal } }>(`/branches/${id}`);
-  return normalizeBranch(data.data.branch);
-}
-
-export async function getNearestBranches(
-  lat: number,
-  lng: number,
-  tipoPedido?: TipoPedido
-): Promise<Sucursal[]> {
-  const { data } = await apiClient.get<{ success: boolean; data: { branches: Sucursal[] } }>(
-    '/branches/nearest',
-    { params: { lat, lng, tipo_pedido: tipoPedido } }
-  );
   return data.data.branches.map(normalizeBranch);
 }
 

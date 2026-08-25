@@ -358,13 +358,6 @@ export default function ProfileScreen() {
               />
             ) : null}
             <MenuItem
-              icon="people"
-              label="Perfil social"
-              color="#8B5CF6"
-              onPress={() => router.push('/profile/social' as any)}
-              showDivider
-            />
-            <MenuItem
               icon="heart"
               label="Favoritos"
               color="#EF4444"

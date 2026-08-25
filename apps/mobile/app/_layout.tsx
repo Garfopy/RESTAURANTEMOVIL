@@ -22,15 +22,12 @@ import { StripeProvider, useStripe } from '@stripe/stripe-react-native';
 import * as Linking from 'expo-linking';
 import { useUserStore } from '../store/user.store';
 import { hydrateCart } from '../store/cart.store';
-import { hydrateTableSession } from '../store/table-session.store';
 import { getMe } from '../services/auth.service';
 import { extractAccountSuspension } from '../services/account-suspension.service';
 import { apiClient } from '../services/api';
 import { getOrders } from '../services/orders.service';
 import { ToastProvider } from '../context/ToastContext';
 import { GlobalCartButton } from '../components/shared/GlobalCartButton';
-import { GlobalSocialNotifications } from '../components/shared/GlobalSocialNotifications';
-import { TableSessionRuntime } from '../components/shared/TableSessionRuntime';
 import { useThemeStore } from '../store/theme.store';
 import { hydrateBranchSelection, notifyBranchConfigUpdated, subscribeBranchConfigUpdated, useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import {
@@ -93,28 +90,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const inPublicLegal = firstSegment === 'legal';
   const inAccountSuspended = firstSegment === 'account-suspended';
   const inCompleteProfile = inAuth && (segments as string[])[1] === 'complete-profile';
-  const inWaiter = firstSegment === '(waiter)';
-  const inHostess = firstSegment === '(hostess)';
   const inPublicCatalog =
     firstSegment === '' ||
     firstSegment === 'index' ||
     firstSegment === '(tabs)' ||
-    firstSegment === 'branch-selector' ||
     firstSegment === 'cart' ||
     firstSegment === 'category' ||
     firstSegment === 'product' ||
-    firstSegment === 'table-scanner' ||
     (firstSegment === 'store' && (secondSegment === '' || secondSegment === 'index' || secondSegment === 'product'));
-  const isWaiter = user?.rol === 'mesero';
-  const isHostess = ['hostess', 'hostes', 'host', 'anfitrion', 'anfitriona'].includes(
-    String(user?.rol ?? '').toLowerCase()
-  );
   const userName = String(user?.nombre ?? '').trim();
   const needsName = userName.length < 3 || userName.toLowerCase() === 'usuario amare';
   const needsOnboarding = Boolean(
     isAuthenticated &&
-      !isWaiter &&
-      !isHostess &&
       (user?.google_id || user?.apple_id) &&
       (user.requires_onboarding || needsName || !user.telefono || !user.fecha_nacimiento || !user.terms_accepted_at)
   );
@@ -125,14 +112,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       ? '/(auth)/login'
       : !isLoading && needsOnboarding && !inCompleteProfile && !inPublicLegal
         ? '/(auth)/complete-profile'
-        : !isLoading && isAuthenticated && isWaiter && !inWaiter
-        ? '/(waiter)'
-        : !isLoading && isAuthenticated && isHostess && !inHostess
-          ? '/(hostess)'
-          : !isLoading && isAuthenticated && !needsOnboarding && !isWaiter && !isHostess && (inAuth || inWaiter || inHostess)
-            && !(inAuth && hasPendingAuthReturnTo())
-            ? '/(tabs)'
-            : null;
+        : !isLoading && isAuthenticated && !needsOnboarding && inAuth && !hasPendingAuthReturnTo()
+          ? '/(tabs)'
+          : null;
 
   useEffect(() => {
     if (redirectTo) {
@@ -532,7 +514,6 @@ export default function RootLayout() {
         hydrateFromStorage(),
         hydrateBranchSelection(),
         hydrateCart(),
-        hydrateTableSession(),
       ]);
 
       startupResults.forEach((result, index) => {
@@ -622,8 +603,6 @@ export default function RootLayout() {
               {optionalRuntimesReady ? <PushNotificationRuntime /> : null}
               <AccountStatusRuntime />
               <AuthenticatedDataWarmupRuntime />
-              <TableSessionRuntime />
-              <GlobalSocialNotifications />
               <AuthGuard>
                 <StatusBar style="auto" />
                 <View style={{ flex: 1 }}>
@@ -639,18 +618,13 @@ export default function RootLayout() {
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="index" />
                     <Stack.Screen name="(auth)" />
-                    <Stack.Screen name="(waiter)" />
-                    <Stack.Screen name="(hostess)" />
                     <Stack.Screen name="account-suspended" />
-                    <Stack.Screen name="branch-selector" options={{ presentation: 'modal', gestureEnabled: true }} />
-                    <Stack.Screen name="table-scanner" options={{ presentation: 'modal', gestureEnabled: true }} />
                     <Stack.Screen name="product/[id]" />
                     <Stack.Screen name="store/index" />
                     <Stack.Screen name="store/product/[id]" />
                     <Stack.Screen name="cart" />
                     <Stack.Screen name="checkout/order-type" />
                     <Stack.Screen name="checkout/payment" />
-                    <Stack.Screen name="checkout/exit-pass" />
                     <Stack.Screen name="order/[id]" />
                     <Stack.Screen name="legal/terms" />
                     <Stack.Screen name="legal/privacy" />

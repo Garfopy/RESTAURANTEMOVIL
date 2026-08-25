@@ -46,8 +46,9 @@ Tareas:
 - [ ] En el servidor: `STRIPE_SECRET_KEY=sk_test_...` y `STRIPE_LIVE_MODE=false` en el `.env` de `apps/api-php`
 - [ ] Apple Developer: registrar App ID `com.uteq.cafeteria` + Merchant ID `merchant.com.uteq.cafeteria`
 - [ ] App Store Connect: crear la app nueva (bundle id de arriba)
-- [ ] Correr la migración `085_reduce_menu_scope_to_comida_bebidas_dulceria.sql` contra la base real — revisar el `SELECT` antes de los `UPDATE`
-- [ ] Aplicar la migración `086_trim_schema_uteq.sql` (ver más abajo) sobre una copia nueva de la base para provisionar la base final de UTEQ
+- [ ] Provisionar la base de datos vacía de UTEQ corriendo `000_baseline_schema_uteq.sql` (ver más abajo) — es el esquema completo desde cero, sin datos de otro cliente
+- [ ] Si en vez de partir de cero clonas la base de otro cliente ya existente, usa `086_trim_schema_uteq.sql` para recortarla en lugar de la 000
+- [ ] Una vez que la base tenga tu propio restaurante/categorías (ver plantillas al final de `000_baseline_schema_uteq.sql`), correr `085_reduce_menu_scope_to_comida_bebidas_dulceria.sql` para dejar solo comida/bebidas/dulcería — revisar el `SELECT` antes de los `UPDATE`
 
 ### Sprint 1 — Eliminar app de mesero y anfitrión
 
@@ -56,16 +57,21 @@ Tareas:
 
 Borrar completo:
 
-- [ ] `app/(waiter)/` completo (layout, index, orders, gifts, table/[id])
-- [ ] `app/(hostess)/` completo (layout, index, tables)
-- [ ] `services/waiter.service.ts`, `services/hostess.service.ts`
-- [ ] `store/waiter-cart.store.ts`
-- [ ] `components/waiter/` completo, `components/staff/StaffTabBar.tsx`
+- [x] `app/(waiter)/` completo (layout, index, orders, gifts, table/[id])
+- [x] `app/(hostess)/` completo (layout, index, tables)
+- [x] `services/waiter.service.ts`, `services/hostess.service.ts`
+- [x] `store/waiter-cart.store.ts`
+- [x] `components/waiter/` completo, `components/staff/StaffTabBar.tsx`
 
 Cirugía (editar, no borrar):
 
-- [ ] `store/user.store.ts` — quitar la llamada al wallet-cart de mesero dentro de `clearSessionState()` (~línea 110)
-- [ ] `app/_layout.tsx` — quitar los redirects por rol (mesero/anfitrión) y los `Stack.Screen` de `(waiter)`/`(hostess)`
+- [x] `store/user.store.ts` — quitar la llamada al wallet-cart de mesero dentro de `clearSessionState()` (~línea 110)
+- [x] `app/_layout.tsx` — quitar los redirects por rol (mesero/anfitrión) y los `Stack.Screen` de `(waiter)`/`(hostess)`
+
+Nota: `components/shared/TableSessionRuntime.tsx`, `GlobalCartButton.tsx` y
+`GlobalSocialNotifications.tsx` siguen con checks de rol `mesero`/`anfitrión` —
+son inofensivos ahora (esos roles ya no existen), se limpian en los Sprints 2 y 3
+como marca el plan, no se tocaron aquí para no salirse del alcance del Sprint 1.
 
 ### Sprint 2 — Eliminar modo social
 
@@ -74,36 +80,72 @@ Cirugía (editar, no borrar):
 
 Borrar completo:
 
-- [ ] `app/profile/social.tsx` (7,100+ líneas) y `app/(tabs)/social.tsx`
-- [ ] `services/social-account.service.ts`, `services/social-gifts.service.ts`
-- [ ] `components/shared/GlobalSocialNotifications.tsx`
+- [x] `app/profile/social.tsx` (7,100+ líneas) y `app/(tabs)/social.tsx`
+- [x] `services/social-account.service.ts`, `services/social-gifts.service.ts`
+- [x] `components/shared/GlobalSocialNotifications.tsx`
 
 Cirugía:
 
-- [ ] `app/_layout.tsx` — quitar el `<GlobalSocialNotifications/>` montado globalmente (~línea 626) y su import
-- [ ] Revisar `packages/types` / `store/user.store.ts` por campos `is_social_active`, `modo_social` — quitar si nada más los usa
-- [ ] `app/checkout/order-type.tsx` y `app/checkout/exit-pass.tsx` invalidan queries `['social']` — limpieza menor, no urgente
+- [x] `app/_layout.tsx` — quitar el `<GlobalSocialNotifications/>` montado globalmente y su import
+- [x] Revisar `packages/types` / `services/auth.service.ts` por campos de perfil social
+      (`social_photos`, `edad`, `genero`, `sexualidad`, `gustos`, `biografia`, `que_busca`,
+      `redes_sociales`, `instagram`, `tiktok`, `social_consent_*`) — quitados del tipo
+      `MobileUser` y del mapeo de `auth.service.ts`. **`is_social_active`/`modo_social` NO se
+      quitaron**: `table-scanner.tsx`, `checkout/exit-pass.tsx` y `TableSessionRuntime.tsx`
+      (Sprint 3, pendiente) todavía los usan para limpiar la sesión de mesa — se quitan cuando
+      esos archivos se toquen.
+- [ ] `app/checkout/order-type.tsx` y `app/checkout/exit-pass.tsx` invalidan queries `['social']` — limpieza menor, no urgente (se deja para cuando se toquen esos archivos en Sprint 3)
+
+Extra no listado en el plan original, pero necesario para no dejar rutas rotas:
+
+- [x] `app/(tabs)/_layout.tsx` — quitado el `Tabs.Screen name="social"` y las variables
+      `socialActive`/`socialAvailableInRestaurant`/`showSocialTab` que lo controlaban
+- [x] `app/(tabs)/profile.tsx` — quitado el `MenuItem` "Perfil social" (enlazaba a la ruta borrada)
+- [x] `services/deep-links.service.ts` — quitado el branch que resolvía deep links `social://...` a `/social`
+
+Pendiente de revisar (no se tocó, fuera de alcance de código):
+
+- `app/profile/help.tsx` tiene una FAQ ("Reportes y bloqueo") que menciona perfiles sociales — contenido de ayuda desactualizado, no es un bug funcional.
+- `app/legal/terms.tsx` y `app/legal/privacy.tsx` describen el "modo social" como parte del aviso de privacidad/términos — esto es texto legal, mejor que lo revise quien mantenga esos documentos antes de tocarlo.
+- `app/table-scanner.tsx` (se borra completo en Sprint 3) todavía navega a `/profile/social` bajo `activateSocial=1`, pero nada en la app llama a esa ruta con ese parámetro — código inalcanzable, no se tocó para no editar un archivo que Sprint 3 borra de todos modos.
 
 ### Sprint 3 — Eliminar mesas, QR y dine-in
 
 **Rama:** `feature/sprint-3-remove-dine-in`
 **Dependencias:** coordina con Sprint 4 — **no tocar** `app/(tabs)/index.tsx`, Sprint 4 lo reescribe completo y absorbe ahí la parte de dine-in.
 
+> ⚠️ **El build queda roto hasta que corra el Sprint 4.** `app/(tabs)/index.tsx` y
+> `components/shared/OrderTypeSelector.tsx` todavía importan `store/table-session.store`
+> y navegan a `/table-scanner` — ambos archivos, tal como pide este plan, no se tocaron.
+> Como `table-session.store.ts` ya no existe, `index.tsx` no compila hasta que el Sprint 4
+> lo reescriba y quite esas referencias. Esto es intencional (son sprints pensados para
+> ramas paralelas que se integran en el Sprint 5), pero si vas a compilar/correr la app
+> ahora mismo en un solo checkout, el Sprint 4 tiene que ir enseguida.
+
 Borrar completo:
 
-- [ ] `app/table-scanner.tsx`, `app/checkout/exit-pass.tsx`
-- [ ] `services/table-session.service.ts`, `store/table-session.store.ts`
-- [ ] `components/shared/TableSessionRuntime.tsx`, `components/shared/TableContextBanner.tsx`
+- [x] `app/table-scanner.tsx`, `app/checkout/exit-pass.tsx`
+- [x] `services/table-session.service.ts`, `store/table-session.store.ts`
+- [x] `components/shared/TableSessionRuntime.tsx`, `components/shared/TableContextBanner.tsx`
 
 Cirugía — quitar ramas "eat_in" / sesión de mesa:
 
-- [ ] `app/cart.tsx`
-- [ ] `app/product/[id].tsx`
-- [ ] `app/checkout/order-type.tsx` (mezclado con pickup/delivery en `handleContinue`)
-- [ ] `app/checkout/payment.tsx`
-- [ ] `app/order/[id].tsx`
-- [ ] `app/(tabs)/_layout.tsx`
-- [ ] `app/_layout.tsx` — quitar mount de `TableSessionRuntime`, `hydrateTableSession()` y los `Stack.Screen` de `table-scanner`/`checkout/exit-pass`
+- [x] `app/cart.tsx`
+- [x] `app/product/[id].tsx`
+- [x] `app/checkout/order-type.tsx` (mezclado con pickup/delivery en `handleContinue`)
+- [x] `app/checkout/payment.tsx` — incluye `finishOrderFlow`, que ya no redirige a `checkout/exit-pass`
+- [x] `app/order/[id].tsx` — la pantalla de "cuenta abierta" (timeline, botones de pagar/generar QR) era la mitad del archivo; se quitó completa
+- [x] `app/(tabs)/_layout.tsx` — no tenía nada de eat_in/mesa (ya se había limpiado en el Sprint 2)
+- [x] `app/_layout.tsx` — quitado el mount de `TableSessionRuntime`, `hydrateTableSession()` y los `Stack.Screen` de `table-scanner`/`checkout/exit-pass`
+
+Extra no listado en el plan original, necesario para no dejar referencias rotas:
+
+- [x] `store/user.store.ts` — quitada la llamada a `useTableSessionStore.getState().clearSession()` en `clearSessionState()`
+- [x] `services/orders.service.ts` — quitados `getExitPass`/`scanExitPass` (solo los usaba `checkout/exit-pass.tsx`), la normalización especial de `eat_in` en `createOrder`, y `mesa_id`/`consumo_por_mesa` del payload
+- [x] `app/(tabs)/orders.tsx` — el listado de pedidos tenía 4 funciones (`isEatInConsumption`, `getOrderStatusLabel`, `getOrderStatusColor`, `getOrderTitle`, `getOrderModeMeta`) con una rama eat_in cada una; simplificadas a solo pickup/delivery
+- [x] `packages/types/src/order.types.ts` — quitados `mesa_id`/`consumo_por_mesa` de `CreateOrderPayload` (ya nadie los llenaba)
+
+**Dejado a propósito sin tocar** — `TipoPedido` sigue siendo `'delivery' | 'pickup' | 'eat_in'` y el tipo `Pedido` conserva sus campos de mesa/cuenta abierta (`mesa_id`, `cuenta_abierta`, `salida_qr_generado_at`, etc.) y el tipo `ExitPass` completo. Encontré que **`apps/api` (un backend Node/TS aparte de `apps/api-php`) también importa `@amare/types` y sí usa esos campos** (`apps/api/src/routes/orders.routes.ts`) — angostar esos tipos aquí habría roto la compilación de ese servicio. No sé si `apps/api` sigue vivo/desplegado o es un backend viejo de antes de migrar a PHP — vale la pena confirmarlo antes de limpiar esos tipos compartidos.
 
 ### Sprint 4 — Eliminar sucursales/reservaciones + reescribir Home
 
@@ -117,27 +159,42 @@ entrelazados en el mismo árbol de componentes.
 
 Borrar completo:
 
-- [ ] `app/branch-selector.tsx`
-- [ ] `services/reservations.service.ts`
+- [x] `app/branch-selector.tsx`
+- [x] `services/reservations.service.ts`
 
 Cirugía:
 
-- [ ] `services/branches.service.ts` — quitar `getNearestBranches`/`getBranchById`, dejar `normalizeBranch` (lo usa `branch.store.ts`)
-- [ ] `store/branch.store.ts` — quitar el estado de selección de sucursal, **no tocar** `useBranchConfigStore` (alimenta menú/modificadores en varias pantallas)
-- [ ] `components/shared/GlobalCartButton.tsx` — quitar el caso especial de la ruta `branch-selector`
-- [ ] `app/_layout.tsx` — quitar `Stack.Screen` de `branch-selector`
+- [x] `services/branches.service.ts` — quitados `getNearestBranches`/`getBranchById`, se dejó `getBranches`/`normalizeBranch`
+- [x] `hooks/useBranches.ts` — quitados `useNearestBranches`/`useBranch` (envolvían las funciones de arriba, sin más consumidores); se dejó `useBranches()`
+- [x] `store/branch.store.ts` — quitados `fetchSucursales` y `loading` (solo los usaba `branch-selector.tsx`); **no se tocó** `useBranchConfigStore`
+- [x] `components/shared/GlobalCartButton.tsx` — quitado el caso especial de `branch-selector`, y de paso los leftovers ya muertos de `(waiter)`/`(hostess)`/`social` (Sprints 1-2) y el check de rol mesero/anfitrión que ya no aplica
+- [x] `app/_layout.tsx` — quitado `Stack.Screen` de `branch-selector` y su entrada en `inPublicCatalog`
 
-Reescritura de `app/(tabs)/index.tsx`:
+Reescritura de `app/(tabs)/index.tsx` (2,438 → 720 líneas):
 
-- [ ] Sacar: selección de sucursal para pickup (`SafeMapView`, `selectingPickupBranch`, ~líneas 33–920)
-- [ ] Sacar: sistema completo de reservaciones (formulario, disponibilidad, modal ~1487–1680, ~250 líneas de estilos)
-- [ ] Sacar: cualquier rama `eat_in` que haya quedado pendiente de Sprint 3 en este archivo
-- [ ] Dejar: hero, categorías, búsqueda, platillos destacados, selector simple pickup/delivery sin mapa de sucursales
+- [x] Sacado: selección de sucursal para pickup (mapa, dropdown, `SafeMapView`, `selectingPickupBranch`)
+- [x] Sacado: sistema completo de reservaciones (formulario, disponibilidad, modal, ~275 líneas de estilos)
+- [x] Sacado: toda la detección de sucursal por geolocalización y las ramas `eat_in` que Sprint 3 no pudo tocar (bootstrap, `openDeliveryFlow`, `handleInitialTypeSelect`, etc.)
+- [x] Dejado: hero, banners, categorías, búsqueda, platillos destacados, selector simple pickup/delivery (`OrderTypeSelector`, ahora sin la opción "En mesa") — sin mapa ni lista de sucursales
+- [x] `components/shared/OrderTypeSelector.tsx` — quitada la opción `eat_in` del selector (quedó pendiente en el Sprint 3 porque solo lo usaba este archivo, que Sprint 3 tenía prohibido tocar)
+
+**`availableTypes` ahora es dinámico**, no una lista fija: se calcula desde `menuBranch.tipos_entrega` (lo que tenga configurado el restaurante en `rest_configuracion`/`Sucursal.tipos_entrega`), cayendo a `['delivery','pickup']` si no hay nada configurado — así que si UTEQ solo activa pickup, el selector solo muestra pickup.
+
+**Dejado a propósito sin tocar** (mismo motivo que en Sprint 3): `packages/types/src/order.types.ts`'s `TipoPedido` sigue incluyendo `'eat_in'`, y el tipo `Sucursal` conserva `mesas_habilitadas`/`reservas_habilitadas`/`distancia_km` — `apps/api` (el backend Node/TS aparte de `apps/api-php`, ver nota en Sprint 3) los sigue usando en `apps/api/src/routes/branches.routes.ts` y `LocationService.ts`.
 
 ### Sprint 5 — Integración, base real y TestFlight
 
 **Rama:** `feature/sprint-5-integration` (se crea después de mergear 1→4)
 **Dependencias:** Sprints 1, 2, 3 y 4 ya mergeados a `main`, y Sprint 0 para la base de datos final.
+
+> Nota: en esta pasada los 4 sprints se hicieron secuencialmente en una sola rama
+> (`feature/sprint-1-remove-staff-apps`, sin crear ramas 2/3/4 separadas) en vez de en
+> paralelo — así que no hay nada que mergear entre ellos. El barrido de imports/rutas
+> rotas de abajo ya se corrió después de cada sprint (`grep` por `(waiter)`, `(hostess)`,
+> `social`, `table-scanner`, `table-session`, `branch-selector`, `eat_in`, `reservations`
+> en todo `apps/mobile`) y no quedó nada — pero **no se corrió `tsc`/`eslint`** porque
+> `node_modules` no está instalado en este entorno, así que vale la pena correrlo antes
+> de dar por bueno el build.
 
 - [ ] Mergear 1 → 2 → 3 → 4 en ese orden; resolver los conflictos chicos que salgan en `app/_layout.tsx`
 - [ ] Apuntar la app a la base de datos recortada de Sprint 0
@@ -147,11 +204,23 @@ Reescritura de `app/(tabs)/index.tsx`:
 
 ---
 
-## 2. Recorte de base de datos
+## 2. Base de datos
 
-Ver migración [`086_trim_schema_uteq.sql`](../apps/api-php/migrations/086_trim_schema_uteq.sql).
-Aplícala sobre una **copia nueva** del esquema de referencia, no sobre una base en producción
-con datos que te importen.
+**Para una base nueva y vacía (recomendado):** [`000_baseline_schema_uteq.sql`](../apps/api-php/migrations/000_baseline_schema_uteq.sql)
+— esquema completo listo para importar, sin una sola fila de otro cliente. Trae comentadas al
+final las plantillas de `INSERT` para tu primera empresa/restaurante/usuario admin.
+
+Construido a partir del dump de referencia que compartiste (de otro cliente, Jungle Pizza,
+sobre la misma plataforma), quitando mesas/QR/dine-in, mesero, anfitrión, social y sucursales,
+y con las tablas de saldo/puntos renombradas a `amare_wallets`/`amare_wallet_transactions`
+— verifiqué esos nombres contra `apps/api-php/src/Services/RewardsService.php`, ya que el
+dump de referencia usaba nombres distintos (`jungle_wallets`, etc.) para ese mismo feature.
+El resto de las tablas no se pudo verificar contra un dump real de tu base actual (no lo
+tengo) — si tienes uno a la mano, sería la referencia más confiable para revisar este archivo
+antes de correrlo en algo importante.
+
+**Para recortar una base que ya clonaste de otro cliente:** [`086_trim_schema_uteq.sql`](../apps/api-php/migrations/086_trim_schema_uteq.sql)
+(`DROP`/`ALTER` sobre una copia existente, en vez de crear desde cero).
 
 **Se queda igual:** `rest_pedidos` conserva `estado` (pendiente → en_preparacion → listo →
 entregado) — eso es lo que alimenta el KDS de cocina, no se toca.

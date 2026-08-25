@@ -10,17 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
 import MapView, { Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { apiClient, getApiError } from '../../services/api';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
-import { useTableSessionStore } from '../../store/table-session.store';
 import { useUserStore } from '../../store/user.store';
-import { createOrder } from '../../services/orders.service';
-import { tableSessionKeys } from '../../services/table-session.service';
 import { requireAuth } from '../../services/auth-gate.service';
 import { Button } from '../../components/ui/Button';
 import { Colors, Spacing } from '../../theme';
@@ -75,12 +71,9 @@ function getItemCostBreakdown(item: ReturnType<typeof useCartStore.getState>['it
 
 export default function OrderTypeScreen() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const token = useUserStore((state) => state.token);
-  const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress, clear } = useCartStore();
+  const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
-  const tableSession = useTableSessionStore((s) => s.session);
-  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
   const orderTotal = useMemo(
     () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
     [items]
@@ -169,12 +162,8 @@ export default function OrderTypeScreen() {
       return;
     }
 
-    setUbicacionVisual(
-      tableSession
-        ? `${selectedBranch?.nombre || 'Sucursal'} · ${tableSession.mesaLabel}`
-        : selectedBranch?.nombre || 'Comer aquí'
-    );
-  }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, tableSession, tipoPedido]);
+    setUbicacionVisual(selectedBranch?.nombre || 'Sucursal seleccionada');
+  }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, tipoPedido]);
 
   async function cargarDirecciones() {
     if (!token) return;
@@ -376,46 +365,6 @@ export default function OrderTypeScreen() {
       return;
     }
 
-    if (tipoPedido === 'eat_in' && !tableSession) {
-      Alert.alert('Mesa requerida', 'Escanea el QR de tu mesa para poder pedir.', [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Escanear QR',
-          onPress: () => router.push({
-            pathname: '/table-scanner',
-            params: {
-              returnTo: '/checkout/order-type',
-              mode: 'eat_in',
-              branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
-            },
-          }),
-        },
-      ]);
-      return;
-    }
-
-    if (tipoPedido === 'eat_in' && tableSession && Number(resolvedRestaurantId) !== tableSession.restauranteId) {
-      Alert.alert(
-        'Mesa de otra sucursal',
-        'La mesa escaneada pertenece a otra sucursal. Escanea el QR de esta mesa o vacía el carrito para cambiar de sucursal.',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Escanear QR',
-            onPress: () => router.push({
-              pathname: '/table-scanner',
-              params: {
-                returnTo: '/checkout/order-type',
-                mode: 'eat_in',
-                branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
-              },
-            }),
-          },
-        ]
-      );
-      return;
-    }
-
     if (!resolvedRestaurantId || Number.isNaN(Number(resolvedRestaurantId))) {
       Alert.alert('Error', 'No se detectó la sucursal del pedido. Vuelve al menú y selecciona una sucursal antes de pagar.');
       return;
@@ -423,38 +372,6 @@ export default function OrderTypeScreen() {
 
     setLoading(true);
     try {
-      if (tipoPedido === 'eat_in') {
-        const order = await createOrder({
-          restaurante_id: Number(resolvedRestaurantId),
-          tipo_pedido: 'eat_in',
-          mesa_id: tableSession?.mesaId,
-          direccion_entrega: ubicacionVisual,
-          items: items.map((i) => ({
-            platillo_id: i.platillo.id,
-            cantidad: i.cantidad,
-            precio_unit: getItemCostBreakdown(i).unitTotal,
-            notas: i.notas,
-            modificadores: i.modificadores_seleccionados.map((m) => ({
-              modificador_id: m.modificador_id,
-              modificador_nombre: m.modificador_nombre,
-              opciones: m.opciones.map((o) => ({
-                opcion_id: o.opcion_id,
-                opcion_nombre: o.opcion_nombre,
-                precio_extra: o.precio_extra,
-                cantidad: o.cantidad,
-                tipo_modificador: o.tipo_modificador,
-              })),
-            })),
-          })),
-          notas: tableSession ? `Cuenta abierta · ${tableSession.mesaLabel}` : 'Cuenta abierta',
-        });
-
-        clear();
-        refreshRealtimeState(queryClient);
-        router.replace({ pathname: '/order/[id]', params: { id: String(order.id) } });
-        return;
-      }
-
       let finalAddressId: string | number | undefined = direccionSeleccionada?.id;
 
       if (tipoPedido === 'delivery' && !direccionSeleccionada && addressData) {
@@ -468,8 +385,6 @@ export default function OrderTypeScreen() {
           tipoPedido,
           direccionId: finalAddressId ? String(finalAddressId) : '',
           direccionEntrega: ubicacionVisual,
-          mesaId: tableSession ? String(tableSession.mesaId) : '',
-          mesaLabel: tableSession?.mesaLabel ?? '',
         },
       });
     } catch (err) {
@@ -514,17 +429,6 @@ export default function OrderTypeScreen() {
       };
     }
 
-    if (tipoPedido === 'eat_in') {
-      return {
-        icon: 'restaurant-outline' as const,
-        title: 'Comer aquí',
-        subtitle: 'Pedido en restaurante',
-        detail: tableSession
-          ? `${tableSession.mesaLabel} · ${selectedBranch?.nombre || 'Sucursal seleccionada'}`
-          : 'Escanea el QR de tu mesa',
-      };
-    }
-
     return {
       icon: 'options-outline' as const,
       title: 'Método pendiente',
@@ -566,38 +470,6 @@ export default function OrderTypeScreen() {
             <Text style={styles.modeDetail} numberOfLines={2}>{modeMeta.detail}</Text>
           </View>
         </View>
-
-        {tipoPedido === 'eat_in' ? (
-          <View style={styles.locationContainer}>
-            <View style={styles.locationHeader}>
-              <Ionicons name="restaurant" size={20} color={Colors.primary || '#111827'} />
-              <Text style={styles.locationTitle}>Cuenta abierta</Text>
-            </View>
-
-            <View style={styles.locationBox}>
-              <Text style={styles.locationAddress}>
-                Tu pedido quedara asociado a la mesa escaneada. Al pagar se generara un QR de salida para que hostess cierre tu visita.
-              </Text>
-
-              {!tableSession ? (
-                <TouchableOpacity
-                  style={styles.scanTableButton}
-                  onPress={() => router.push({
-                    pathname: '/table-scanner',
-                    params: {
-                      returnTo: '/checkout/order-type',
-                      mode: 'eat_in',
-                      branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
-                    },
-                  })}
-                >
-                  <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.scanTableButtonText}>Escanear QR de mesa</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
 
         {tipoPedido === 'delivery' ? (
           <View style={styles.locationContainer}>
@@ -748,12 +620,12 @@ export default function OrderTypeScreen() {
 
       <View style={styles.footer}>
         <Button
-          label={tipoPedido === 'eat_in' ? 'Pedir' : 'Continuar al pago'}
+          label="Continuar al pago"
           onPress={handleContinue}
           fullWidth
           size="lg"
           loading={loading}
-          disabled={!tipoPedido || loadingLocation || (tipoPedido === 'eat_in' && !tableSession)}
+          disabled={!tipoPedido || loadingLocation}
           style={styles.actionButton}
           accessibilityLabel="Continuar al pago"
           testID="checkout-continue-btn"
@@ -761,12 +633,6 @@ export default function OrderTypeScreen() {
       </View>
     </SafeAreaView>
   );
-}
-
-function refreshRealtimeState(queryClient: ReturnType<typeof useQueryClient>): void {
-  void queryClient.invalidateQueries({ queryKey: ['orders'] });
-  void queryClient.invalidateQueries({ queryKey: ['social'] });
-  void queryClient.invalidateQueries({ queryKey: tableSessionKeys.diagnostic });
 }
 
 const styles = StyleSheet.create({

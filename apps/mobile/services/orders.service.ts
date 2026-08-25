@@ -39,14 +39,12 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Pedido> 
     items: safeItems,
     direccion_id: payload.direccion_id ?? null,
     direccion_entrega: payload.direccion_entrega ?? null,
-    mesa_id: payload.mesa_id ?? null,
-    consumo_por_mesa: payload.consumo_por_mesa ?? (payload.tipo_pedido === 'eat_in' && payload.mesa_id != null),
     payment_intent_id: payload.payment_intent_id ?? null,
     promo_code: payload.promo_code ?? null,
     notas: payload.notas ?? null,
   });
 
-  return normalizeCreatedOrder(data.data.order);
+  return data.data.order;
 }
 
 export async function createPickupOrder(payload: {
@@ -96,19 +94,6 @@ export async function createPickupOrder(payload: {
     subtotal: Number(pedido.subtotal || 0),
     items: Array.isArray(pedido.items) ? pedido.items : [],
   };
-}
-
-function normalizeCreatedOrder(order: Pedido): Pedido {
-  if (order.tipo_pedido !== 'eat_in' || !Array.isArray(order.items)) {
-    return order;
-  }
-
-  const latestItemOrderId = order.items.reduce((latest, item) => {
-    const itemOrderId = Number(item.pedido_id ?? 0);
-    return itemOrderId > latest ? itemOrderId : latest;
-  }, 0);
-
-  return latestItemOrderId > 0 ? { ...order, id: latestItemOrderId } : order;
 }
 
 /** Calcula subtotal de forma segura */
@@ -262,23 +247,3 @@ export async function confirmPayment(params: {
   return data.data;
 }
 
-export async function getExitPass(orderId: number, options?: { suppressConsoleError?: boolean }): Promise<ExitPass> {
-  const { data } = await apiClient.get<{
-    success: boolean;
-    data: { exit_pass: ExitPass }
-  }>(
-    `/orders/${orderId}/exit-pass`,
-    options?.suppressConsoleError ? ({ _suppressConsoleError: true } as any) : undefined
-  );
-
-  return data.data.exit_pass;
-}
-
-export async function scanExitPass(payload: string): Promise<ExitPass> {
-  const { data } = await apiClient.post<{
-    success: boolean;
-    data: { ok: boolean; exit_pass: ExitPass }
-  }>('/orders/exit-pass/scan', { payload });
-
-  return data.data.exit_pass;
-}

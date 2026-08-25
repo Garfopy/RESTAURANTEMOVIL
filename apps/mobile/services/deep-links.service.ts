@@ -84,11 +84,6 @@ function normalizeSegments(segments: string[], params: URLSearchParams): string 
     return '/cart';
   }
 
-  if (first === 'social') {
-    const query = params.toString();
-    return query ? `/social?${query}` : '/social';
-  }
-
   return null;
 }
 

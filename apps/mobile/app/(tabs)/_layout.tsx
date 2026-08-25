@@ -11,8 +11,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../store/theme.store';
-import { useUserStore } from '../../store/user.store';
-import { useTableSessionStore } from '../../store/table-session.store';
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -88,8 +86,6 @@ TabIcon.displayName = 'TabIcon';
 export default function TabsLayout() {
   const router = useRouter();
   const theme = useThemeColors();
-  const user = useUserStore((state) => state.user);
-  const tableSession = useTableSessionStore((state) => state.session);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const compact = width < 380;
@@ -97,9 +93,6 @@ export default function TabsLayout() {
   const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
   const tabBarBottom = safeBottom + (Platform.OS === 'ios' ? 8 : 6);
   const tabBarHeight = compact ? 56 : 60;
-  const socialActive = Boolean(user?.is_social_active || user?.modo_social);
-  const socialAvailableInRestaurant = Boolean(tableSession?.restauranteId || user?.current_restaurante_id);
-  const showSocialTab = socialActive && socialAvailableInRestaurant;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -172,33 +165,6 @@ export default function TabsLayout() {
           }}
         />
       ))}
-      <Tabs.Screen
-        name="social"
-        listeners={{
-          tabPress: (event) => {
-            if (!showSocialTab) return;
-
-            event.preventDefault();
-            router.push({
-              pathname: '/(tabs)/social',
-              params: { view: 'discover' },
-            } as never);
-          },
-        }}
-        options={{
-          href: showSocialTab ? '/(tabs)/social?view=discover' : null,
-          tabBarStyle: { display: 'none' },
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon
-              focused={focused}
-              color={color}
-              icon="people-outline"
-              iconFocused="people"
-              compact={compact}
-            />
-          ),
-        }}
-      />
       <Tabs.Screen
         name="profile"
         options={{

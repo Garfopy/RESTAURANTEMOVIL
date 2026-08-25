@@ -15,14 +15,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { formatImageUrl } from '../../services/api';
 import { useDish } from '../../hooks/useMenu';
 import { useCartStore } from '../../store/cart.store';
-import { useTableSessionStore } from '../../store/table-session.store';
 import { useBranchConfigStore } from '../../store/branch.store';
 import { useFavorites } from '../../hooks/useFavorites';
 import { requireAuth } from '../../services/auth-gate.service';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { CartButton } from '../../components/shared/CartButton';
-import { TableContextBanner } from '../../components/shared/TableContextBanner';
 import { appendBeverageOptions, appendBeverageSelectionToNotes } from '../../utils/beverage-options';
 import { Colors, Spacing, Typography, Shadows } from '../../theme';
 import type {
@@ -48,9 +46,6 @@ export default function ProductScreen() {
   );
 
   const addItem = useCartStore((s) => s.addItem);
-  const tipoPedido = useCartStore((s) => s.tipoPedido);
-  const tableSession = useTableSessionStore((s) => s.session);
-  const deferredBranch = useTableSessionStore((s) => s.deferredBranch);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
   const { data: favorites, toggle } = useFavorites();
 
@@ -182,34 +177,6 @@ export default function ProductScreen() {
   function handleAddToCart() {
     if (!platillo) return;
 
-    if (tipoPedido === 'eat_in' && !tableSession) {
-      router.replace({
-        pathname: '/table-scanner',
-        params: {
-          returnTo: '/(tabs)',
-          mode: 'eat_in',
-          branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
-        },
-      });
-      return;
-    }
-
-    if (
-      tipoPedido === 'eat_in' &&
-      tableSession &&
-      platillo.restaurante_id !== tableSession.restauranteId
-    ) {
-      router.replace({
-        pathname: '/table-scanner',
-        params: {
-          returnTo: '/(tabs)',
-          mode: 'eat_in',
-          branchId: deferredBranch?.id ? String(deferredBranch.id) : undefined,
-        },
-      });
-      return;
-    }
-
     addItem(platillo, cantidad, modsSel, appendBeverageSelectionToNotes('', modsSel));
   }
 
@@ -313,10 +280,6 @@ export default function ProductScreen() {
                 <Ionicons name="cash-outline" size={16} color={Colors.text} />
                 <Text style={styles.heroPrice}>${platillo.precio.toFixed(2)}</Text>
               </View>
-
-              {tipoPedido === 'eat_in' ? (
-                <TableContextBanner session={tableSession} variant="chip" />
-              ) : null}
 
               {platillo.descripcion ? (
                 <Text style={styles.heroDescription}>{platillo.descripcion}</Text>
