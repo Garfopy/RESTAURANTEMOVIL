@@ -15,6 +15,9 @@ if (file_exists($envFile)) {
         if (strpos(trim($line), '#') === 0) continue;
         if (strpos($line, '=') === false) continue;
         list($key, $value) = explode('=', $line, 2);
+        // Recorta un comentario pegado al final de la línea (ej. "valor  # nota"),
+        // para que no termine formando parte del valor real.
+        $value = preg_replace('/\s+#.*$/', '', $value);
         $_ENV[trim($key)] = trim($value, '"\'');
         $_SERVER[trim($key)] = trim($value, '"\'');
     }

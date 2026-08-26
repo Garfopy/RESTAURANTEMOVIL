@@ -1,11 +1,10 @@
 import { Alert, Linking, Platform } from 'react-native';
-import { Camera } from 'expo-camera';
 import * as Location from 'expo-location';
 
 declare const require: (name: string) => any;
 
 type ExpoNotificationsModule = typeof import('expo-notifications');
-type PermissionName = 'camera' | 'location' | 'notifications';
+type PermissionName = 'location' | 'notifications';
 
 type PermissionResult = {
   granted: boolean;
@@ -15,10 +14,6 @@ type PermissionResult = {
 let expoNotifications: ExpoNotificationsModule | null | undefined;
 
 const PERMISSION_COPY: Record<PermissionName, { title: string; body: string }> = {
-  camera: {
-    title: 'Activa la camara',
-    body: 'Necesitamos la camara para escanear codigos QR de mesa y validar funciones dentro del restaurante.',
-  },
   location: {
     title: 'Activa tu ubicacion',
     body: 'Necesitamos tu ubicacion para detectar sucursales cercanas, delivery y opciones de recoger en tienda.',
@@ -55,27 +50,6 @@ function showPermissionSettingsAlert(name: PermissionName) {
       },
     },
   ]);
-}
-
-export async function ensureCameraPermission(options?: { explainIfBlocked?: boolean }): Promise<PermissionResult> {
-  if (Platform.OS === 'web') {
-    return { granted: true, canAskAgain: false };
-  }
-
-  let permission = await Camera.getCameraPermissionsAsync();
-
-  if (!permission.granted && permission.canAskAgain) {
-    permission = await Camera.requestCameraPermissionsAsync();
-  }
-
-  if (!permission.granted && options?.explainIfBlocked) {
-    showPermissionSettingsAlert('camera');
-  }
-
-  return {
-    granted: permission.granted,
-    canAskAgain: permission.canAskAgain,
-  };
 }
 
 export async function ensureLocationPermission(options?: { explainIfBlocked?: boolean }): Promise<PermissionResult> {

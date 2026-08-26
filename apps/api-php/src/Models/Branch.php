@@ -60,8 +60,7 @@ class Branch
     {
         return "SELECT r.id, r.nombre, r.slug, r.descripcion, r.direccion, r.lat, r.lng,
                        r.logo, r.imagen_banner, r.telefono, r.color_primario, r.color_secundario,
-                       r.horario_apertura, r.horario_cierre, r.horarios_json,
-                       r.mesas_habilitadas, r.reservas_habilitadas, r.activo,
+                       r.horario_apertura, r.horario_cierre, r.horarios_json, r.activo,
                        COALESCE(rc.tipos_entrega, '[\"delivery\",\"pickup\"]') AS tipos_entrega
                 FROM rest_restaurantes r
                 LEFT JOIN rest_configuracion rc ON rc.restaurante_id = r.id AND rc.activo = 1";
@@ -72,8 +71,6 @@ class Branch
         $branch['id'] = (int)$branch['id'];
         $branch['lat'] = $branch['lat'] !== null ? (float)$branch['lat'] : null;
         $branch['lng'] = $branch['lng'] !== null ? (float)$branch['lng'] : null;
-        $branch['mesas_habilitadas'] = (bool)$branch['mesas_habilitadas'];
-        $branch['reservas_habilitadas'] = (bool)$branch['reservas_habilitadas'];
         $branch['activo'] = (bool)$branch['activo'];
         $branch['tipos_entrega'] = json_decode((string)$branch['tipos_entrega'], true) ?: ['delivery', 'pickup'];
         $branch['logo'] = !empty($branch['logo']) ? $branch['logo'] : self::DEFAULT_LOGO;

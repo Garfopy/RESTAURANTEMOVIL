@@ -24,8 +24,8 @@
         ]
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "UTEQ Cafetería necesita tu ubicacion para encontrar la sucursal mas cercana.",
-        "NSCameraUsageDescription": "UTEQ Cafetería necesita la camara para escanear codigos QR y actualizar tu perfil.",
+        "NSLocationWhenInUseUsageDescription": "UTEQ Cafetería necesita tu ubicacion para calcular el envío a tu domicilio.",
+        "NSCameraUsageDescription": "UTEQ Cafetería necesita la camara para actualizar la foto de tu perfil.",
         "NSPhotoLibraryUsageDescription": "UTEQ Cafetería necesita acceso a tus fotos para elegir imagenes de perfil.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
@@ -58,10 +58,7 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "CAMERA",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.CAMERA"
+        "CAMERA"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
@@ -81,19 +78,11 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "UTEQ Cafetería necesita tu ubicacion para encontrar sucursales cercanas y preparar entregas.",
+          "locationWhenInUsePermission": "UTEQ Cafetería necesita tu ubicacion para calcular el envío a tu domicilio.",
           "locationAlwaysAndWhenInUsePermission": false,
           "locationAlwaysPermission": false,
           "isIosBackgroundLocationEnabled": false,
           "isAndroidBackgroundLocationEnabled": false
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "UTEQ Cafetería necesita la camara para escanear codigos QR y actualizar tu perfil.",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
         }
       ],
       [

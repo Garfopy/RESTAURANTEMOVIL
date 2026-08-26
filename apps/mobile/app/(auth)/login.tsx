@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,15 +59,15 @@ export default function LoginScreen() {
   const showGoogleSignIn = GOOGLE_SIGNIN_ENABLED;
 
   return (
-    <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
+    <LinearGradient colors={['#FCF5EA', '#FAECDA', '#F3E0C4']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
-        <StatusBar barStyle="light-content" backgroundColor="#17191E" />
+        <StatusBar barStyle="dark-content" backgroundColor="#FCF5EA" />
         <View pointerEvents="none" style={styles.decorations}>
           <Animated.View
             style={[
               styles.glow,
               styles.glowTop,
-              { opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.5] }) },
+              { opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.4] }) },
             ]}
           />
           <View style={[styles.glow, styles.glowBottom]} />
@@ -98,57 +99,60 @@ export default function LoginScreen() {
             </View>
 
             <View style={[styles.logoHalo, compact && styles.logoHaloCompact]}>
-              <LinearGradient colors={['rgba(242,235,221,0.16)', 'rgba(242,235,221,0.03)']} style={styles.logoHaloInner}>
+              <View style={styles.logoHaloRing} />
+              <View style={styles.logoHaloInner}>
                 <Image source={LOGIN_LOGO} style={styles.logoImage} resizeMode="contain" />
-              </LinearGradient>
+              </View>
             </View>
 
             <Text style={styles.tagline}>La mesa es solo el comienzo.</Text>
 
             <View style={styles.benefits}>
               {BENEFITS.map((benefit) => (
-                <View key={benefit.label} style={styles.benefit}>
+                <BlurView key={benefit.label} intensity={40} tint="light" style={styles.benefit}>
                   <View style={styles.benefitIcon}>
-                    <Ionicons name={benefit.icon} size={15} color="#E9DDC8" />
+                    <Ionicons name={benefit.icon} size={15} color="#7A4E22" />
                   </View>
                   <Text style={styles.benefitText}>{benefit.label}</Text>
-                </View>
+                </BlurView>
               ))}
             </View>
           </Animated.View>
 
           <Animated.View
             style={[
-              styles.actionsCard,
+              styles.actionsWrap,
               {
                 opacity: actions,
                 transform: [{ translateY: actions.interpolate({ inputRange: [0, 1], outputRange: [34, 0] }) }],
               },
             ]}
           >
-            {showGoogleSignIn ? (
-              <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
-                <View style={styles.googleIcon}>
-                  <GoogleGIcon size={20} />
+            <BlurView intensity={Platform.OS === 'ios' ? 50 : 70} tint="light" style={styles.actionsCard}>
+              {showGoogleSignIn ? (
+                <TouchableOpacity style={styles.googleButton} onPress={() => navigate('/(auth)/google-auth')} activeOpacity={0.9}>
+                  <View style={styles.googleIcon}>
+                    <GoogleGIcon size={20} />
+                  </View>
+                  <Text style={styles.googleLabel}>Continuar con Google</Text>
+                  <Ionicons name="arrow-forward" size={19} color="#2B1B12" />
+                </TouchableOpacity>
+              ) : null}
+
+              {APPLE_SIGNIN_ENABLED ? <AppleSignInButton /> : null}
+
+              <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
+                <View style={styles.primaryIcon}>
+                  <Ionicons name="mail-outline" size={19} color="#FAECDA" />
                 </View>
-                <Text style={styles.googleLabel}>Continuar con Google</Text>
-                <Ionicons name="arrow-forward" size={19} color="#24272D" />
+                <Text style={styles.primaryLabel}>Continuar con correo</Text>
+                <Ionicons name="arrow-forward" size={19} color="#FAECDA" />
               </TouchableOpacity>
-            ) : null}
 
-            {APPLE_SIGNIN_ENABLED ? <AppleSignInButton /> : null}
-
-            <TouchableOpacity style={styles.primaryButton} onPress={() => navigate('/(auth)/email-login')} activeOpacity={0.9}>
-              <View style={styles.primaryIcon}>
-                <Ionicons name="mail-outline" size={19} color="#24272D" />
-              </View>
-              <Text style={styles.primaryLabel}>Continuar con correo</Text>
-              <Ionicons name="arrow-forward" size={19} color="#24272D" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigate('/(auth)/register')} activeOpacity={0.86}>
-              <Text style={styles.secondaryLabel}>Crear una cuenta</Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryButton} onPress={() => navigate('/(auth)/register')} activeOpacity={0.86}>
+                <Text style={styles.secondaryLabel}>Crear una cuenta</Text>
+              </TouchableOpacity>
+            </BlurView>
 
             <Text style={styles.legal}>Al continuar aceptas nuestros términos y aviso de privacidad.</Text>
             <TouchableOpacity
@@ -171,37 +175,73 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   scrollContent: { flexGrow: 1 },
   decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
-  glow: { position: 'absolute', borderRadius: 999, backgroundColor: '#C6A97B' },
-  glowTop: { width: 340, height: 340, top: -210, right: -100 },
-  glowBottom: { width: 260, height: 260, bottom: -170, left: -120, opacity: 0.1 },
-  fineLine: { position: 'absolute', top: 86, left: 28, right: 28, height: 1, backgroundColor: 'rgba(242,235,221,0.08)' },
+  glow: { position: 'absolute', borderRadius: 999, backgroundColor: '#D6A768' },
+  glowTop: { width: 360, height: 360, top: -220, right: -110 },
+  glowBottom: { width: 280, height: 280, bottom: -180, left: -130, opacity: 0.16, backgroundColor: '#B5824A' },
+  fineLine: { position: 'absolute', top: 86, left: 28, right: 28, height: 1, backgroundColor: 'rgba(43,27,18,0.08)' },
   container: { flex: 1, justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 30, paddingBottom: 18 },
   containerCompact: { paddingTop: 12 },
   hero: { alignItems: 'center', flex: 1, justifyContent: 'center' },
-  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  eyebrowLine: { width: 24, height: 1, backgroundColor: 'rgba(233,221,200,0.45)' },
-  eyebrow: { color: '#CDBFA8', fontSize: 10, fontWeight: '800', letterSpacing: 2.4 },
-  logoHalo: { width: 210, height: 210, borderRadius: 105, padding: 1, borderWidth: 1, borderColor: 'rgba(233,221,200,0.16)' },
-  logoHaloCompact: { width: 174, height: 174, borderRadius: 87 },
-  logoHaloInner: { flex: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  logoImage: { width: '92%', height: '92%' },
-  appName: { marginTop: 16, fontFamily: 'PlayfairDisplay_700Bold', fontSize: 42, color: '#F6F0E6', letterSpacing: 7 },
-  tagline: { marginTop: 5, fontFamily: 'PlayfairDisplay_700Bold', fontSize: 21, color: '#E9DDC8', textAlign: 'center' },
-  description: { maxWidth: 330, marginTop: 10, color: '#AAA396', fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  eyebrowLine: { width: 24, height: 1, backgroundColor: 'rgba(122,78,34,0.4)' },
+  eyebrow: { color: '#8A5A2B', fontSize: 10, fontWeight: '800', letterSpacing: 2.4 },
+  logoHalo: { width: 214, height: 214, alignItems: 'center', justifyContent: 'center' },
+  logoHaloCompact: { width: 178, height: 178 },
+  logoHaloRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(169,124,63,0.5)',
+  },
+  logoHaloInner: {
+    width: '92%',
+    height: '92%',
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#8A5A2B',
+    shadowOpacity: 0.28,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 10,
+  },
+  logoImage: { width: '96%', height: '96%' },
+  appName: { marginTop: 16, fontFamily: 'PlayfairDisplay_700Bold', fontSize: 42, color: '#2B1B12', letterSpacing: 7 },
+  tagline: { marginTop: 18, fontFamily: 'PlayfairDisplay_700Bold', fontSize: 22, color: '#2B1B12', textAlign: 'center' },
+  description: { maxWidth: 330, marginTop: 10, color: '#6B5540', fontSize: 13, lineHeight: 19, textAlign: 'center' },
   benefits: { flexDirection: 'row', marginTop: 20, gap: 9 },
-  benefit: { alignItems: 'center', gap: 6, minWidth: 84 },
-  benefitIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(233,221,200,0.08)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.12)' },
-  benefitText: { color: '#BDB4A5', fontSize: 10, fontWeight: '700' },
-  actionsCard: { borderRadius: 26, padding: 10, backgroundColor: 'rgba(255,255,255,0.055)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' },
-  googleButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12, marginBottom: 9 },
-  googleIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(36,39,45,0.06)' },
-  googleLabel: { flex: 1, color: '#24272D', fontFamily: 'Inter_700Bold', fontSize: 15, letterSpacing: 0 },
-  primaryButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#E9DDC8', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12 },
-  primaryIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(36,39,45,0.08)' },
-  primaryLabel: { flex: 1, color: '#24272D', fontFamily: 'Inter_700Bold', fontSize: 15, letterSpacing: 0 },
+  benefit: {
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 84,
+    paddingVertical: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(169,124,63,0.22)',
+  },
+  benefitIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(169,124,63,0.14)', borderWidth: 1, borderColor: 'rgba(169,124,63,0.24)' },
+  benefitText: { color: '#5C4530', fontSize: 10, fontWeight: '700' },
+  actionsWrap: { gap: 10 },
+  actionsCard: {
+    borderRadius: 26,
+    padding: 10,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(169,124,63,0.2)',
+  },
+  googleButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12, marginBottom: 9, borderWidth: 1, borderColor: 'rgba(43,27,18,0.1)' },
+  googleIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(43,27,18,0.05)' },
+  googleLabel: { flex: 1, color: '#2B1B12', fontFamily: 'Inter_700Bold', fontSize: 15, letterSpacing: 0 },
+  primaryButton: { minHeight: 58, borderRadius: 18, backgroundColor: '#2B1B12', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 12 },
+  primaryIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(250,236,218,0.12)' },
+  primaryLabel: { flex: 1, color: '#FAECDA', fontFamily: 'Inter_700Bold', fontSize: 15, letterSpacing: 0 },
   secondaryButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center' },
-  secondaryLabel: { color: '#F2EBDD', fontSize: 14, fontWeight: '800' },
-  legal: { color: '#77746E', fontSize: 10, textAlign: 'center' },
+  secondaryLabel: { color: '#7A4E22', fontSize: 14, fontWeight: '800' },
+  legal: { color: '#8A7A65', fontSize: 10, textAlign: 'center' },
   legalLinkButton: { alignSelf: 'center', paddingTop: 4, paddingBottom: 2, paddingHorizontal: 8 },
-  legalLink: { color: '#E9DDC8', fontSize: 11, fontWeight: '800', textAlign: 'center' },
+  legalLink: { color: '#7A4E22', fontSize: 11, fontWeight: '800', textAlign: 'center' },
 });

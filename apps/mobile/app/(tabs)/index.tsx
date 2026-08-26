@@ -5,11 +5,9 @@ import {
   StyleSheet,
   ScrollView,
   FlatList,
-  Pressable,
   TouchableOpacity,
   StatusBar,
   Animated,
-  Modal,
   RefreshControl,
   useWindowDimensions,
 } from 'react-native';
@@ -31,11 +29,9 @@ import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
 import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { OrderTypeSelector } from '../../components/shared/OrderTypeSelector';
 import { useToast } from '../../context/ToastContext';
-import { DeliveryAddressModal } from '../../components/modals/DeliveryAddressModal';
-import type { Platillo, Categoria, TipoPedido } from '@amare/types';
-import type { DeliveryAddressSelection } from '../../store/cart.store';
+import { DEFAULT_RESTAURANT_ID } from '../../constants/branding';
+import type { Platillo, Categoria } from '@amare/types';
 
 const HOME_BANNERS = [
   {
@@ -69,10 +65,8 @@ export default function HomeScreen() {
   const token = useUserStore((s) => s.token);
   const toast = useToast();
   const { seleccionada: branch, sucursales } = useBranchStore();
-  const { tipoPedido, setTipoPedido, setDeliveryAddress } = useCartStore();
+  const { tipoPedido, setTipoPedido } = useCartStore();
 
-  const [showTypeModal, setShowTypeModal] = useState(false);
-  const [showDeliveryAddressModal, setShowDeliveryAddressModal] = useState(false);
   const [search, setSearch] = useState('');
   const [refreshingHome, setRefreshingHome] = useState(false);
   const initialFlowStartedRef = useRef(false);
@@ -103,13 +97,9 @@ export default function HomeScreen() {
   useBranches();
 
   const menuBranch = branch ?? sucursales[0] ?? null;
-  const availableTypes: TipoPedido[] = (() => {
-    const configured = (menuBranch?.tipos_entrega ?? []).filter(
-      (type): type is TipoPedido => type === 'delivery' || type === 'pickup'
-    );
-    return configured.length ? configured : ['delivery', 'pickup'];
-  })();
-  const restauranteId = menuBranch?.id ?? user?.current_restaurante_id ?? undefined;
+  // Si /branches falla o aún no responde, igual mostramos el menú del
+  // único restaurante que existe en vez de dejar la pantalla vacía.
+  const restauranteId = menuBranch?.id ?? user?.current_restaurante_id ?? DEFAULT_RESTAURANT_ID;
   const { data: categories, isLoading: loadingCats, refetch: refetchCategories } = useCategories(restauranteId);
   const { data: allDishes, isLoading: loadingAllDishes, refetch: refetchAllDishes } = useDishes(restauranteId);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
@@ -152,50 +142,17 @@ export default function HomeScreen() {
     }
   }
 
-  function closeDeliveryFlow() {
-    setShowTypeModal(false);
-  }
-
-  function openDeliveryFlow() {
-    setShowTypeModal(true);
-  }
-
+  // UTEQ Cafetería solo maneja pedidos para recoger en sucursal, así que
+  // el tipo de pedido se fija en silencio y nunca se le pregunta al usuario.
+  // No depende de /branches: aunque esa llamada falle, el pedido igual debe
+  // quedar en "pickup" para que el checkout funcione.
   useEffect(() => {
-    if (tipoPedido || initialFlowStartedRef.current || !menuBranch) {
+    if (tipoPedido || initialFlowStartedRef.current) {
       return;
     }
     initialFlowStartedRef.current = true;
-    setShowTypeModal(true);
-  }, [tipoPedido, menuBranch]);
-
-  function handleInitialTypeSelect(tipo: TipoPedido) {
-    if (tipo === 'delivery') {
-      setShowTypeModal(false);
-      setShowDeliveryAddressModal(true);
-      return;
-    }
-
-    setTipoPedido(tipo);
-    closeDeliveryFlow();
-  }
-
-  function handleDeliveryAddressConfirm(address: DeliveryAddressSelection) {
-    setDeliveryAddress(address);
-    setTipoPedido('delivery');
-    closeDeliveryFlow();
-  }
-
-  function getOrderModeLabel() {
-    if (tipoPedido === 'delivery') return 'Delivery';
-    if (tipoPedido === 'pickup') return 'Pickup';
-    return 'Elegir entrega';
-  }
-
-  function getOrderModeIcon(): keyof typeof Ionicons.glyphMap {
-    if (tipoPedido === 'delivery') return 'bicycle-outline';
-    if (tipoPedido === 'pickup') return 'bag-handle-outline';
-    return 'options-outline';
-  }
+    setTipoPedido('pickup');
+  }, [tipoPedido, setTipoPedido]);
 
   function handleSearch() {
     if (search.trim() && restauranteId) {
@@ -249,24 +206,14 @@ export default function HomeScreen() {
         opacity: homeIntro,
         transform: [{ translateY: homeIntro.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) }],
       }]}>
-        <TouchableOpacity
-          style={styles.locationSelector}
-          onPress={openDeliveryFlow}
-          activeOpacity={0.7}
-        >
+        <View style={styles.locationSelector}>
           <View style={styles.locationIcon}>
-            <Ionicons name={getOrderModeIcon()} size={17} color="#F5EFE4" />
+            <Ionicons name="cafe-outline" size={17} color="#F5EFE4" />
           </View>
-          <View style={styles.locationCopy}>
-            <Text style={styles.locationLabel}>{getOrderModeLabel()}</Text>
-            <View style={styles.row}>
-              <Text style={styles.locationName} numberOfLines={1}>
-                {menuBranch?.nombre ?? 'Seleccionar sucursal'}
-              </Text>
-              <Ionicons name="chevron-down" size={14} color="#8A8276" />
-            </View>
-          </View>
-        </TouchableOpacity>
+          <Text style={styles.locationName} numberOfLines={1}>
+            UTEQ Cafetería
+          </Text>
+        </View>
 
         <TouchableOpacity 
           onPress={() => {
@@ -308,15 +255,9 @@ export default function HomeScreen() {
               opacity: heroGlow.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
               transform: [{ scale: heroGlow.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.12] }) }],
             }]} />
-            <View style={styles.heroTopRow}>
-              <View>
-                <Text style={styles.heroEyebrow}>{greeting.toUpperCase()}</Text>
-                <Text style={styles.greetingText}>{firstName ? `${firstName},` : 'Bienvenido,'}</Text>
-              </View>
-              <TouchableOpacity style={styles.modeBadge} onPress={openDeliveryFlow} activeOpacity={0.86}>
-                <Ionicons name={getOrderModeIcon()} size={14} color="#E9DDC8" />
-                <Text style={styles.modeBadgeText}>{getOrderModeLabel()}</Text>
-              </TouchableOpacity>
+            <View>
+              <Text style={styles.heroEyebrow}>{greeting.toUpperCase()}</Text>
+              <Text style={styles.greetingText}>{firstName ? `${firstName},` : 'Bienvenido,'}</Text>
             </View>
             <Text style={styles.subtitleText}>Hoy puede empezar con algo delicioso.</Text>
 
@@ -473,39 +414,6 @@ export default function HomeScreen() {
 
       {/* BOTÓN FLOTANTE DE TIENDA */}
       <StoreFAB />
-
-      {/* MODAL DE SELECCIÓN INICIAL */}
-      <Modal visible={showTypeModal} transparent animationType="fade" onRequestClose={closeDeliveryFlow}>
-        <Pressable style={styles.modalOverlay} onPress={closeDeliveryFlow}>
-          <Pressable style={styles.modalContent} onPress={(event) => event.stopPropagation()}>
-            <Ionicons
-              name="restaurant"
-              size={40}
-              color={Colors.primary}
-              style={{ marginBottom: 15, alignSelf: 'center' }}
-            />
-            <Text style={styles.modalTitle}>
-              {`Bienvenido a ${branch?.nombre || 'Amare'}`}
-            </Text>
-            <Text style={styles.modalSubtitle}>Como prefieres recibir tu pedido hoy?</Text>
-
-            <View style={styles.selectorContainer}>
-              <OrderTypeSelector
-                value={tipoPedido as any}
-                onChange={(tipo) => {
-                  handleInitialTypeSelect(tipo);
-                }}
-                available={availableTypes}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-      <DeliveryAddressModal
-        visible={showDeliveryAddressModal}
-        onDismiss={() => setShowDeliveryAddressModal(false)}
-        onConfirm={handleDeliveryAddressConfirm}
-      />
     </SafeAreaView>
   );
 }
@@ -524,10 +432,7 @@ const styles = StyleSheet.create({
   },
   locationSelector: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, paddingVertical: 4 },
   locationIcon: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282E' },
-  locationCopy: { flex: 1, minWidth: 0, marginLeft: 10 },
-  locationLabel: { fontSize: 9, color: '#978F83', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.1 },
-  locationName: { fontSize: 15, fontWeight: '900', color: '#24262B', marginRight: 4, flexShrink: 1 },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  locationName: { fontSize: 15, fontWeight: '900', color: '#24262B', marginLeft: 10, flexShrink: 1 },
   profileTrigger: { marginLeft: 15, padding: 2 },
   miniAvatar: { width: 40, height: 40, borderRadius: 15, backgroundColor: '#EEE9E0', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#DED7CC', overflow: 'hidden' },
   miniAvatarImg: { width: '100%', height: '100%' },
@@ -548,12 +453,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   heroGlow: { position: 'absolute', width: 210, height: 210, borderRadius: 105, backgroundColor: '#D0B17D', top: -130, right: -70 },
-  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   heroEyebrow: { color: '#BBAE98', fontSize: 9, fontWeight: '900', letterSpacing: 1.8, marginBottom: 3 },
   greetingText: { fontFamily: 'PlayfairDisplay_700Bold', fontSize: 31, color: '#F7F1E7', letterSpacing: -0.6 },
   subtitleText: { fontSize: 13, color: '#BEB6A9', marginTop: 4 },
-  modeBadge: { maxWidth: 142, minHeight: 34, borderRadius: 17, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(233,221,200,0.1)', borderWidth: 1, borderColor: 'rgba(233,221,200,0.13)' },
-  modeBadgeText: { flexShrink: 1, color: '#E9DDC8', fontSize: 10, fontWeight: '800' },
   searchContainer: { marginTop: 18 },
   heroFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 14, paddingHorizontal: 3 },
   heroFeature: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
@@ -614,10 +516,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(233,221,200,0.08)',
   },
 
-  orderTypeWrapper: {
-    marginVertical: 10,
-  },
-
   bannerSection: { marginTop: 20 },
 
   sectionHeader: {
@@ -674,47 +572,5 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 24,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: '#FFF',
-    borderRadius: 30,
-    paddingHorizontal: 22,
-    paddingTop: 26,
-    paddingBottom: 18,
-    width: '100%',
-    maxWidth: 420,
-    alignItems: 'stretch',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#111827',
-    textAlign: 'center',
-    alignSelf: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 15,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 16,
-    alignSelf: 'center',
-  },
-  selectorContainer: {
-    width: '100%',
-    marginTop: 8,
-    marginBottom: 4,
   },
 });

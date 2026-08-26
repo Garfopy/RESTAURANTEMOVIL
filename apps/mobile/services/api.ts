@@ -194,12 +194,14 @@ function getPublicBaseURL(baseURL: string): string {
     const publicPath = apiUrl.pathname
       .replace(/\/+$/, '')
       .replace(/\/api_restaurante$/, '')
-      .replace(/\/backend_php$/, '');
+      .replace(/\/backend_php$/, '')
+      .replace(/\/api-php$/, '');
 
     return `${apiUrl.origin}${publicPath ? `${publicPath}/` : '/'}`;
   } catch {
     return baseURL
       .replace(/\/api_restaurante\/?$/, '/')
-      .replace(/\/backend_php\/?$/, '/');
+      .replace(/\/backend_php\/?$/, '/')
+      .replace(/\/api-php\/?$/, '/');
   }
 }

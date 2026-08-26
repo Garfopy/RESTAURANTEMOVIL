@@ -26,8 +26,8 @@ class SettingsController
                 "SELECT clave, valor
                  FROM global_settings
                  WHERE clave IN (
-                    'color_primary',
-                    'color_secondary',
+                    'color_primario',
+                    'color_secundario',
                     'app_background_color',
                     'app_button_color',
                     'app_button_text_color'
@@ -42,12 +42,12 @@ class SettingsController
             $values[$setting['clave']] = $setting['valor'];
         }
 
-        $primary = $this->validHexColor($values['color_primary'] ?? null)
-            ? strtoupper($values['color_primary'])
+        $primary = $this->validHexColor($values['color_primario'] ?? null)
+            ? strtoupper($values['color_primario'])
             : self::DEFAULT_PRIMARY;
 
-        $secondary = $this->validHexColor($values['color_secondary'] ?? null)
-            ? strtoupper($values['color_secondary'])
+        $secondary = $this->validHexColor($values['color_secundario'] ?? null)
+            ? strtoupper($values['color_secundario'])
             : self::DEFAULT_SECONDARY;
 
         $background = $this->validHexColor($values['app_background_color'] ?? null)

@@ -121,9 +121,7 @@ class User
             : 'NULL AS apple_id';
 
         $sql = "SELECT id, nombre, email, rol, telefono, {$fechaNacimientoField}, {$onboardingCompletedField},
-                       {$termsAcceptedField}, {$marketingOptInField}, foto_url, google_id, {$appleIdField}, activo, created_at, updated_at,
-                       edad, genero, sexualidad, descripcion AS biografia, intereses AS gustos,
-                       que_busca, redes_sociales, is_social_active, current_restaurante_id, mesa
+                       {$termsAcceptedField}, {$marketingOptInField}, foto_url, google_id, {$appleIdField}, activo, created_at, updated_at
                 FROM mobile_usuarios WHERE id = :id LIMIT 1";
         return Database::queryOne($sql, [':id' => $id]);
     }
