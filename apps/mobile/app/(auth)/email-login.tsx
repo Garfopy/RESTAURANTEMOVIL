@@ -24,18 +24,18 @@ import { extractAccountSuspension } from '../../services/account-suspension.serv
 import { finishAuthFlow, saveAuthReturnTo } from '../../services/auth-gate.service';
 
 const AuthColors = {
-  bg: '#24272D',
-  text: '#F2EBDD',
-  textSecondary: '#D8CDBB',
-  muted: '#B8AC99',
-  border: '#4B5058',
-  inputBg: '#2A2E35',
-  inputFocused: '#30353D',
-  accent: '#E9DDC8',
-  buttonText: '#24272D',
-  error: '#FCA5A5',
-  errorBg: '#3A2B2E',
-  errorBorder: '#B85C63',
+  bg: '#2B1E14',
+  text: '#FBF3E8',
+  textSecondary: '#E3D2BE',
+  muted: '#C9AF95',
+  border: '#5A4633',
+  inputBg: '#3A2A1C',
+  inputFocused: '#4A3524',
+  accent: '#D4B384',
+  buttonText: '#2B1E14',
+  error: '#FF8A80',
+  errorBg: '#4A2420',
+  errorBorder: '#C97A72',
 };
 
 export default function EmailLoginScreen() {
@@ -125,7 +125,7 @@ export default function EmailLoginScreen() {
   }
 
   return (
-    <LinearGradient colors={['#181A1F', '#252830', '#1C1E24']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#1A120C']} style={styles.gradient}>
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
       <View pointerEvents="none" style={styles.decorations}>
@@ -151,7 +151,7 @@ export default function EmailLoginScreen() {
               <Ionicons name="chevron-back" size={24} color={AuthColors.text} />
             </TouchableOpacity>
             <View style={styles.brandMark}>
-              <Text style={styles.brandLetter}>A</Text>
+              <Ionicons name="cafe-outline" size={19} color={AuthColors.accent} />
             </View>
           </Animated.View>
 
@@ -160,7 +160,7 @@ export default function EmailLoginScreen() {
             transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
           }]}>
             <Text style={styles.title}>Qué gusto verte.</Text>
-            <Text style={styles.subtitle}>Ingresa para continuar tu experiencia Amare.</Text>
+            <Text style={styles.subtitle}>Ingresa para continuar tu experiencia en UTEQ Cafetería.</Text>
           </Animated.View>
 
           <Animated.View style={[styles.formCard, {
@@ -243,7 +243,7 @@ export default function EmailLoginScreen() {
 
             <View style={styles.dividerRow}>
               <View style={styles.divider} />
-              <Text style={styles.dividerText}>NUEVO EN AMARE</Text>
+              <Text style={styles.dividerText}>NUEVO EN UTEQ CAFETERÍA</Text>
               <View style={styles.divider} />
             </View>
 
@@ -302,7 +302,6 @@ const styles = StyleSheet.create({
     marginTop: Platform.OS === 'android' ? 10 : 0,
   },
   brandMark: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(233,221,200,0.22)', backgroundColor: 'rgba(233,221,200,0.07)' },
-  brandLetter: { fontFamily: 'PlayfairDisplay_700Bold', color: AuthColors.accent, fontSize: 21 },
   backBtn: {
     width: 40,
     height: 40,
@@ -318,7 +317,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     marginBottom: 28,
   },
-  eyebrow: { color: '#BFAE91', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 8 },
+  eyebrow: { color: '#B48A5A', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 8 },
   title: {
     fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 38,

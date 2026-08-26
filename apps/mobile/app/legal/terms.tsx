@@ -13,39 +13,29 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Typography } from '../../theme';
 
-const TERMS_URL = 'https://amarerestaurant.club/legal/terminos';
-const PRIVACY_URL = 'https://amarerestaurant.club/aviso-de-privacidad';
+const TERMS_URL = 'https://uteqcafeteria.com/legal/terminos';
+const PRIVACY_URL = 'https://uteqcafeteria.com/aviso-de-privacidad';
 
 const TERMS_SECTIONS = [
   {
     title: 'Uso de la cuenta',
     body:
-      'Tu cuenta Amare es personal. Debes mantener tus datos actualizados, cuidar tu acceso y avisarnos si detectas uso no autorizado.',
+      'Tu cuenta en UTEQ Cafetería es personal. Debes mantener tus datos actualizados, cuidar tu acceso y avisarnos si detectas uso no autorizado.',
   },
   {
-    title: 'Pedidos, mesa y consumo',
+    title: 'Pedidos y recolección',
     body:
-      'La app permite consultar menu, hacer pedidos, usar QR de mesa, elegir modalidades de consumo y dar seguimiento a ordenes. Productos, precios y horarios pueden variar por sucursal.',
+      'La app permite consultar el menú, hacer pedidos para recoger en cafetería y dar seguimiento a tus órdenes. Productos, precios y horarios pueden variar.',
   },
   {
-    title: 'Pagos, saldo y recompensas',
+    title: 'Pagos y saldo',
     body:
-      'Los pagos con tarjeta, Apple Pay y Google Pay se procesan mediante Stripe. El Saldo Amare comprado se separa del saldo promocional: se consume primero el promocional y despues el comprado. El saldo comprado no utilizado puede solicitarse en reembolso al metodo de pago original; puntos, cupones y saldo promocional no son transferibles ni reembolsables.',
+      'Los pagos con tarjeta, Apple Pay y Google Pay se procesan mediante Stripe. El saldo comprado se separa del saldo promocional: se consume primero el promocional y después el comprado. El saldo comprado no utilizado puede solicitarse en reembolso al método de pago original; puntos, cupones y saldo promocional no son transferibles ni reembolsables.',
   },
   {
-    title: 'Modo social',
+    title: 'Eliminación de cuenta',
     body:
-      'El modo social es opcional. Al activarlo decides que datos mostrar. Puedes apagarlo, editarlo, eliminar tu perfil social, reportar perfiles o bloquear usuarios.',
-  },
-  {
-    title: 'Contenido y convivencia',
-    body:
-      'No se permite acosar, amenazar, suplantar, publicar contenido ofensivo o compartir material de otra persona sin autorizacion. Los reportes pueden derivar en moderacion o suspension.',
-  },
-  {
-    title: 'Eliminacion de cuenta',
-    body:
-      'Puedes solicitar la eliminacion de tu cuenta desde Perfil. Eliminaremos o anonimizaremos datos personales; algunos registros de pedidos, pagos o facturacion pueden conservarse por obligaciones legales.',
+      'Puedes solicitar la eliminación de tu cuenta desde Perfil. Eliminaremos o anonimizaremos datos personales; algunos registros de pedidos, pagos o facturación pueden conservarse por obligaciones legales.',
   },
 ];
 
@@ -57,11 +47,11 @@ export default function LegalTermsScreen() {
   }
 
   return (
-    <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#1A120C']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.82}>
-            <Ionicons name="chevron-back" size={22} color="#F6F0E6" />
+            <Ionicons name="chevron-back" size={22} color="#FBF3E8" />
           </TouchableOpacity>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>AVISO LEGAL</Text>
@@ -72,11 +62,11 @@ export default function LegalTermsScreen() {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.introCard}>
             <View style={styles.introIcon}>
-              <Ionicons name="document-text-outline" size={24} color="#24272D" />
+              <Ionicons name="document-text-outline" size={24} color="#2B1E14" />
             </View>
             <Text style={styles.introTitle}>Resumen para comensales</Text>
             <Text style={styles.introText}>
-              Este resumen cubre las reglas principales para usar Amare. La version web oficial puede complementar
+              Este resumen cubre las reglas principales para usar UTEQ Cafetería. La version web oficial puede complementar
               o actualizar esta informacion.
             </Text>
           </View>
@@ -94,16 +84,16 @@ export default function LegalTermsScreen() {
             <Text style={styles.contactTitle}>Contacto</Text>
             <Text style={styles.contactText}>
               Para dudas sobre tu cuenta, pedidos, pagos, reembolsos o privacidad escribe a
-              soporte@amarerestaurant.club.
+              contacto@uteqcafeteria.com.
             </Text>
           </View>
 
           <TouchableOpacity style={styles.webButton} onPress={() => openUrl(TERMS_URL)} activeOpacity={0.88}>
-            <Ionicons name="open-outline" size={18} color="#24272D" />
+            <Ionicons name="open-outline" size={18} color="#2B1E14" />
             <Text style={styles.webButtonText}>Abrir terminos web</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={() => openUrl(PRIVACY_URL)} activeOpacity={0.88}>
-            <Ionicons name="shield-checkmark-outline" size={18} color="#E9DDC8" />
+            <Ionicons name="shield-checkmark-outline" size={18} color="#D4B384" />
             <Text style={styles.secondaryButtonText}>Abrir aviso de privacidad</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -135,14 +125,14 @@ const styles = StyleSheet.create({
   },
   headerCopy: { flex: 1 },
   eyebrow: {
-    color: '#CDBFA8',
+    color: '#C9AF95',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 2,
   },
   title: {
     fontFamily: 'PlayfairDisplay_700Bold',
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     fontSize: 27,
     lineHeight: 34,
     marginTop: 2,
@@ -165,17 +155,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     marginBottom: 14,
   },
   introTitle: {
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     fontSize: 18,
     fontWeight: '900',
   },
   introText: {
     ...Typography.body,
-    color: '#BDB4A5',
+    color: '#C9AF95',
     marginTop: 8,
     lineHeight: 21,
   },
@@ -183,18 +173,18 @@ const styles = StyleSheet.create({
   legalSection: {
     borderRadius: 18,
     padding: 16,
-    backgroundColor: 'rgba(23,25,30,0.58)',
+    backgroundColor: 'rgba(23,25,30,0.35)',
     borderWidth: 1,
-    borderColor: 'rgba(233,221,200,0.11)',
+    borderColor: 'rgba(212,179,132,0.16)',
   },
   sectionTitle: {
-    color: '#E9DDC8',
+    color: '#D4B384',
     fontSize: 15,
     fontWeight: '900',
     marginBottom: 7,
   },
   sectionBody: {
-    color: '#CFC6B8',
+    color: '#E3D2BE',
     fontSize: 13,
     lineHeight: 20,
     fontWeight: '500',
@@ -202,17 +192,17 @@ const styles = StyleSheet.create({
   contactCard: {
     borderRadius: 18,
     padding: 16,
-    backgroundColor: 'rgba(233,221,200,0.08)',
+    backgroundColor: 'rgba(212,179,132,0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(233,221,200,0.14)',
+    borderColor: 'rgba(212,179,132,0.18)',
   },
   contactTitle: {
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     fontSize: 15,
     fontWeight: '900',
   },
   contactText: {
-    color: '#BDB4A5',
+    color: '#C9AF95',
     fontSize: 13,
     lineHeight: 20,
     marginTop: 7,
@@ -220,7 +210,7 @@ const styles = StyleSheet.create({
   webButton: {
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -228,7 +218,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   webButtonText: {
-    color: '#24272D',
+    color: '#2B1E14',
     fontSize: 15,
     fontWeight: '900',
   },
@@ -236,14 +226,14 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(233,221,200,0.18)',
+    borderColor: 'rgba(212,179,132,0.24)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 9,
   },
   secondaryButtonText: {
-    color: '#E9DDC8',
+    color: '#D4B384',
     fontSize: 14,
     fontWeight: '900',
   },

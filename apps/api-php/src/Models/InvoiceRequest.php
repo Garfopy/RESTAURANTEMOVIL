@@ -41,21 +41,17 @@ class InvoiceRequest
 
         $id = Database::execute(
             'INSERT INTO facturacion_solicitudes
-                (restaurante_id, pedido_id, consumo_id, mesa_id, division_id, division_cuenta_id,
+                (restaurante_id, pedido_id,
                  mobile_usuario_id, solicitado_por_usuario_id, origen, scope, monto, metodo_pago,
                  receptor_rfc, receptor_nombre, receptor_regimen_fiscal, receptor_codigo_postal,
                  uso_cfdi, receptor_email)
              VALUES
-                (:restaurant_id, :order_id, :consumo_id, :table_id, :split_id, :split_account_id,
+                (:restaurant_id, :order_id,
                  :mobile_user_id, :requested_by_user_id, :origin, :scope, :amount, :payment_method,
                  :rfc, :name, :regime, :postal_code, :cfdi_use, :email)',
             [
                 ':restaurant_id' => $restaurantId,
                 ':order_id' => self::nullableInt($context['pedido_id'] ?? null),
-                ':consumo_id' => self::nullableString($context['consumo_id'] ?? null),
-                ':table_id' => self::nullableInt($context['mesa_id'] ?? null),
-                ':split_id' => self::nullableInt($context['division_id'] ?? null),
-                ':split_account_id' => self::nullableInt($context['division_cuenta_id'] ?? null),
                 ':mobile_user_id' => self::nullableInt($context['mobile_usuario_id'] ?? null),
                 ':requested_by_user_id' => self::nullableInt($context['solicitado_por_usuario_id'] ?? null),
                 ':origin' => (string)($context['origen'] ?? 'cliente'),

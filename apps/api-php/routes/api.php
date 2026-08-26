@@ -177,11 +177,6 @@ $routes = [
     ['POST', '/admin/social/photos/:id/decision', ['Amare\Api\Controllers\AdminController', 'decideSocialPhoto']],
     ['POST', '/admin/rewards/refunds', ['Amare\Api\Controllers\AdminController', 'refundPurchasedBalance']],
     ['POST', '/admin/payments/reconcile', ['Amare\Api\Controllers\PaymentController', 'adminReconcilePayment']],
-    
-    // Store routes (tienda de productos físicos)
-    ['GET', '/store/categories', ['Amare\Api\Controllers\StoreController', 'categories']],
-    ['GET', '/store/products', ['Amare\Api\Controllers\StoreController', 'products']],
-    ['GET', '/store/products/:id', ['Amare\Api\Controllers\StoreController', 'showProduct']],
 ];
 
 // Remove base path from request URI. Some cPanel setups report SCRIPT_NAME as

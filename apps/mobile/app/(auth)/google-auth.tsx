@@ -134,7 +134,7 @@ export default function GoogleAuthScreen() {
   }
 
   return (
-    <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#2B1E14']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
         <View pointerEvents="none" style={styles.decorations}>
           <View style={[styles.glow, styles.glowTop]} />
@@ -150,14 +150,14 @@ export default function GoogleAuthScreen() {
           <Text style={styles.subtitle}>
             {error
               ? 'Revisa tu conexion o intenta seleccionar tu cuenta de nuevo.'
-              : 'Estamos validando tu cuenta para iniciar tu experiencia en Amare.'}
+              : 'Estamos validando tu cuenta para iniciar tu experiencia en UTEQ Cafetería.'}
           </Text>
 
           <View style={styles.statusCard}>
             {error ? (
               <>
                 <View style={styles.errorIcon}>
-                  <Ionicons name="alert-circle-outline" size={22} color="#FFB4AD" />
+                  <Ionicons name="alert-circle-outline" size={22} color="#FF8A80" />
                 </View>
                 <Text style={styles.errorText}>{error}</Text>
               </>
@@ -173,7 +173,7 @@ export default function GoogleAuthScreen() {
             <View style={styles.actions}>
               <TouchableOpacity style={styles.primaryButton} onPress={signIn} activeOpacity={0.9} disabled={loading}>
                 {loading ? (
-                  <ActivityIndicator color="#24272D" />
+                  <ActivityIndicator color="#2B1E14" />
                 ) : (
                   <>
                     <GoogleGIcon size={19} />
@@ -216,7 +216,7 @@ const styles = StyleSheet.create({
   gradient: { flex: 1 },
   safe: { flex: 1 },
   decorations: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
-  glow: { position: 'absolute', borderRadius: 999, backgroundColor: '#C6A97B' },
+  glow: { position: 'absolute', borderRadius: 999, backgroundColor: '#B48A5A' },
   glowTop: { width: 300, height: 300, top: -180, right: -110, opacity: 0.22 },
   glowBottom: { width: 230, height: 230, bottom: -140, left: -90, opacity: 0.1 },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 26 },
@@ -235,12 +235,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 32,
     lineHeight: 39,
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     textAlign: 'center',
   },
   subtitle: {
     ...Typography.body,
-    color: '#BDB4A5',
+    color: '#C9AF95',
     textAlign: 'center',
     marginTop: 10,
     maxWidth: 330,
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
-  primaryLabel: { color: '#24272D', fontSize: 15, fontWeight: '900' },
+  primaryLabel: { color: '#2B1E14', fontSize: 15, fontWeight: '900' },
   secondaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  secondaryLabel: { color: '#F2EBDD', fontSize: 14, fontWeight: '800' },
+  secondaryLabel: { color: '#FBF3E8', fontSize: 14, fontWeight: '800' },
 });

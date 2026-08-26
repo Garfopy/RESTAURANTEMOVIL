@@ -7,8 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  PanResponder,
-  Animated,
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,7 +23,7 @@ import { getRewardsWallet, type RewardsWallet } from '../../services/rewards.ser
 import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { WALLET_ENABLED } from '../../constants/features';
 import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
-import { Colors, Shadows } from '../../theme';
+import { Colors, Shadows, FontFamily } from '../../theme';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -38,59 +36,6 @@ export default function ProfileScreen() {
   const [wallet, setWallet] = useState<RewardsWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
   const [savingMarketing, setSavingMarketing] = useState(false);
-  const swipeTranslateX = React.useRef(new Animated.Value(0)).current;
-  const returningHomeRef = React.useRef(false);
-  const returnHomePanResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          gestureState.dx > 14 && Math.abs(gestureState.dy) < 18,
-        onPanResponderMove: (_, gestureState) => {
-          if (returningHomeRef.current) return;
-
-          const nextOffset = Math.min(Math.max(gestureState.dx * 0.58, 0), 76);
-          swipeTranslateX.setValue(nextOffset);
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          if (returningHomeRef.current) return;
-
-          const isReturnGesture =
-            gestureState.dx > 72 &&
-            Math.abs(gestureState.dy) < 70 &&
-            (gestureState.vx > 0.12 || gestureState.dx > 120);
-
-          if (isReturnGesture) {
-            returningHomeRef.current = true;
-            Animated.timing(swipeTranslateX, {
-              toValue: 92,
-              duration: 70,
-              useNativeDriver: true,
-            }).start(() => {
-              swipeTranslateX.setValue(0);
-              returningHomeRef.current = false;
-              router.replace('/(tabs)' as never);
-            });
-            return;
-          }
-
-          Animated.timing(swipeTranslateX, {
-            toValue: 0,
-            duration: 110,
-            useNativeDriver: true,
-          }).start();
-        },
-        onPanResponderTerminate: () => {
-          if (returningHomeRef.current) return;
-
-          Animated.timing(swipeTranslateX, {
-            toValue: 0,
-            duration: 110,
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
-    [router, swipeTranslateX]
-  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -103,7 +48,7 @@ export default function ProfileScreen() {
     return (
       <AuthRequiredState
         icon="person-outline"
-        title="Crea tu cuenta Amare"
+        title="Crea tu cuenta"
         message="Accede a ofertas, direcciones guardadas, beneficios, historial y preferencias personales."
         benefits={['Direcciones', 'Rewards', 'Preferencias']}
         returnTo="/(tabs)/profile"
@@ -116,7 +61,7 @@ export default function ProfileScreen() {
     try {
       setWallet(await getRewardsWallet());
     } catch (error) {
-      console.warn('No se pudo cargar Saldo Amare', error);
+      console.warn('No se pudo cargar el saldo', error);
     } finally {
       setWalletLoading(false);
     }
@@ -262,10 +207,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Animated.View
-        style={[styles.swipeSurface, { transform: [{ translateX: swipeTranslateX }] }]}
-        {...returnHomePanResponder.panHandlers}
-      >
+      <View style={styles.swipeSurface}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Perfil</Text>
       </View>
@@ -287,9 +229,9 @@ export default function ProfileScreen() {
               disabled={uploading}
             >
               {uploading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={Colors.white} />
               ) : (
-                <Ionicons name="camera" size={16} color="#FFFFFF" />
+                <Ionicons name="camera" size={16} color={Colors.white} />
               )}
             </TouchableOpacity>
           </View>
@@ -303,27 +245,27 @@ export default function ProfileScreen() {
               <TouchableOpacity
                 style={[styles.summaryCard, styles.summaryCardBalance]}
                 activeOpacity={0.88}
-                onPress={() => router.push('/profile/amare-balance' as any)}
+                onPress={() => router.push('/profile/activity' as any)}
               >
                 <View style={styles.summaryTopRow}>
                   <View style={styles.summaryIconWrap}>
-                    <Ionicons name="wallet-outline" size={20} color="#064E3B" />
+                    <Ionicons name="wallet-outline" size={20} color={Colors.primary} />
                   </View>
-                  {walletLoading ? <ActivityIndicator size="small" color="#064E3B" /> : <Ionicons name="chevron-forward" size={18} color="#065F46" />}
+                  {walletLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : <Ionicons name="chevron-forward" size={18} color={Colors.primaryLight} />}
                 </View>
-                <Text style={styles.summaryTitle}>Saldo Amare</Text>
+                <Text style={styles.summaryTitle}>Saldo</Text>
                 <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
-                <Text style={styles.summaryHint}>Toca para recargar tu prepago</Text>
+                <Text style={styles.summaryHint}>Toca para ver tu actividad</Text>
               </TouchableOpacity>
 
               <View style={[styles.summaryCard, styles.summaryCardPoints]}>
                 <View style={styles.summaryTopRow}>
                   <View style={styles.summaryIconWrap}>
-                    <Ionicons name="trophy-outline" size={20} color="#7C2D12" />
+                    <Ionicons name="trophy-outline" size={20} color={Colors.accentDark} />
                   </View>
-                  {walletLoading ? <ActivityIndicator size="small" color="#7C2D12" /> : null}
+                  {walletLoading ? <ActivityIndicator size="small" color={Colors.accentDark} /> : null}
                 </View>
-                <Text style={styles.summaryTitle}>Puntos Amare</Text>
+                <Text style={styles.summaryTitle}>Puntos</Text>
                 <Text style={styles.summaryValue}>{Number(wallet?.points ?? 0)}</Text>
                 <Text style={styles.summaryHint}>1 punto = 1 peso. Puedes usarlos al pagar.</Text>
               </View>
@@ -335,16 +277,9 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>Mi Cuenta</Text>
           <View style={styles.section}>
             <MenuItem
-              icon="location"
-              label="Mis direcciones"
-              color="#3B82F6"
-              onPress={() => router.push('/profile/addresses')}
-              showDivider
-            />
-            <MenuItem
               icon="bag"
               label="Historial de pedidos"
-              color="#10B981"
+              color={Colors.primaryLight}
               onPress={() => router.push('/(tabs)/orders')}
               showDivider
             />
@@ -352,7 +287,7 @@ export default function ProfileScreen() {
               <MenuItem
                 icon="time"
                 label="Actividad reciente"
-                color="#F59E0B"
+                color={Colors.accent}
                 onPress={() => router.push('/profile/activity' as any)}
                 showDivider
               />
@@ -360,7 +295,7 @@ export default function ProfileScreen() {
             <MenuItem
               icon="heart"
               label="Favoritos"
-              color="#EF4444"
+              color={Colors.error}
               onPress={() => router.push('/(tabs)/favorites')}
             />
           </View>
@@ -370,8 +305,8 @@ export default function ProfileScreen() {
               <Text style={styles.sectionTitle}>Notificaciones</Text>
               <View style={styles.section}>
                 <View style={styles.preferenceRow}>
-                  <View style={[styles.iconBg, { backgroundColor: '#F59E0B12' }]}>
-                    <Ionicons name="notifications" size={20} color="#F59E0B" />
+                  <View style={[styles.iconBg, { backgroundColor: `${Colors.accent}20` }]}>
+                    <Ionicons name="notifications" size={20} color={Colors.accentDark} />
                   </View>
                   <View style={styles.preferenceContent}>
                     <Text style={styles.menuLabel}>Promociones y beneficios</Text>
@@ -380,14 +315,14 @@ export default function ProfileScreen() {
                     </Text>
                   </View>
                   {savingMarketing ? (
-                    <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
+                    <ActivityIndicator size="small" color={Colors.primary} />
                   ) : (
                     <Switch
                       accessibilityLabel="Recibir promociones y beneficios"
                       value={Boolean(user?.marketing_opt_in)}
                       onValueChange={(enabled) => void handleMarketingPreference(enabled)}
-                      trackColor={{ false: '#D1D5DB', true: '#F6C453' }}
-                      thumbColor="#FFFFFF"
+                      trackColor={{ false: Colors.border, true: Colors.accent }}
+                      thumbColor={Colors.surface}
                     />
                   )}
                 </View>
@@ -400,39 +335,39 @@ export default function ProfileScreen() {
             <MenuItem
               icon="help-circle"
               label="Centro de ayuda"
-              color="#8B5CF6"
+              color={Colors.primaryLight}
               onPress={() => router.push('/profile/help' as any)}
               showDivider
             />
             <MenuItem
               icon="document-text"
               label="Terminos y aviso legal"
-              color="#0F766E"
+              color={Colors.accentDark}
               onPress={() => router.push('/legal/terms' as any)}
               showDivider
             />
             <MenuItem
               icon="shield-checkmark"
               label="Privacidad"
-              color="#2563EB"
+              color={Colors.primary}
               onPress={() => router.push('/legal/privacy' as any)}
               showDivider
             />
             <MenuItem
               icon="trash"
               label="Eliminar cuenta"
-              color="#DC2626"
+              color={Colors.error}
               onPress={handleDeleteAccount}
             />
           </View>
         </View>
 
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
-          <Ionicons name="log-out" size={20} color={Colors.error || '#EF4444'} />
+          <Ionicons name="log-out" size={20} color={Colors.error} />
           <Text style={styles.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
       </ScrollView>
-      </Animated.View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -457,7 +392,7 @@ function MenuItem({
       </View>
       <View style={[styles.menuItemContent, showDivider && styles.bottomBorder]}>
         <Text style={styles.menuLabel}>{label}</Text>
-        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" style={{ marginRight: 16 }} />
+        <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} style={{ marginRight: 16 }} />
       </View>
     </TouchableOpacity>
   );
@@ -466,7 +401,7 @@ function MenuItem({
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: Colors.background || '#F9FAFB',
+    backgroundColor: Colors.background,
   },
   swipeSurface: {
     flex: 1,
@@ -477,11 +412,10 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   headerTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: Colors.text || '#111827',
-    letterSpacing: -0.8,
-    lineHeight: 42,
+    fontFamily: FontFamily.heading,
+    fontSize: 32,
+    color: Colors.text,
+    lineHeight: 40,
     paddingTop: 4,
   },
   content: {
@@ -502,11 +436,11 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: Colors.primary || '#111827',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 4,
-    borderColor: '#FFFFFF',
+    borderColor: Colors.surface,
     overflow: 'hidden',
   },
   avatarImg: {
@@ -517,32 +451,32 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 2,
     right: 2,
-    backgroundColor: '#111827',
+    backgroundColor: Colors.primary,
     width: 34,
     height: 34,
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: '#FFFFFF',
+    borderColor: Colors.surface,
     ...Shadows.sm,
   },
   avatarLetter: {
-    color: '#FFFFFF',
+    color: Colors.white,
     fontSize: 38,
     fontWeight: '800',
   },
   nombre: {
     fontSize: 24,
     fontWeight: '800',
-    color: Colors.text || '#111827',
+    color: Colors.text,
     letterSpacing: -0.5,
     marginBottom: 4,
   },
   email: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#6B7280',
+    color: Colors.textMuted,
   },
   rewardsSummaryGrid: {
     gap: 14,
@@ -560,12 +494,12 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
   },
   summaryCardBalance: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#BBF7D0',
+    backgroundColor: `${Colors.primary}0D`,
+    borderColor: `${Colors.primary}22`,
   },
   summaryCardPoints: {
-    backgroundColor: '#FFF7ED',
-    borderColor: '#FED7AA',
+    backgroundColor: `${Colors.accent}18`,
+    borderColor: `${Colors.accent}40`,
   },
   summaryTopRow: {
     flexDirection: 'row',
@@ -577,27 +511,27 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: '#FFFFFFB0',
+    backgroundColor: `${Colors.surface}B0`,
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#111827',
+    color: Colors.text,
     lineHeight: 19,
   },
   summaryValue: {
     marginTop: 8,
     fontSize: 24,
     fontWeight: '900',
-    color: '#111827',
+    color: Colors.text,
     lineHeight: 30,
   },
   summaryHint: {
     marginTop: 4,
     fontSize: 12,
-    color: '#4B5563',
+    color: Colors.textSecondary,
     fontWeight: '600',
     lineHeight: 16,
   },
@@ -608,18 +542,18 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: Colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     marginLeft: 8,
     marginBottom: -8,
   },
   section: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Colors.border,
     ...Shadows.sm,
   },
   menuItem: {
@@ -635,7 +569,7 @@ const styles = StyleSheet.create({
   },
   bottomBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: Colors.borderLight,
   },
   iconBg: {
     width: 40,
@@ -648,7 +582,7 @@ const styles = StyleSheet.create({
   menuLabel: {
     flex: 1,
     fontSize: 16,
-    color: Colors.text || '#111827',
+    color: Colors.text,
     fontWeight: '600',
     letterSpacing: -0.2,
   },
@@ -666,7 +600,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontSize: 12,
     lineHeight: 17,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '500',
   },
   logoutBtn: {
@@ -676,14 +610,14 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 16,
     marginTop: 18,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: Colors.errorLight,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#FEE2E2',
+    borderColor: `${Colors.error}30`,
   },
   logoutText: {
     fontSize: 15,
     fontWeight: '700',
-    color: Colors.error || '#EF4444',
+    color: Colors.error,
   },
 });

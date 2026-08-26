@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getRewardsWallet, type RewardTransaction, type RewardsWallet } from '../../services/rewards.service';
-import { Colors, Shadows } from '../../theme';
+import { Colors, Shadows, FontFamily } from '../../theme';
 
 type TransactionFilter = 'all' | 'topup' | 'spend' | 'points';
 
@@ -79,7 +79,7 @@ function getTransactionTitle(tx: RewardTransaction): string {
   if (lower.includes('regalo social')) return 'Regalo social';
   if (lower.includes('compra de alimentos')) return 'Compra de alimentos';
 
-  return description || 'Movimiento Amare';
+  return description || 'Movimiento';
 }
 
 function getTransactionIcon(kind: Exclude<TransactionFilter, 'all'>): keyof typeof Ionicons.glyphMap {
@@ -92,7 +92,7 @@ function getKindStyles(kind: Exclude<TransactionFilter, 'all'>) {
   if (kind === 'topup') {
     return {
       iconWrap: styles.iconWrapTopup,
-      iconColor: '#047857',
+      iconColor: Colors.success,
       amount: styles.positive,
       badge: styles.pointsBadgeNeutral,
     };
@@ -101,7 +101,7 @@ function getKindStyles(kind: Exclude<TransactionFilter, 'all'>) {
   if (kind === 'spend') {
     return {
       iconWrap: styles.iconWrapSpend,
-      iconColor: '#B91C1C',
+      iconColor: Colors.error,
       amount: styles.negative,
       badge: styles.pointsBadgeNeutral,
     };
@@ -109,7 +109,7 @@ function getKindStyles(kind: Exclude<TransactionFilter, 'all'>) {
 
   return {
     iconWrap: styles.iconWrapPoints,
-    iconColor: '#6D28D9',
+    iconColor: Colors.accentDark,
     amount: styles.neutralAmount,
     badge: styles.pointsBadgeActive,
   };
@@ -168,7 +168,7 @@ export default function ProfileActivityScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Actividad reciente</Text>
         <TouchableOpacity style={styles.refreshButton} onPress={loadActivity} accessibilityRole="button">
-          <Ionicons name="refresh" size={19} color="#475569" />
+          <Ionicons name="refresh" size={19} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -180,7 +180,7 @@ export default function ProfileActivityScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.summaryBand}>
             <View>
-              <Text style={styles.summaryLabel}>Saldo Amare</Text>
+              <Text style={styles.summaryLabel}>Saldo</Text>
               <Text style={styles.summaryValue}>${Number(wallet?.balance_mxn ?? 0).toFixed(2)}</Text>
             </View>
             <View style={styles.summaryDivider} />
@@ -259,7 +259,7 @@ export default function ProfileActivityScreen() {
           ) : (
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
-                <Ionicons name="time-outline" size={30} color="#64748B" />
+                <Ionicons name="time-outline" size={30} color={Colors.textMuted} />
               </View>
               {wallet?.transactions?.length ? (
                 <>
@@ -285,7 +285,7 @@ export default function ProfileActivityScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F6F7FB',
+    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -308,14 +308,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Colors.border,
   },
   headerTitle: {
+    fontFamily: FontFamily.heading,
     fontSize: 22,
-    fontWeight: '900',
-    color: Colors.text || '#111827',
+    color: Colors.text,
   },
   loadingWrap: {
     flex: 1,
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
   summaryBand: {
     minHeight: 96,
     borderRadius: 22,
-    backgroundColor: '#0F172A',
+    backgroundColor: Colors.primary,
     padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
@@ -340,14 +340,14 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#CBD5E1',
+    color: Colors.accentLight,
     textTransform: 'uppercase',
   },
   summaryValue: {
     marginTop: 6,
     fontSize: 28,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: Colors.surface,
   },
   summaryDivider: {
     width: 1,
@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 24,
     fontWeight: '900',
-    color: '#FDE68A',
+    color: Colors.accentLight,
   },
   filterList: {
     gap: 8,
@@ -373,21 +373,21 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Colors.border,
   },
   filterChipActive: {
-    backgroundColor: '#111827',
-    borderColor: '#111827',
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   filterText: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#64748B',
+    color: Colors.textMuted,
   },
   filterTextActive: {
-    color: '#FFFFFF',
+    color: Colors.surface,
   },
   dayGroup: {
     gap: 10,
@@ -395,7 +395,7 @@ const styles = StyleSheet.create({
   dayTitle: {
     fontSize: 13,
     fontWeight: '900',
-    color: '#64748B',
+    color: Colors.textMuted,
     textTransform: 'uppercase',
   },
   transactionList: {
@@ -405,9 +405,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderWidth: 1,
-    borderColor: '#E8ECF2',
+    borderColor: Colors.borderLight,
     borderRadius: 18,
     padding: 14,
     ...Shadows.sm,
@@ -420,13 +420,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   iconWrapTopup: {
-    backgroundColor: '#D1FAE5',
+    backgroundColor: Colors.successLight,
   },
   iconWrapSpend: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: Colors.errorLight,
   },
   iconWrapPoints: {
-    backgroundColor: '#EDE9FE',
+    backgroundColor: `${Colors.accent}22`,
   },
   transactionInfo: {
     flex: 1,
@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '900',
-    color: '#111827',
+    color: Colors.primary,
   },
   transactionMetaRow: {
     marginTop: 5,
@@ -448,12 +448,12 @@ const styles = StyleSheet.create({
   transactionMeta: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#64748B',
+    color: Colors.textMuted,
   },
   metaDot: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#CBD5E1',
+    color: Colors.accentLight,
   },
   transactionTotals: {
     alignItems: 'flex-end',
@@ -471,24 +471,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   pointsBadgeNeutral: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: Colors.borderLight,
   },
   pointsBadgeActive: {
-    backgroundColor: '#F5F3FF',
+    backgroundColor: `${Colors.accent}18`,
   },
   transactionPoints: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#475569',
+    color: Colors.textSecondary,
   },
   positive: {
-    color: '#047857',
+    color: Colors.success,
   },
   negative: {
-    color: '#B91C1C',
+    color: Colors.error,
   },
   neutralAmount: {
-    color: '#475569',
+    color: Colors.textSecondary,
   },
   emptyState: {
     alignItems: 'center',
@@ -496,9 +496,9 @@ const styles = StyleSheet.create({
     paddingVertical: 44,
     paddingHorizontal: 24,
     borderRadius: 22,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Colors.border,
     gap: 10,
   },
   emptyIcon: {
@@ -507,19 +507,19 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: Colors.borderLight,
   },
   emptyTitle: {
     marginTop: 4,
     fontSize: 16,
     fontWeight: '900',
-    color: '#111827',
+    color: Colors.primary,
     textAlign: 'center',
   },
   emptyText: {
     fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
-    color: '#64748B',
+    color: Colors.textMuted,
   },
 });

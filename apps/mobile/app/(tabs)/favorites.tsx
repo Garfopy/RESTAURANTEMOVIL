@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  FlatList, 
-  Dimensions 
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,7 +19,7 @@ import { ProductCard } from '../../components/cards/ProductCard';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { AuthRequiredState } from '../../components/auth/AuthRequiredState';
-import { Colors, Spacing, Typography } from '../../theme';
+import { Colors, Spacing, Typography, FontFamily } from '../../theme';
 import type { Platillo } from '@amare/types';
 import { useUserStore } from '../../store/user.store';
 
@@ -34,7 +35,7 @@ export default function FavoritesScreen() {
   const syncFromServer = useFavoritesStore((s) => s.syncFromServer);
   const restauranteId = useBranchStore((s) => s.seleccionada?.id);
 
-  const { data: favorites, isLoading, refetch } = useQuery<Platillo[]>({
+  const { data: favorites, isLoading, isRefetching, refetch } = useQuery<Platillo[]>({
     queryKey: ['favorites'],
     queryFn: async () => {
       const res = await apiClient.get('/favorites');
@@ -115,6 +116,14 @@ export default function FavoritesScreen() {
           contentContainerStyle={styles.list}
           columnWrapperStyle={styles.row}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => void refetch()}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
           renderItem={({ item }) => (
             <View style={{ width: CARD_WIDTH }}>
               <ProductCard 
@@ -154,19 +163,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  title: { 
-    ...Typography.h1, 
-    fontSize: 34,
-    fontWeight: '800', 
-    color: Colors.text || '#111827',
-    letterSpacing: -0.5,
-    lineHeight: 42,      // Le da suficiente altura a la línea para que entren los puntos y acentos
-    paddingTop: 4,       // Empuja el texto ligeramente hacia abajo dentro de su propia caja
+  title: {
+    fontFamily: FontFamily.heading,
+    fontSize: 32,
+    color: Colors.text,
+    lineHeight: 40,
+    paddingTop: 4,
   },
   subtitle: {
     ...Typography.body,
     fontSize: 16,
-    color: '#6B7280',
+    color: Colors.textMuted,
     lineHeight: 22,
   },
   list: { 

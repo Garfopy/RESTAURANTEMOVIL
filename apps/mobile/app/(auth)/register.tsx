@@ -33,18 +33,18 @@ import {
 import { finishAuthFlow, saveAuthReturnTo } from '../../services/auth-gate.service';
 
 const AuthColors = {
-  bg: '#24272D',
-  text: '#F2EBDD',
-  textSecondary: '#D8CDBB',
-  muted: '#B8AC99',
-  border: '#4B5058',
-  inputBg: '#2A2E35',
-  inputFocused: '#30353D',
-  accent: '#E9DDC8',
-  buttonText: '#24272D',
-  error: '#FCA5A5',
-  errorBg: '#3A2B2E',
-  errorBorder: '#B85C63',
+  bg: '#2B1E14',
+  text: '#FBF3E8',
+  textSecondary: '#E3D2BE',
+  muted: '#C9AF95',
+  border: '#5A4633',
+  inputBg: '#3A2A1C',
+  inputFocused: '#4A3524',
+  accent: '#D4B384',
+  buttonText: '#2B1E14',
+  error: '#FF8A80',
+  errorBg: '#4A2420',
+  errorBorder: '#C97A72',
 };
 
 type CountryCodeOption = {
@@ -326,7 +326,7 @@ export default function RegisterScreen() {
   }
 
   return (
-    <LinearGradient colors={['#181A1F', '#252830', '#1C1E24']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#1A120C']} style={styles.gradient}>
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
       <View pointerEvents="none" style={styles.decorations}>
@@ -355,7 +355,7 @@ export default function RegisterScreen() {
             transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
           }]}>
             <Text style={styles.title}>Crear cuenta</Text>
-            <Text style={styles.subtitle}>Todo Amare, en un solo lugar.</Text>
+            <Text style={styles.subtitle}>Todo UTEQ Cafetería, en un solo lugar.</Text>
           </Animated.View>
 
           <Animated.View style={[styles.form, {
@@ -683,7 +683,7 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 24,
   },
-  eyebrow: { color: '#BFAE91', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 7 },
+  eyebrow: { color: '#B48A5A', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 7 },
   title: {
     fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 37,

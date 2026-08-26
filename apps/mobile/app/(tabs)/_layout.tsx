@@ -9,6 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../store/theme.store';
 
@@ -89,9 +90,9 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const compact = width < 380;
-  const horizontalInset = Math.max(compact ? 24 : 28, Math.round(width * 0.065));
+  const horizontalInset = Math.max(compact ? 32 : 38, Math.round(width * 0.09));
   const safeBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
-  const tabBarBottom = safeBottom + (Platform.OS === 'ios' ? 8 : 6);
+  const tabBarBottom = safeBottom + (Platform.OS === 'ios' ? 16 : 14);
   const tabBarHeight = compact ? 56 : 60;
 
   useEffect(() => {
@@ -119,20 +120,27 @@ export default function TabsLayout() {
           bottom: tabBarBottom,
           height: tabBarHeight,
           borderRadius: 60,
-          backgroundColor: '#FFFFFF',
+          backgroundColor: Platform.OS === 'android' ? 'rgba(255,255,255,0.82)' : 'transparent',
           borderTopWidth: 0,
+          borderWidth: 1,
+          borderColor: 'rgba(20,20,20,0.08)',
           paddingTop: 2,
           paddingBottom: Platform.OS === 'android' ? 2 : 4,
+          overflow: 'hidden',
           elevation: Platform.OS === 'android' ? 12 : 6,
           shadowColor: '#111827',
           shadowOffset: { width: 0, height: 8 },
           ...Platform.select({
             ios: {
-              shadowOpacity: 0.06,
-              shadowRadius: 16,
+              shadowOpacity: 0.1,
+              shadowRadius: 18,
             },
           }),
         },
+        tabBarBackground: () =>
+          Platform.OS === 'ios' ? (
+            <BlurView intensity={72} tint="light" style={StyleSheet.absoluteFill} />
+          ) : null,
         tabBarItemStyle: {
           justifyContent: 'center',
           alignItems: 'center',
@@ -145,7 +153,7 @@ export default function TabsLayout() {
           alignItems: 'center',
         },
         tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: '#1F2937',
+        tabBarInactiveTintColor: '#9A8672',
       }}
     >
       {TABS.map((tab) => (

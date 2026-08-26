@@ -85,7 +85,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const { isAuthenticated, isLoading, user, accountSuspension } = useUserStore();
   const firstSegment = String(segments[0] ?? '');
-  const secondSegment = String((segments as string[])[1] ?? '');
   const inAuth = firstSegment === '(auth)';
   const inPublicLegal = firstSegment === 'legal';
   const inAccountSuspended = firstSegment === 'account-suspended';
@@ -96,8 +95,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     firstSegment === '(tabs)' ||
     firstSegment === 'cart' ||
     firstSegment === 'category' ||
-    firstSegment === 'product' ||
-    (firstSegment === 'store' && (secondSegment === '' || secondSegment === 'index' || secondSegment === 'product'));
+    firstSegment === 'product';
   const userName = String(user?.nombre ?? '').trim();
   const needsName = userName.length < 3 || userName.toLowerCase() === 'usuario amare';
   const needsOnboarding = Boolean(
@@ -370,7 +368,7 @@ function AuthenticatedDataWarmupRuntime() {
 
   useEffect(() => {
     if (previousUserIdRef.current !== userId) {
-      for (const queryKey of [['promotions'], ['favorites'], ['orders'], ['addresses'], ['social'], ['rewards']]) {
+      for (const queryKey of [['promotions'], ['favorites'], ['orders'], ['social'], ['rewards']]) {
         queryClient.removeQueries({ queryKey });
       }
       previousUserIdRef.current = userId;
@@ -620,8 +618,6 @@ export default function RootLayout() {
                     <Stack.Screen name="(auth)" />
                     <Stack.Screen name="account-suspended" />
                     <Stack.Screen name="product/[id]" />
-                    <Stack.Screen name="store/index" />
-                    <Stack.Screen name="store/product/[id]" />
                     <Stack.Screen name="cart" />
                     <Stack.Screen name="checkout/order-type" />
                     <Stack.Screen name="checkout/payment" />
@@ -643,8 +639,8 @@ export default function RootLayout() {
   return (
     <StripeProvider
       publishableKey={STRIPE_PUBLISHABLE_KEY}
-      merchantIdentifier="merchant.com.amare.app"
-      urlScheme="amare"
+      merchantIdentifier="merchant.com.uteq.cafeteria"
+      urlScheme="uteqcafeteria"
     >
       <StripeUrlRuntime />
       {content}

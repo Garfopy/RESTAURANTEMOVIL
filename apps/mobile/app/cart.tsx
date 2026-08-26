@@ -14,12 +14,14 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '../store/cart.store';
+import { useBranchConfigStore, useBranchStore } from '../store/branch.store';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
-import { Colors, Spacing, Shadows } from '../theme';
+import { Colors, Spacing, Shadows, FontFamily } from '../theme';
 import { formatImageUrl } from '../services/api';
 import { getDishById } from '../services/menu.service';
 import { requireAuth } from '../services/auth-gate.service';
+import { getBranchOpenStatus } from '../services/business-hours';
 import type { CarritoItem } from '@amare/types';
 import { useThemeColors } from '../store/theme.store';
 
@@ -56,13 +58,26 @@ export default function CartScreen() {
   const router = useRouter();
   const theme = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { items, removeItem, updateQty, clear } = useCartStore();
+  const { items, removeItem, updateQty, clear, restauranteId } = useCartStore();
   const displayTotal = useMemo(
     () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
     [items]
   );
+  const config = useBranchConfigStore((state) =>
+    state.branchId === restauranteId ? state.config : null
+  );
+  const pedidoMinimo = Number(config?.pedido_minimo ?? 0);
+  const belowMinimum = pedidoMinimo > 0 && displayTotal < pedidoMinimo;
+  const missingForMinimum = Math.max(0, pedidoMinimo - displayTotal);
+
+  const sucursales = useBranchStore((state) => state.sucursales);
+  const cartBranch = sucursales.find((s) => String(s.id) === String(restauranteId)) ?? null;
+  const openStatus = getBranchOpenStatus(cartBranch);
+  const checkoutBlocked = belowMinimum || !openStatus.isOpen;
 
   function handleCheckout() {
+    if (checkoutBlocked) return;
+
     if (!requireAuth(router, {
       message: 'Crea tu cuenta para completar el pedido, guardar tus datos y darle seguimiento.',
       returnTo: '/checkout/order-type',
@@ -78,7 +93,7 @@ export default function CartScreen() {
       <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
         <View style={[styles.header, { backgroundColor: theme.background }]}>
           <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
-            <Ionicons name="close" size={22} color="#111827" />
+            <Ionicons name="close" size={22} color={Colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Tu pedido</Text>
           <View style={{ width: 40 }} />
@@ -99,7 +114,7 @@ export default function CartScreen() {
       {/* Cabecera Aireada y Elegante */}
       <View style={[styles.header, { backgroundColor: theme.background }]}>
         <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
-          <Ionicons name="close" size={22} color="#111827" />
+          <Ionicons name="close" size={22} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tu pedido</Text>
         <TouchableOpacity
@@ -128,16 +143,28 @@ export default function CartScreen() {
                 <Text style={styles.summaryLabel}>Subtotal</Text>
                 <Text style={styles.summaryValue}>${displayTotal.toFixed(2)}</Text>
               </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Costos de gestión</Text>
-                <Text style={styles.summaryValue}>$0.00</Text>
-              </View>
               <View style={styles.divider} />
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Total final</Text>
                 <Text style={styles.totalValue}>${displayTotal.toFixed(2)} MXN</Text>
               </View>
             </View>
+
+            {!openStatus.isOpen ? (
+              <View style={styles.minimumWarning}>
+                <Ionicons name="moon-outline" size={18} color={Colors.warning} />
+                <Text style={styles.minimumWarningText}>
+                  La sucursal está cerrada ahora{openStatus.opensAtLabel ? ` — abre a las ${openStatus.opensAtLabel}` : ''}. No puedes continuar con tu pedido hasta que abra.
+                </Text>
+              </View>
+            ) : belowMinimum ? (
+              <View style={styles.minimumWarning}>
+                <Ionicons name="information-circle-outline" size={18} color={Colors.warning} />
+                <Text style={styles.minimumWarningText}>
+                  El pedido mínimo es ${pedidoMinimo.toFixed(2)} MXN. Agrega ${missingForMinimum.toFixed(2)} más para continuar.
+                </Text>
+              </View>
+            ) : null}
           </View>
         }
       />
@@ -164,6 +191,7 @@ export default function CartScreen() {
           label="Continuar"
           onPress={handleCheckout}
           size="lg"
+          disabled={checkoutBlocked}
           style={styles.checkoutButton}
         />
       </View>
@@ -254,7 +282,7 @@ function CartItemRow({
 
         {item.notas ? (
           <View style={styles.notesBadge}>
-            <Ionicons name="document-text-outline" size={12} color="#6B7280" />
+            <Ionicons name="document-text-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.itemNotas} numberOfLines={1}>{item.notas}</Text>
           </View>
         ) : null}
@@ -300,7 +328,7 @@ function CartItemRow({
               onPress={() => item.cantidad > 1 ? onQty(item.id, item.cantidad - 1) : onRemove(item.id)}
               style={styles.qtyAction}
             >
-              <Ionicons name={item.cantidad > 1 ? 'remove' : 'trash-outline'} size={14} color="#111827" />
+              <Ionicons name={item.cantidad > 1 ? 'remove' : 'trash-outline'} size={14} color={Colors.text} />
             </TouchableOpacity>
 
             <Text style={styles.qtyNumber}>{item.cantidad}</Text>
@@ -310,7 +338,7 @@ function CartItemRow({
               onPress={() => onQty(item.id, item.cantidad + 1)}
               style={styles.qtyAction}
             >
-              <Ionicons name="add" size={14} color="#111827" />
+              <Ionicons name="add" size={14} color={Colors.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -320,7 +348,7 @@ function CartItemRow({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  safe: { flex: 1, backgroundColor: Colors.surface },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -332,18 +360,17 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.borderLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    letterSpacing: -0.3,
+    fontFamily: FontFamily.heading,
+    fontSize: 19,
+    color: Colors.text,
   },
   clearText: {
-    color: '#EF4444',
+    color: Colors.error,
     fontSize: 14,
     fontWeight: '600',
     paddingHorizontal: 8,
@@ -358,7 +385,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#111827',
+    color: Colors.text,
     paddingHorizontal: Spacing.base || 16,
   },
   selectorWrapper: {
@@ -372,13 +399,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.base || 16,
     paddingVertical: 18,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: Colors.borderLight,
   },
   itemImg: {
     width: 76,
     height: 76,
     borderRadius: 16,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.borderLight,
   },
   itemInfo: { flex: 1, justifyContent: 'center', minHeight: 76, gap: 6 },
   itemTopLine: {
@@ -389,20 +416,20 @@ const styles = StyleSheet.create({
   itemNombre: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: Colors.text,
     flex: 1,
     marginRight: 8,
   },
   itemSubtotal: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: Colors.text,
   },
   notesBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.borderLight,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
@@ -411,7 +438,7 @@ const styles = StyleSheet.create({
   },
   itemNotas: {
     fontSize: 11,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '500',
   },
   priceBreakdown: {
@@ -427,12 +454,12 @@ const styles = StyleSheet.create({
   },
   breakdownLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '600',
   },
   breakdownValue: {
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '700',
   },
   extrasList: {
@@ -441,28 +468,28 @@ const styles = StyleSheet.create({
   extraText: {
     flex: 1,
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '700',
   },
   extraPrice: {
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '800',
   },
   unitTotalRow: {
     marginTop: 2,
     paddingTop: 5,
     borderTopWidth: 1,
-    borderTopColor: '#EEF0F4',
+    borderTopColor: Colors.borderLight,
   },
   unitTotalLabel: {
     fontSize: 12,
-    color: '#111827',
+    color: Colors.text,
     fontWeight: '800',
   },
   unitTotalValue: {
     fontSize: 12,
-    color: '#111827',
+    color: Colors.text,
     fontWeight: '900',
   },
   itemBottomLine: {
@@ -470,12 +497,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  itemPrecio: { fontSize: 13, color: '#9CA3AF', fontWeight: '500' },
+  itemPrecio: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
 
   qtyPillContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.borderLight,
     borderRadius: 20,
     padding: 3,
   },
@@ -483,7 +510,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadows.sm,
@@ -492,7 +519,7 @@ const styles = StyleSheet.create({
   qtyNumber: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#111827',
+    color: Colors.text,
     minWidth: 28,
     textAlign: 'center',
   },
@@ -502,19 +529,37 @@ const styles = StyleSheet.create({
     paddingTop: 32,
   },
   summaryBox: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: Colors.surfaceElevated,
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: Colors.borderLight,
     gap: 12,
   },
+  minimumWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: `${Colors.warning}15`,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}40`,
+  },
+  minimumWarningText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  summaryLabel: { fontSize: 14, color: '#6B7280', fontWeight: '500' },
-  summaryValue: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  summaryLabel: { fontSize: 14, color: Colors.textMuted, fontWeight: '500' },
+  summaryValue: { fontSize: 14, fontWeight: '600', color: Colors.text },
   divider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: Colors.border,
     marginVertical: 4,
     borderStyle: 'dashed',
   },
@@ -523,8 +568,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  totalLabel: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary || '#111827' },
+  totalLabel: { fontSize: 15, fontWeight: '700', color: Colors.text },
+  totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary },
 
   footer: {
     position: 'absolute',
@@ -536,9 +581,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.base || 16,
     paddingTop: 16,
     paddingBottom: Platform.OS === 'ios' ? 36 : 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: Colors.borderLight,
     gap: 12,
     ...Shadows.md,
   },
@@ -549,8 +594,8 @@ const styles = StyleSheet.create({
   secondaryButton: {
     flex: 1,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     borderWidth: 2,
-    borderColor: Colors.primary || '#111827',
+    borderColor: Colors.primary,
   },
 });

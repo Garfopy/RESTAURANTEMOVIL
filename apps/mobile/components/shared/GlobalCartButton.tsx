@@ -6,7 +6,7 @@ import { CartButton } from './CartButton';
 export function GlobalCartButton() {
   const segments = useSegments();
   const { isLoading } = useUserStore();
-  const [rootSegment, childSegment] = segments as string[];
+  const [rootSegment] = segments as string[];
 
   if (isLoading) return null;
 
@@ -14,8 +14,7 @@ export function GlobalCartButton() {
     rootSegment === '(auth)' ||
     rootSegment === 'cart' ||
     rootSegment === 'checkout' ||
-    rootSegment === 'order' ||
-    (rootSegment === 'store' && childSegment === 'checkout')
+    rootSegment === 'order'
   ) {
     return null;
   }

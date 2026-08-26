@@ -2,7 +2,7 @@ import { Alert, Platform } from 'react-native';
 import { useStripe } from '@stripe/stripe-react-native';
 import { NATIVE_WALLETS_ENABLED, STRIPE_IS_CONFIGURED, STRIPE_LIVE_MODE } from '../constants/stripe';
 
-export type AmarePaymentSheetParams = {
+export type PaymentSheetParams = {
   clientSecret: string;
   amountMxn?: number;
   customerName?: string | null;
@@ -38,9 +38,9 @@ type PaymentSheetStripe = Pick<
   'initPaymentSheet' | 'presentPaymentSheet' | 'isPlatformPaySupported'
 >;
 
-export async function presentAmarePaymentSheet(
+export async function presentPaymentSheet(
   stripe: PaymentSheetStripe,
-  params: AmarePaymentSheetParams
+  params: PaymentSheetParams
 ): Promise<void> {
   if (!STRIPE_IS_CONFIGURED) {
     throw new Error('Stripe no esta configurado para esta compilacion.');
@@ -71,10 +71,10 @@ export async function presentAmarePaymentSheet(
   }
 
   const { error: initializationError } = await stripe.initPaymentSheet({
-    merchantDisplayName: 'Amare',
+    merchantDisplayName: 'UTEQ Cafetería',
     paymentIntentClientSecret: params.clientSecret,
     allowsDelayedPaymentMethods: false,
-    returnURL: 'amare://stripe-redirect',
+    returnURL: 'uteqcafeteria://stripe-redirect',
     defaultBillingDetails: {
       name: params.customerName || undefined,
       email: params.customerEmail || undefined,
@@ -91,7 +91,7 @@ export async function presentAmarePaymentSheet(
         ? {
             merchantCountryCode: 'MX',
             currencyCode: 'MXN',
-            label: 'Amare',
+            label: 'UTEQ Cafetería',
             testEnv: !STRIPE_LIVE_MODE,
           }
         : undefined,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,43 +6,16 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import MapView, { Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
-import { apiClient, getApiError } from '../../services/api';
+import { getApiError } from '../../services/api';
 import { useCartStore } from '../../store/cart.store';
 import { useBranchStore } from '../../store/branch.store';
-import { useUserStore } from '../../store/user.store';
 import { requireAuth } from '../../services/auth-gate.service';
 import { Button } from '../../components/ui/Button';
-import { Colors, Spacing } from '../../theme';
-
-type SavedAddress = {
-  id: number | string;
-  alias?: string;
-  calle?: string;
-  numero?: string;
-  colonia?: string;
-  ciudad?: string;
-  cp?: string | null;
-  lat?: number | string | null;
-  lng?: number | string | null;
-  instrucciones?: string | null;
-  es_principal?: boolean;
-};
-
-type AddressData = {
-  calle: string;
-  colonia: string;
-  ciudad: string;
-  lat: number;
-  lng: number;
-  cp?: string | null;
-};
+import { Colors, Spacing, FontFamily } from '../../theme';
 
 function getSelectedExtras(item: ReturnType<typeof useCartStore.getState>['items'][number]) {
   return item.modificadores_seleccionados.flatMap((mod) =>
@@ -71,9 +44,10 @@ function getItemCostBreakdown(item: ReturnType<typeof useCartStore.getState>['it
 
 export default function OrderTypeScreen() {
   const router = useRouter();
-  const token = useUserStore((state) => state.token);
-  const { items, tipoPedido, restauranteId, deliveryAddress, setDeliveryAddress } = useCartStore();
+  const { items, restauranteId } = useCartStore();
   const { sucursales, seleccionada } = useBranchStore();
+  const [loading, setLoading] = useState(false);
+
   const orderTotal = useMemo(
     () => items.reduce((sum, item) => sum + getItemCostBreakdown(item).lineTotal, 0),
     [items]
@@ -90,278 +64,15 @@ export default function OrderTypeScreen() {
     [resolvedRestaurantId, seleccionada, sucursales]
   );
 
-  const [direccionesGuardadas, setDireccionesGuardadas] = useState<SavedAddress[]>([]);
-  const [direccionSeleccionada, setDireccionSeleccionada] = useState<SavedAddress | null>(null);
-  const [showMap, setShowMap] = useState(false);
-  const [addressData, setAddressData] = useState<AddressData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingLocation, setLoadingLocation] = useState(false);
-  const [ubicacionVisual, setUbicacionVisual] = useState('');
-  const [coords, setCoords] = useState<Region | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-    cargarDirecciones();
-  }, [token]);
-
-  useEffect(() => {
-    if (tipoPedido !== 'delivery' || !deliveryAddress || direccionSeleccionada || addressData) {
-      return;
-    }
-
-    const storedAddress: SavedAddress = {
-      id: deliveryAddress.id ?? 'delivery-selected',
-      alias: deliveryAddress.alias ?? 'Dirección',
-      calle: deliveryAddress.text,
-      ciudad: '',
-      lat: deliveryAddress.lat ?? null,
-      lng: deliveryAddress.lng ?? null,
-      instrucciones: deliveryAddress.instrucciones ?? null,
-    };
-
-    setDireccionSeleccionada(storedAddress);
-    setUbicacionVisual(deliveryAddress.text);
-
-    if (Number.isFinite(Number(deliveryAddress.lat)) && Number.isFinite(Number(deliveryAddress.lng))) {
-      setCoords({
-        latitude: Number(deliveryAddress.lat),
-        longitude: Number(deliveryAddress.lng),
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      });
-    }
-  }, [addressData, deliveryAddress, direccionSeleccionada, tipoPedido]);
-
-  useEffect(() => {
-    if (!tipoPedido) {
-      setUbicacionVisual('');
-      return;
-    }
-
-    if (tipoPedido === 'delivery') {
-      if (direccionSeleccionada) {
-        setUbicacionVisual(formatAddress(direccionSeleccionada));
-        setShowMap(false);
-        return;
-      }
-
-      if (!addressData && !coords && !loadingLocation) {
-        setShowMap(true);
-        obtenerUbicacionGPS();
-      }
-      return;
-    }
-
-    setShowMap(false);
-    if (tipoPedido === 'pickup') {
-      setUbicacionVisual(
-        selectedBranch
-          ? `${selectedBranch.nombre} · ${selectedBranch.direccion || selectedBranch.descripcion || 'Sucursal'}`
-          : 'Sucursal seleccionada'
-      );
-      return;
-    }
-
-    setUbicacionVisual(selectedBranch?.nombre || 'Sucursal seleccionada');
-  }, [addressData, coords, direccionSeleccionada, loadingLocation, selectedBranch, tipoPedido]);
-
-  async function cargarDirecciones() {
-    if (!token) return;
-    try {
-      const res = await apiClient.get('/profile/addresses');
-      if (res.data.success || res.data.ok) {
-        const addresses = Array.isArray(res.data.data) ? res.data.data : [];
-        setDireccionesGuardadas(addresses);
-        const stored =
-          deliveryAddress?.id != null
-            ? addresses.find((d: SavedAddress) => String(d.id) === String(deliveryAddress.id))
-            : null;
-        const principal = stored || addresses.find((d: SavedAddress) => d.es_principal) || addresses[0];
-        if (principal) {
-          setDireccionSeleccionada(principal);
-          setUbicacionVisual(formatAddress(principal));
-        }
-      }
-    } catch (err) {
-      console.error('Error al cargar direcciones:', err);
-    }
-  }
-
-  async function obtenerUbicacionGPS() {
-    try {
-      setLoadingLocation(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permiso denegado',
-          'Necesitamos acceso a tu ubicación para calcular el envío. Puedes escribir tu dirección manualmente.'
-        );
-        setUbicacionVisual('Escribe tu dirección aquí...');
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const initialRegion = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-
-      setCoords(initialRegion);
-      await actualizarDireccionTexto(initialRegion.latitude, initialRegion.longitude);
-    } catch (error) {
-      console.error('Error al obtener la ubicación:', error);
-      setUbicacionVisual('Dirección no encontrada automáticamente');
-    } finally {
-      setLoadingLocation(false);
-    }
-  }
-
-  async function actualizarDireccionTexto(lat: number, lng: number) {
-    try {
-      const reverseGeocode = await Location.reverseGeocodeAsync({
-        latitude: lat,
-        longitude: lng,
-      });
-
-      if (reverseGeocode && reverseGeocode.length > 0) {
-        const address = reverseGeocode[0];
-        const calle = `${address.street || 'Calle'} ${address.name || ''}`.trim();
-        const colonia = address.district || address.subregion || '';
-        const direccionFormateada = `${calle}, Col. ${colonia}, ${address.city || ''}`;
-
-        setUbicacionVisual(direccionFormateada);
-        setAddressData({
-          calle,
-          colonia,
-          ciudad: address.city || '',
-          lat,
-          lng,
-          cp: address.postalCode,
-        });
-      }
-    } finally {
-      setLoadingLocation(false);
-    }
-  }
-
-  function handleCambiarUbicacion() {
-    if (tipoPedido !== 'delivery') return;
-
-    Alert.prompt(
-      'Modificar dirección',
-      'Introduce los detalles exactos de tu domicilio:',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Guardar',
-          onPress: (nuevaDireccion: string | undefined) => {
-            if (nuevaDireccion && nuevaDireccion.trim() !== '') {
-              setDireccionSeleccionada(null);
-              setDeliveryAddress(null);
-              setShowMap(false);
-              setUbicacionVisual(nuevaDireccion);
-              setAddressData((prev) =>
-                prev
-                  ? { ...prev, calle: nuevaDireccion, colonia: '' }
-                  : { calle: nuevaDireccion, colonia: '', ciudad: '', lat: 0, lng: 0, cp: '' }
-              );
-            }
-          },
-        },
-      ],
-      'plain-text',
-      ubicacionVisual
-    );
-  }
-
-  function handleRegionChangeComplete(region: Region) {
-    if (tipoPedido === 'delivery') {
-      setDireccionSeleccionada(null);
-      setDeliveryAddress(null);
-      setCoords(region);
-      actualizarDireccionTexto(region.latitude, region.longitude);
-    }
-  }
-
-  async function promptToSaveAddress(): Promise<string | number | null> {
-    return new Promise((resolve) => {
-      Alert.alert(
-        '¿Guardar esta dirección?',
-        'Podras usarla en futuros pedidos a domicilio',
-        [
-          {
-            text: 'No guardar',
-            onPress: () => resolve(null),
-            style: 'cancel',
-          },
-          {
-            text: 'Guardar',
-            onPress: () => {
-              Alert.alert(
-                'Tipo de dirección',
-                'Elige cómo quieres llamar esta dirección',
-                [
-                  { text: 'Casa', onPress: () => saveAddressWithAlias('Casa') },
-                  { text: 'Trabajo', onPress: () => saveAddressWithAlias('Trabajo') },
-                  { text: 'Otro', onPress: () => saveAddressWithAlias('Otro') },
-                  { text: 'Cancelar', style: 'cancel', onPress: () => resolve(null) },
-                ]
-              );
-            },
-          },
-        ]
-      );
-
-      async function saveAddressWithAlias(alias: string) {
-        if (!addressData) {
-          resolve(null);
-          return;
-        }
-        try {
-          const res = await apiClient.post('/profile/addresses', {
-            alias,
-            calle: addressData.calle,
-            colonia: addressData.colonia,
-            ciudad: addressData.ciudad,
-            lat: addressData.lat,
-            lng: addressData.lng,
-            cp: addressData.cp,
-            es_principal: direccionesGuardadas.length === 0,
-          });
-          const saved = res.data.data;
-          if (saved) {
-            setDeliveryAddress(addressToSelection(saved));
-          }
-          resolve(saved?.id || null);
-        } catch (err) {
-          console.error('Error al guardar dirección:', err);
-          resolve(null);
-        }
-      }
-    });
-  }
+  const pickupDetail = selectedBranch
+    ? `${selectedBranch.nombre} · ${selectedBranch.direccion || selectedBranch.descripcion || 'Sucursal'}`
+    : 'Sucursal seleccionada';
 
   async function handleContinue() {
     if (!requireAuth(router, {
       message: 'Crea tu cuenta para confirmar el pedido, guardar tus datos y darle seguimiento.',
       returnTo: '/checkout/order-type',
     })) {
-      return;
-    }
-
-    if (!tipoPedido) {
-      Alert.alert('Selección requerida', 'Vuelve al inicio y elige cómo quieres recibir tu pedido.');
-      return;
-    }
-
-    if (tipoPedido === 'delivery' && !direccionSeleccionada && !addressData) {
-      Alert.alert('Dirección requerida', 'Por favor, introduce una dirección de entrega válida.');
       return;
     }
 
@@ -372,19 +83,13 @@ export default function OrderTypeScreen() {
 
     setLoading(true);
     try {
-      let finalAddressId: string | number | undefined = direccionSeleccionada?.id;
-
-      if (tipoPedido === 'delivery' && !direccionSeleccionada && addressData) {
-        finalAddressId = (await promptToSaveAddress()) ?? undefined;
-      }
-
       router.push({
         pathname: '/checkout/payment',
         params: {
           restauranteId: String(resolvedRestaurantId),
-          tipoPedido,
-          direccionId: finalAddressId ? String(finalAddressId) : '',
-          direccionEntrega: ubicacionVisual,
+          tipoPedido: 'pickup',
+          direccionId: '',
+          direccionEntrega: pickupDetail,
         },
       });
     } catch (err) {
@@ -393,51 +98,6 @@ export default function OrderTypeScreen() {
       setLoading(false);
     }
   }
-
-  function formatAddress(address: SavedAddress) {
-    const street = [address.calle, address.numero].filter(Boolean).join(' ');
-    return [street, address.colonia, address.ciudad].filter(Boolean).join(', ');
-  }
-
-  function addressToSelection(address: SavedAddress) {
-    return {
-      id: address.id,
-      alias: address.alias ?? null,
-      text: formatAddress(address),
-      lat: address.lat == null ? null : Number(address.lat),
-      lng: address.lng == null ? null : Number(address.lng),
-      instrucciones: address.instrucciones ?? null,
-    };
-  }
-
-  function getModeMeta() {
-    if (tipoPedido === 'delivery') {
-      return {
-        icon: 'bicycle-outline' as const,
-        title: 'Delivery',
-        subtitle: 'Entrega a domicilio',
-        detail: ubicacionVisual || 'Confirma tu dirección de entrega',
-      };
-    }
-
-    if (tipoPedido === 'pickup') {
-      return {
-        icon: 'bag-handle-outline' as const,
-        title: 'Pickup',
-        subtitle: 'Recoges en sucursal',
-        detail: ubicacionVisual || selectedBranch?.direccion || 'Sucursal seleccionada',
-      };
-    }
-
-    return {
-      icon: 'options-outline' as const,
-      title: 'Método pendiente',
-      subtitle: 'Selecciona el método desde el inicio',
-      detail: 'Vuelve al menú para elegir cómo recibir tu pedido.',
-    };
-  }
-
-  const modeMeta = getModeMeta();
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -449,7 +109,7 @@ export default function OrderTypeScreen() {
           accessibilityRole="button"
           testID="back-btn"
         >
-          <Ionicons name="arrow-back" size={22} color={Colors.text || '#111827'} />
+          <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Revisar pedido</Text>
         <View style={{ width: 40 }} />
@@ -458,115 +118,18 @@ export default function OrderTypeScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.welcomeSection}>
           <Text style={styles.mainLabel}>Revisa tu pedido</Text>
-          <Text style={styles.subLabel}>{modeMeta.subtitle}</Text>
+          <Text style={styles.subLabel}>Recoges en sucursal</Text>
         </View>
 
         <View style={styles.modeSummary}>
           <View style={styles.modeIcon}>
-            <Ionicons name={modeMeta.icon} size={26} color={Colors.primary || '#111827'} />
+            <Ionicons name="bag-handle-outline" size={26} color={Colors.primary} />
           </View>
           <View style={styles.modeCopy}>
-            <Text style={styles.modeTitle}>{modeMeta.title}</Text>
-            <Text style={styles.modeDetail} numberOfLines={2}>{modeMeta.detail}</Text>
+            <Text style={styles.modeTitle}>Pickup</Text>
+            <Text style={styles.modeDetail} numberOfLines={2}>{pickupDetail}</Text>
           </View>
         </View>
-
-        {tipoPedido === 'delivery' ? (
-          <View style={styles.locationContainer}>
-            {direccionesGuardadas.length > 0 && (
-              <View style={{ marginBottom: 10 }}>
-                <Text style={styles.locationTitle}>Tus direcciones</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
-                  {direccionesGuardadas.map((dir) => (
-                    <TouchableOpacity
-                      key={dir.id}
-                      style={[styles.addressChip, direccionSeleccionada?.id === dir.id && styles.addressChipActive]}
-                      onPress={() => {
-                        setDireccionSeleccionada(dir);
-                        setUbicacionVisual(formatAddress(dir));
-                        setDeliveryAddress(addressToSelection(dir));
-                        setShowMap(false);
-                      }}
-                      accessibilityLabel={`Seleccionar dirección: ${dir.alias || 'guardada'}`}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: direccionSeleccionada?.id === dir.id }}
-                      testID={`address-chip-${dir.id}`}
-                    >
-                      <Ionicons name="home-outline" size={14} color={direccionSeleccionada?.id === dir.id ? '#FFF' : '#6B7280'} />
-                      <Text style={[styles.addressChipText, direccionSeleccionada?.id === dir.id && { color: '#FFF' }]}>
-                        {dir.alias || 'Dirección'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                  <TouchableOpacity
-                    style={styles.addressChip}
-                    onPress={() => {
-                      setDireccionSeleccionada(null);
-                      setDeliveryAddress(null);
-                      setShowMap(true);
-                      obtenerUbicacionGPS();
-                    }}
-                    accessibilityLabel="Agregar nueva dirección"
-                    accessibilityRole="button"
-                    testID="add-address-btn"
-                  >
-                    <Ionicons name="add" size={16} color={Colors.primary} />
-                    <Text style={{ color: Colors.primary, fontWeight: '600' }}>Nueva</Text>
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-            )}
-
-            <View style={styles.locationHeader}>
-              <Ionicons name="location" size={20} color={Colors.primary || '#111827'} />
-              <Text style={styles.locationTitle}>Dirección de entrega</Text>
-            </View>
-
-            <View style={styles.locationBox}>
-              {coords && (showMap || direccionesGuardadas.length === 0) && (
-                <View style={styles.mapWrapper}>
-                  <MapView
-                    style={styles.miniMap}
-                    region={coords}
-                    onRegionChangeComplete={handleRegionChangeComplete}
-                    showsUserLocation
-                    rotateEnabled={false}
-                    pitchEnabled={false}
-                  />
-                  <View style={styles.mapCenterPointer} pointerEvents="none">
-                    <Ionicons name="location" size={40} color={Colors.primary || '#111827'} style={{ marginTop: -40 }} />
-                    <View style={styles.pointerShadow} />
-                  </View>
-                </View>
-              )}
-
-              {loadingLocation ? (
-                <View style={styles.locationLoading}>
-                  <ActivityIndicator size="small" color={Colors.primary || '#111827'} />
-                  <Text style={styles.locationTextMuted}>Detectando tu ubicación...</Text>
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.locationAddress} numberOfLines={2}>
-                    {ubicacionVisual || 'Confirma tu dirección de entrega'}
-                  </Text>
-
-                  <TouchableOpacity
-                    style={styles.changeButton}
-                    onPress={handleCambiarUbicacion}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Cambiar dirección de entrega"
-                    accessibilityRole="button"
-                    testID="change-address-btn"
-                  >
-                    <Text style={styles.changeButtonText}>Cambiar dirección</Text>
-                    <Ionicons name="create-outline" size={16} color={Colors.primary || '#111827'} />
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </View>
-        ) : null}
 
         <View style={styles.summaryContainer}>
           <Text style={styles.summaryTitle}>Resumen del pedido</Text>
@@ -625,7 +188,6 @@ export default function OrderTypeScreen() {
           fullWidth
           size="lg"
           loading={loading}
-          disabled={!tipoPedido || loadingLocation}
           style={styles.actionButton}
           accessibilityLabel="Continuar al pago"
           testID="checkout-continue-btn"
@@ -636,7 +198,7 @@ export default function OrderTypeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  safe: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -648,14 +210,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.borderLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontFamily: FontFamily.heading,
+    fontSize: 19,
+    color: Colors.text,
   },
   content: {
     padding: Spacing.base || 16,
@@ -669,11 +231,11 @@ const styles = StyleSheet.create({
   mainLabel: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#111827',
+    color: Colors.text,
   },
   subLabel: {
     fontSize: 15,
-    color: '#6B7280',
+    color: Colors.textMuted,
   },
   modeSummary: {
     flexDirection: 'row',
@@ -681,15 +243,15 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
     borderRadius: 16,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: Colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Colors.borderLight,
   },
   modeIcon: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -700,123 +262,13 @@ const styles = StyleSheet.create({
   modeTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#111827',
+    color: Colors.text,
   },
   modeDetail: {
     fontSize: 13,
-    color: '#6B7280',
+    color: Colors.textMuted,
     marginTop: 3,
     lineHeight: 18,
-  },
-  locationContainer: {
-    gap: 10,
-    backgroundColor: '#FFFFFF',
-  },
-  locationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginLeft: 4,
-  },
-  locationTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  addressChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-    gap: 6,
-  },
-  addressChipActive: {
-    backgroundColor: Colors.primary || '#111827',
-  },
-  addressChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  scanTableButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: Colors.primary || '#111827',
-  },
-  scanTableButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  locationBox: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    gap: 12,
-  },
-  locationAddress: {
-    fontSize: 14,
-    color: '#374151',
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  locationLoading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 4,
-  },
-  locationTextMuted: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  changeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    paddingVertical: 4,
-  },
-  changeButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary || '#111827',
-  },
-  mapWrapper: {
-    height: 180,
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  miniMap: {
-    flex: 1,
-  },
-  mapCenterPointer: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -20,
-    marginTop: -20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pointerShadow: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    marginTop: -2,
   },
   summaryContainer: {
     gap: 12,
@@ -824,15 +276,15 @@ const styles = StyleSheet.create({
   summaryTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
+    color: Colors.text,
     marginLeft: 4,
   },
   ticketBox: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: Colors.surfaceElevated,
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: Colors.borderLight,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -846,17 +298,17 @@ const styles = StyleSheet.create({
   summaryItem: {
     flex: 1,
     fontSize: 14,
-    color: '#4B5563',
+    color: Colors.textSecondary,
     fontWeight: '500',
   },
   itemQuantity: {
     fontWeight: '700',
-    color: Colors.primary || '#111827',
+    color: Colors.primary,
   },
   summaryPrice: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
+    color: Colors.text,
   },
   summaryBreakdown: {
     marginLeft: 25,
@@ -873,23 +325,23 @@ const styles = StyleSheet.create({
   },
   summaryBreakdownLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '600',
   },
   summaryBreakdownValue: {
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '700',
   },
   summaryExtraText: {
     flex: 1,
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '700',
   },
   summaryExtraPrice: {
     fontSize: 12,
-    color: '#6B7280',
+    color: Colors.textMuted,
     fontWeight: '800',
   },
   summaryUnitTotalRow: {
@@ -897,17 +349,17 @@ const styles = StyleSheet.create({
   },
   summaryUnitTotalLabel: {
     fontSize: 12,
-    color: '#111827',
+    color: Colors.text,
     fontWeight: '800',
   },
   summaryUnitTotalValue: {
     fontSize: 12,
-    color: '#111827',
+    color: Colors.text,
     fontWeight: '900',
   },
   divider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: Colors.border,
     marginVertical: 12,
   },
   totalRow: {
@@ -919,12 +371,12 @@ const styles = StyleSheet.create({
   totalLabel: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: Colors.text,
   },
   totalValue: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.primary || '#111827',
+    color: Colors.primary,
   },
   footer: {
     position: 'absolute',
@@ -934,9 +386,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.base || 16,
     paddingBottom: 32,
     paddingTop: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: Colors.borderLight,
   },
   actionButton: {
     borderRadius: 14,

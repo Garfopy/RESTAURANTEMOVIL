@@ -26,12 +26,12 @@ export default function AccountSuspendedScreen() {
   }
 
   return (
-    <LinearGradient colors={['#17191E', '#262A31', '#17191E']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#2B1E14']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
-        <StatusBar barStyle="light-content" backgroundColor="#17191E" />
+        <StatusBar barStyle="light-content" backgroundColor="#2B1E14" />
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <View style={styles.iconWrap}>
-            <Ionicons name="shield-outline" size={40} color="#F4D7A1" />
+            <Ionicons name="shield-outline" size={40} color="#D4B384" />
           </View>
 
           <Text style={styles.title}>{notice.title}</Text>
@@ -79,23 +79,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    backgroundColor: 'rgba(244, 215, 161, 0.12)',
+    backgroundColor: 'rgba(212, 179, 132, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(244, 215, 161, 0.32)',
+    borderColor: 'rgba(212, 179, 132, 0.32)',
     marginBottom: 22,
   },
   title: {
     fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 34,
     lineHeight: 40,
-    color: '#F7F0E5',
+    color: '#FBF3E8',
     textAlign: 'center',
   },
   subtitle: {
     fontFamily: 'Inter_500Medium',
     fontSize: 16,
     lineHeight: 23,
-    color: '#C9BDAE',
+    color: '#C9AF95',
     textAlign: 'center',
     marginTop: 10,
   },
@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     fontSize: 12,
     lineHeight: 16,
-    color: '#F4D7A1',
+    color: '#D4B384',
     textTransform: 'uppercase',
     marginBottom: 6,
   },
@@ -125,13 +125,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     fontSize: 15,
     lineHeight: 22,
-    color: '#F3EADD',
+    color: '#FBF3E8',
   },
   support: {
     fontFamily: 'Inter_500Medium',
     fontSize: 14,
     lineHeight: 21,
-    color: '#BFB4A7',
+    color: '#C9AF95',
     textAlign: 'center',
     marginTop: 20,
   },
@@ -140,12 +140,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     marginTop: 28,
   },
   primaryLabel: {
     fontFamily: 'Inter_700Bold',
     fontSize: 16,
-    color: '#24272D',
+    color: '#2B1E14',
   },
 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,24 +16,45 @@ import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient, formatImageUrl } from '../../services/api';
 import { getOrderTracking, getPickupOrderById } from '../../services/orders.service';
+import { reorderPastOrder } from '../../services/reorder.service';
 import { useUserStore } from '../../store/user.store';
-import { Colors, Shadows } from '../../theme';
-import LottieView from 'lottie-react-native';
+import { Colors, Shadows, FontFamily } from '../../theme';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { OrderTimeline } from '../../components/tracking/OrderTimeline';
+import { useToast } from '../../context/ToastContext';
 import type { Pedido, TrackingEvent } from '@amare/types';
 
 const ESTADO_INFO: Record<string, { label: string; color: string; icon: string }> = {
-  pendiente: { label: 'Recibido', color: '#F59E0B', icon: 'time-outline' },
-  en_preparacion: { label: 'Preparando', color: '#8B5CF6', icon: 'restaurant-outline' },
-  listo: { label: 'Listo para recoger', color: '#10B981', icon: 'checkmark-circle-outline' },
-  en_camino: { label: 'En Camino', color: '#3B82F6', icon: 'bicycle-outline' },
-  entregado: { label: 'Entregado', color: '#10B981', icon: 'ribbon-outline' },
-  cancelado: { label: 'Cancelado', color: '#EF4444', icon: 'close-circle-outline' },
+  pendiente: { label: 'Recibido', color: Colors.warning, icon: 'time-outline' },
+  en_preparacion: { label: 'Preparando', color: Colors.accentDark, icon: 'restaurant-outline' },
+  listo: { label: 'Listo para recoger', color: Colors.success, icon: 'checkmark-circle-outline' },
+  entregado: { label: 'Entregado', color: Colors.success, icon: 'ribbon-outline' },
+  cancelado: { label: 'Cancelado', color: Colors.error, icon: 'close-circle-outline' },
 };
 
 function buildOrderTimeline(order: Pedido | null | undefined): TrackingEvent[] {
   if (!order) return [];
+
+  if (order.estado === 'cancelado') {
+    return [
+      {
+        estado: 'pendiente',
+        label: 'Pedido recibido',
+        descripcion: 'Tu orden entró al restaurante.',
+        completado: true,
+        en_curso: false,
+        timestamp: order.created_at ?? null,
+      },
+      {
+        estado: 'cancelado',
+        label: 'Pedido cancelado',
+        descripcion: 'Este pedido fue cancelado y no continuará su preparación.',
+        completado: true,
+        en_curso: false,
+        timestamp: order.updated_at ?? order.created_at ?? null,
+      },
+    ];
+  }
 
   const statusOrder: Array<Pedido['estado']> = ['pendiente', 'en_preparacion', 'listo', 'entregado'];
   const currentIndex = Math.max(0, statusOrder.indexOf(order.estado ?? 'pendiente'));
@@ -54,8 +77,8 @@ function buildOrderTimeline(order: Pedido | null | undefined): TrackingEvent[] {
     },
     {
       estado: 'listo',
-      label: order.tipo_pedido === 'delivery' ? 'Listo para envío' : 'Listo',
-      descripcion: order.tipo_pedido === 'delivery' ? 'Tu pedido está listo para salir.' : 'Tu pedido está listo para entrega.',
+      label: 'Listo',
+      descripcion: 'Tu pedido está listo para recoger.',
       completado: currentIndex > 2,
       en_curso: currentIndex === 2,
       timestamp: order.updated_at ?? null,
@@ -75,12 +98,36 @@ export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const user = useUserStore((s) => s.user);
+  const toast = useToast();
+  const [reordering, setReordering] = useState(false);
 
   function handleBackToOrders() {
     router.replace('/(tabs)/orders' as never);
   }
 
-  const { data: order, isLoading } = useQuery({
+  async function handleReorder(currentOrder: Pedido) {
+    if (reordering) return;
+    setReordering(true);
+    try {
+      const { addedCount, skippedCount } = await reorderPastOrder(currentOrder);
+      if (addedCount === 0) {
+        toast.error('Ninguno de los platillos de este pedido está disponible ahora.');
+        return;
+      }
+      toast.success(
+        skippedCount > 0
+          ? `Agregamos ${addedCount} platillo(s) al carrito. ${skippedCount} ya no están disponibles.`
+          : 'Pedido agregado al carrito'
+      );
+      router.push('/cart');
+    } catch {
+      toast.error('No pudimos repetir este pedido. Intenta de nuevo.');
+    } finally {
+      setReordering(false);
+    }
+  }
+
+  const { data: order, isLoading, isRefetching, refetch } = useQuery({
     queryKey: ['order', id],
     queryFn: async () => {
       try {
@@ -103,9 +150,13 @@ export default function OrderDetailScreen() {
       }
     },
     retry: false,
+    refetchInterval: (query) => {
+      const estado = query.state.data?.estado;
+      return estado && estado !== 'entregado' && estado !== 'cancelado' ? 20_000 : false;
+    },
   });
 
-  const { data: trackingData } = useQuery({
+  const { data: trackingData, refetch: refetchTracking } = useQuery({
     queryKey: ['order', 'timeline', order?.id],
     queryFn: () => getOrderTracking(Number(order!.id)),
     enabled: Boolean(order?.id),
@@ -150,33 +201,36 @@ export default function OrderDetailScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={() => {
+              void refetch();
+              void refetchTracking();
+            }}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
+      >
         {/* SECCIÓN DE TRACKING VISUAL */}
         <View style={styles.card}>
           <View style={styles.trackingRow}>
-            {order?.estado === 'en_camino' ? (
-              <View style={styles.lottieContainer}>
-                <LottieView
-                  source={{ uri: 'https://lottie.host/3629399e-2624-432a-9e2b-231362070f90/sY5i6s131P.json' }} // Animación de scooter de reparto
-                  autoPlay
-                  loop
-                  style={styles.lottieAnimation}
-                />
-              </View>
-            ) : (
-              <View style={[styles.iconContainer, { backgroundColor: status.color }]}>
-                <Ionicons name={status.icon as any} size={24} color="#FFF" />
-              </View>
-            )}
+            <View style={[styles.iconContainer, { backgroundColor: status.color }]}>
+              <Ionicons name={status.icon as any} size={24} color={Colors.white} />
+            </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.trackingTitle}>Estado del pedido</Text>
               <Text style={styles.trackingDesc}>Tu orden está siendo procesada en {order?.restaurante_nombre}</Text>
             </View>
           </View>
-          
+
           <View style={styles.stepperContainer}>
             {['pendiente', 'en_preparacion', 'listo', 'entregado'].map((step, idx) => {
-              const isCompleted = ['pendiente', 'en_preparacion', 'listo', 'en_camino', 'entregado'].indexOf(order?.estado) >= idx;
+              const isCompleted = ['pendiente', 'en_preparacion', 'listo', 'entregado'].indexOf(order?.estado) >= idx;
               return (
                 <React.Fragment key={step}>
                   <View style={[styles.stepDot, isCompleted && { backgroundColor: status.color }]} />
@@ -196,23 +250,17 @@ export default function OrderDetailScreen() {
         </View>
         <View style={styles.card}>
           <View style={styles.detailItem}>
-            <Ionicons
-              name={order?.tipo_pedido === 'delivery' ? "location-outline" : "storefront-outline"}
-              size={20}
-              color="#6B7280"
-            />
+            <Ionicons name="storefront-outline" size={20} color={Colors.textMuted} />
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.detailLabel}>
-                {order?.tipo_pedido === 'delivery' ? 'Dirección de envío' : 'Recoges en sucursal'}
-              </Text>
+              <Text style={styles.detailLabel}>Recoges en sucursal</Text>
               <Text style={styles.detailValue}>
                 {order?.direccion_entrega || order?.restaurante_nombre}
               </Text>
             </View>
           </View>
           {order?.notas && (
-             <View style={[styles.detailItem, { marginTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 12 }]}>
-                <Ionicons name="chatbubble-ellipses-outline" size={20} color="#6B7280" />
+             <View style={[styles.detailItem, { marginTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight, paddingTop: 12 }]}>
+                <Ionicons name="chatbubble-ellipses-outline" size={20} color={Colors.textMuted} />
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={styles.detailLabel}>Notas del pedido</Text>
                   <Text style={styles.detailValue}>{order?.notas}</Text>
@@ -325,10 +373,6 @@ export default function OrderDetailScreen() {
             <Text style={styles.summaryLabel}>Subtotal</Text>
             <Text style={styles.summaryValue}>${order?.subtotal?.toFixed(2)}</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Costo de envío</Text>
-            <Text style={styles.summaryValue}>$0.00</Text>
-          </View>
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
             <Text style={styles.totalLabel}>Total</Text>
@@ -336,7 +380,33 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.helpButton} activeOpacity={0.8}>
+        {order ? (
+          <TouchableOpacity
+            style={styles.reorderButton}
+            activeOpacity={0.85}
+            onPress={() => handleReorder(order)}
+            disabled={reordering}
+            accessibilityRole="button"
+            accessibilityLabel="Pedir de nuevo"
+          >
+            {reordering ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Ionicons name="repeat-outline" size={19} color={Colors.white} />
+            )}
+            <Text style={styles.reorderButtonText}>
+              {reordering ? 'Agregando…' : 'Pedir de nuevo'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <TouchableOpacity
+          style={styles.helpButton}
+          activeOpacity={0.8}
+          onPress={() => router.push('/profile/help' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Necesito ayuda con mi pedido"
+        >
           <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
           <Text style={styles.helpButtonText}>Necesito ayuda con mi pedido</Text>
         </TouchableOpacity>
@@ -347,27 +417,27 @@ export default function OrderDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F9FAFB' },
+  safe: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#FFF',
+    backgroundColor: Colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: Colors.borderLight,
   },
   backBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.borderLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  headerSubtitle: { fontSize: 13, color: '#6B7280' },
+  headerTitle: { fontFamily: FontFamily.heading, fontSize: 19, color: Colors.text },
+  headerSubtitle: { fontSize: 13, color: Colors.textMuted },
   statusBadge: {
     marginLeft: 'auto',
     paddingHorizontal: 12,
@@ -375,16 +445,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusText: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  
+
   content: { padding: 20, gap: 16 },
-  
+
   card: {
-    backgroundColor: '#FFF',
+    backgroundColor: Colors.surface,
     borderRadius: 24,
     padding: 20,
     ...Shadows.sm,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: Colors.borderLight,
   },
   timelineWrap: {
     marginTop: 18,
@@ -393,19 +463,9 @@ const styles = StyleSheet.create({
 
   trackingRow: { flexDirection: 'row', alignItems: 'center' },
   iconContainer: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  trackingTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  trackingDesc: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+  trackingTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },
+  trackingDesc: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   
-  lottieContainer: {
-    width: 48, // Mismo tamaño que el iconContainer para mantener la alineación
-    height: 48,
-    borderRadius: 16,
-    overflow: 'hidden', // Asegura que la animación no se desborde
-  },
-  lottieAnimation: {
-    width: '100%',
-    height: '100%',
-  },
   stepperContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -413,8 +473,8 @@ const styles = StyleSheet.create({
     marginTop: 24,
     paddingHorizontal: 10,
   },
-  stepDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#E5E7EB' },
-  stepLine: { flex: 1, height: 3, backgroundColor: '#E5E7EB', marginHorizontal: 4 },
+  stepDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.border },
+  stepLine: { flex: 1, height: 3, backgroundColor: Colors.border, marginHorizontal: 4 },
 
   sectionHeader: {
     flexDirection: 'row',
@@ -423,17 +483,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingHorizontal: 4,
   },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: '#374151' },
-  itemCount: { fontSize: 13, color: '#9CA3AF' },
+  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
+  itemCount: { fontSize: 13, color: Colors.textMuted },
 
   detailItem: { flexDirection: 'row', alignItems: 'flex-start' },
-  detailLabel: { fontSize: 12, color: '#9CA3AF', fontWeight: '600', textTransform: 'uppercase' },
-  detailValue: { fontSize: 14, color: '#111827', fontWeight: '500', marginTop: 2 },
+  detailLabel: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', textTransform: 'uppercase' },
+  detailValue: { fontSize: 14, color: Colors.text, fontWeight: '500', marginTop: 2 },
 
   productRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
-  borderTop: { borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  borderTop: { borderTopWidth: 1, borderTopColor: Colors.borderLight },
   imgWrapper: { position: 'relative' },
-  productImg: { width: 64, height: 64, borderRadius: 16, backgroundColor: '#F3F4F6' },
+  productImg: { width: 64, height: 64, borderRadius: 16, backgroundColor: Colors.borderLight },
   qtyBadge: {
     position: 'absolute',
     top: -6,
@@ -445,36 +505,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#FFF',
+    borderColor: Colors.surface,
   },
-  qtyText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
-  productName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  qtyText: { color: Colors.white, fontSize: 10, fontWeight: '800' },
+  productName: { fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: 4 },
   priceBreakdown: { marginTop: 2 },
-  productPrice: { fontSize: 13, color: '#6B7280' },
-  extraItem: { fontSize: 12, color: '#8B5CF6', fontWeight: '500', marginLeft: 4, marginTop: 1 },
-  unitPrice: { fontSize: 12, color: '#374151', fontWeight: '700', marginTop: 2 },
-  notasText: { fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', marginTop: 4 },
-  productSubtotal: { 
-    fontSize: 15, 
-    fontWeight: '800', 
-    color: '#111827',
+  productPrice: { fontSize: 13, color: Colors.textMuted },
+  extraItem: { fontSize: 12, color: Colors.accentDark, fontWeight: '500', marginLeft: 4, marginTop: 1 },
+  unitPrice: { fontSize: 12, color: Colors.textSecondary, fontWeight: '700', marginTop: 2 },
+  notasText: { fontSize: 11, color: Colors.textMuted, fontStyle: 'italic', marginTop: 4 },
+  productSubtotal: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
     marginLeft: 8,
   },
 
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  summaryLabel: { fontSize: 14, color: '#6B7280' },
-  summaryValue: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
-  totalLabel: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  summaryLabel: { fontSize: 14, color: Colors.textMuted },
+  summaryValue: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  divider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 12 },
+  totalLabel: { fontSize: 16, fontWeight: '700', color: Colors.text },
   totalValue: { fontSize: 18, fontWeight: '800', color: Colors.primary },
 
+  reorderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    marginTop: 8,
+  },
+  reorderButtonText: { fontSize: 15, fontWeight: '700', color: Colors.white },
   helpButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 16,
-    marginTop: 8,
+    marginTop: 4,
     marginBottom: 40,
   },
   helpButtonText: { fontSize: 14, fontWeight: '600', color: Colors.primary },

@@ -23,7 +23,7 @@ import type { BannerItem } from '../../components/shared/BannerCarousel';
 import { getMyPromotionHistory, type UsedPromotion } from '../../services/promotions.service';
 import { useBranchStore } from '../../store/branch.store';
 import { useUserStore } from '../../store/user.store';
-import { Colors, Spacing, Typography, Shadows } from '../../theme';
+import { Colors, Spacing, Typography, Shadows, FontFamily } from '../../theme';
 
 interface Promocion {
   id: string | number;
@@ -144,7 +144,7 @@ export default function PromotionsScreen() {
       
       <View style={styles.header}>
         <Text style={styles.title}>Promociones</Text>
-        <Text style={styles.subtitle}>Aprovecha los beneficios que Amare tiene para ti</Text>
+        <Text style={styles.subtitle}>Aprovecha los beneficios que UTEQ Cafetería tiene para ti</Text>
       </View>
 
       {((promos && promos.length > 0) || usedPromos.length > 0) ? (
@@ -385,12 +385,11 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     backgroundColor: Colors.background,
   },
-  title: { 
-    fontSize: 34,
-    lineHeight: 42,
-    fontWeight: '800', 
+  title: {
+    fontFamily: FontFamily.heading,
+    fontSize: 32,
+    lineHeight: 40,
     color: Colors.text,
-    letterSpacing: -0.8,
     paddingTop: 4,
   },
   subtitle: {

@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/amare_icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "amare",
+    "scheme": "uteqcafeteria",
     "splash": {
       "image": "./assets/amare_icon.png",
       "resizeMode": "contain",

@@ -348,8 +348,30 @@ class OrderController
             ];
         }
 
-        $statusOrder = ['pendiente', 'en_preparacion', 'listo', 'entregado'];
         $status = (string)($order['estado'] ?? 'pendiente');
+
+        if ($status === 'cancelado') {
+            return [
+                [
+                    'estado' => 'pendiente',
+                    'label' => 'Pedido recibido',
+                    'descripcion' => 'Tu orden entro al restaurante.',
+                    'completado' => true,
+                    'en_curso' => false,
+                    'timestamp' => $order['created_at'] ?? null,
+                ],
+                [
+                    'estado' => 'cancelado',
+                    'label' => 'Pedido cancelado',
+                    'descripcion' => 'Este pedido fue cancelado y no continuara su preparacion.',
+                    'completado' => true,
+                    'en_curso' => false,
+                    'timestamp' => $order['updated_at'] ?? $order['created_at'] ?? null,
+                ],
+            ];
+        }
+
+        $statusOrder = ['pendiente', 'en_preparacion', 'listo', 'entregado'];
         $currentIndex = array_search($status, $statusOrder, true);
         $currentIndex = $currentIndex === false ? 0 : (int)$currentIndex;
 
@@ -372,8 +394,8 @@ class OrderController
             ],
             [
                 'estado' => 'listo',
-                'label' => ($order['tipo_pedido'] ?? null) === 'delivery' ? 'Listo para envio' : 'Listo',
-                'descripcion' => ($order['tipo_pedido'] ?? null) === 'delivery' ? 'Tu pedido esta listo para salir.' : 'Tu pedido esta listo para entrega.',
+                'label' => 'Listo',
+                'descripcion' => 'Tu pedido esta listo para recoger.',
                 'completado' => $currentIndex > 2,
                 'en_curso' => $currentIndex === 2,
                 'timestamp' => $order['updated_at'] ?? null,

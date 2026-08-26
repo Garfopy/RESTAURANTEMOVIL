@@ -1,6 +1,5 @@
 const PROMOTION_SEGMENTS = new Set(['promocion', 'promociones', 'promotion', 'promotions', 'promo']);
 const PRODUCT_SEGMENTS = new Set(['producto', 'productos', 'product', 'products', 'platillo', 'platillos']);
-const STORE_SEGMENTS = new Set(['tienda', 'store']);
 const ORDER_SEGMENTS = new Set(['orden', 'ordenes', 'pedido', 'pedidos', 'order', 'orders']);
 
 export function normalizeAppDeepLink(rawDeepLink?: string | null): string | null {
@@ -48,9 +47,8 @@ function parseDeepLink(raw: string): { path: string; segments: string[]; params:
 }
 
 function normalizeSegments(segments: string[], params: URLSearchParams): string | null {
-  const [first, second, third] = segments.map((segment) => segment.toLowerCase());
+  const [first] = segments.map((segment) => segment.toLowerCase());
   const originalSecond = segments[1];
-  const originalThird = segments[2];
 
   if (!first) return null;
 
@@ -67,13 +65,6 @@ function normalizeSegments(segments: string[], params: URLSearchParams): string 
 
   if (PRODUCT_SEGMENTS.has(first) && originalSecond) {
     return `/product/${encodeURIComponent(originalSecond)}`;
-  }
-
-  if (STORE_SEGMENTS.has(first)) {
-    if (PRODUCT_SEGMENTS.has(second) && originalThird) {
-      return `/store/product/${encodeURIComponent(originalThird)}`;
-    }
-    return '/store';
   }
 
   if (ORDER_SEGMENTS.has(first) && originalSecond) {

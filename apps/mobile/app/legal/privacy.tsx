@@ -13,29 +13,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Typography } from '../../theme';
 
-const PRIVACY_URL = 'https://amarerestaurant.club/aviso-de-privacidad';
-const DELETE_URL = 'https://amarerestaurant.club/eliminar-cuenta';
+const PRIVACY_URL = 'https://uteqcafeteria.com/aviso-de-privacidad';
+const DELETE_URL = 'https://uteqcafeteria.com/eliminar-cuenta';
 
 const PRIVACY_SECTIONS = [
   {
     title: 'Datos que usamos',
     body:
-      'Cuenta, telefono, correo, fecha de nacimiento, direcciones, ubicacion aproximada o precisa cuando la autorizas, pedidos, pagos, facturacion, fotos, perfil social y tokens de notificaciones.',
+      'Cuenta, teléfono, correo, fecha de nacimiento, pedidos, pagos, facturación, foto de perfil y tokens de notificaciones.',
   },
   {
     title: 'Para que se usan',
     body:
-      'Operar pedidos y mesas, procesar pagos, calcular entregas, mostrar sucursales cercanas, emitir facturas, enviar avisos, administrar recompensas, proteger la cuenta y moderar el modo social.',
+      'Procesar tus pedidos para recoger en cafetería, procesar pagos, emitir facturas, enviarte avisos sobre tus pedidos, administrar recompensas y proteger tu cuenta.',
   },
   {
     title: 'Proveedores',
     body:
-      'Stripe procesa tarjeta, Apple Pay, Google Pay y reembolsos; Amare no almacena numeros completos de tarjeta ni codigos de seguridad. Tambien podemos usar Google/Firebase para inicio de sesion y notificaciones, mapas/ubicacion del sistema y proveedores fiscales para facturacion.',
-  },
-  {
-    title: 'Modo social',
-    body:
-      'El modo social es opcional. Otros comensales activos de la sucursal pueden ver los datos que decidas publicar. Puedes reportar o bloquear perfiles desde la app.',
+      'Stripe procesa tarjeta, Apple Pay, Google Pay y reembolsos; UTEQ Cafetería no almacena numeros completos de tarjeta ni codigos de seguridad. Tambien podemos usar Google/Firebase para inicio de sesion y notificaciones, y proveedores fiscales para facturacion.',
   },
   {
     title: 'Eliminacion y retencion',
@@ -52,26 +47,26 @@ export default function PrivacyScreen() {
   }
 
   return (
-    <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#1A120C']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.82}>
-            <Ionicons name="chevron-back" size={22} color="#F6F0E6" />
+            <Ionicons name="chevron-back" size={22} color="#FBF3E8" />
           </TouchableOpacity>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>PRIVACIDAD</Text>
-            <Text style={styles.title}>Tus datos en Amare</Text>
+            <Text style={styles.title}>Tus datos en UTEQ Cafetería</Text>
           </View>
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.introCard}>
             <View style={styles.introIcon}>
-              <Ionicons name="shield-checkmark-outline" size={24} color="#24272D" />
+              <Ionicons name="shield-checkmark-outline" size={24} color="#2B1E14" />
             </View>
             <Text style={styles.introTitle}>Control y transparencia</Text>
             <Text style={styles.introText}>
-              Este resumen te ayuda a entender que datos usa Amare. La version web oficial contiene el aviso completo
+              Este resumen te ayuda a entender que datos usa UTEQ Cafetería. La version web oficial contiene el aviso completo
               y los medios formales para ejercer tus derechos.
             </Text>
           </View>
@@ -86,11 +81,11 @@ export default function PrivacyScreen() {
           </View>
 
           <TouchableOpacity style={styles.webButton} onPress={() => openUrl(PRIVACY_URL)} activeOpacity={0.88}>
-            <Ionicons name="open-outline" size={18} color="#24272D" />
+            <Ionicons name="open-outline" size={18} color="#2B1E14" />
             <Text style={styles.webButtonText}>Abrir aviso completo</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={() => openUrl(DELETE_URL)} activeOpacity={0.88}>
-            <Ionicons name="trash-outline" size={18} color="#E9DDC8" />
+            <Ionicons name="trash-outline" size={18} color="#D4B384" />
             <Text style={styles.secondaryButtonText}>Solicitud web de eliminacion</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -122,14 +117,14 @@ const styles = StyleSheet.create({
   },
   headerCopy: { flex: 1 },
   eyebrow: {
-    color: '#CDBFA8',
+    color: '#C9AF95',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 2,
   },
   title: {
     fontFamily: 'PlayfairDisplay_700Bold',
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     fontSize: 27,
     lineHeight: 34,
     marginTop: 2,
@@ -152,17 +147,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     marginBottom: 14,
   },
   introTitle: {
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     fontSize: 18,
     fontWeight: '900',
   },
   introText: {
     ...Typography.body,
-    color: '#BDB4A5',
+    color: '#C9AF95',
     marginTop: 8,
     lineHeight: 21,
   },
@@ -170,18 +165,18 @@ const styles = StyleSheet.create({
   legalSection: {
     borderRadius: 18,
     padding: 16,
-    backgroundColor: 'rgba(23,25,30,0.58)',
+    backgroundColor: 'rgba(23,25,30,0.35)',
     borderWidth: 1,
-    borderColor: 'rgba(233,221,200,0.11)',
+    borderColor: 'rgba(212,179,132,0.16)',
   },
   sectionTitle: {
-    color: '#E9DDC8',
+    color: '#D4B384',
     fontSize: 15,
     fontWeight: '900',
     marginBottom: 7,
   },
   sectionBody: {
-    color: '#CFC6B8',
+    color: '#E3D2BE',
     fontSize: 13,
     lineHeight: 20,
     fontWeight: '500',
@@ -189,14 +184,14 @@ const styles = StyleSheet.create({
   webButton: {
     minHeight: 56,
     borderRadius: 18,
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 9,
   },
   webButtonText: {
-    color: '#24272D',
+    color: '#2B1E14',
     fontSize: 15,
     fontWeight: '900',
   },
@@ -204,14 +199,14 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(233,221,200,0.18)',
+    borderColor: 'rgba(212,179,132,0.24)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 9,
   },
   secondaryButtonText: {
-    color: '#E9DDC8',
+    color: '#D4B384',
     fontSize: 14,
     fontWeight: '900',
   },

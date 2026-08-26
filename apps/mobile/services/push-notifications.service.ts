@@ -244,7 +244,7 @@ export function subscribeForegroundFirebaseMessages() {
 
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: title ?? 'Amare',
+          title: title ?? 'UTEQ Cafetería',
           body: body ?? '',
           data: remoteMessage.data ?? {},
           sound: 'default',
@@ -285,7 +285,7 @@ async function ensureAndroidNotificationChannels(Notifications: ExpoNotification
   });
 
   await Notifications.setNotificationChannelAsync(ALERTS_ANDROID_NOTIFICATION_CHANNEL_ID, {
-    name: 'Alertas de Amare',
+    name: 'Alertas de UTEQ Cafetería',
     ...commonChannelOptions,
   });
 

@@ -16,27 +16,27 @@ interface ToastProps {
 
 const typeConfig = {
   error: {
-    backgroundColor: '#FEE2E2',
-    textColor: '#991B1B',
-    borderColor: '#FCA5A5',
+    backgroundColor: Colors.errorLight,
+    textColor: Colors.error,
+    borderColor: `${Colors.error}55`,
     icon: 'alert-circle',
   },
   warning: {
-    backgroundColor: '#FEF3C7',
-    textColor: '#92400E',
-    borderColor: '#FCD34D',
+    backgroundColor: Colors.warningLight,
+    textColor: Colors.warning,
+    borderColor: `${Colors.warning}55`,
     icon: 'alert',
   },
   success: {
-    backgroundColor: '#DCFCE7',
-    textColor: '#166534',
-    borderColor: '#86EFAC',
+    backgroundColor: Colors.successLight,
+    textColor: Colors.success,
+    borderColor: `${Colors.success}55`,
     icon: 'checkmark-circle',
   },
   info: {
-    backgroundColor: '#DBEAFE',
-    textColor: '#0C4A6E',
-    borderColor: '#7DD3FC',
+    backgroundColor: `${Colors.info}18`,
+    textColor: Colors.info,
+    borderColor: `${Colors.info}55`,
     icon: 'information-circle',
   },
 };
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     gap: Spacing.sm || 12,
-    shadowColor: '#000',
+    shadowColor: Colors.primaryDark,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,

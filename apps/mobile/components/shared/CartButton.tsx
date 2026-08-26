@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCartStore } from '../../store/cart.store';
+import { Colors } from '../../theme';
 
 export function CartButton() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export function CartButton() {
       Animated.spring(scale, { toValue: 0.96, damping: 12, useNativeDriver: true }),
       Animated.spring(scale, { toValue: 1, damping: 12, useNativeDriver: true }),
     ]).start();
-    if (rootSegment === 'product' || rootSegment === 'store') {
+    if (rootSegment === 'product') {
       router.replace('/cart');
       return;
     }
@@ -65,7 +66,7 @@ export function CartButton() {
         </View>
         <Text style={styles.label} numberOfLines={1}>Ver pedido</Text>
         <Text style={styles.price}>${total.toFixed(2)}</Text>
-        <Ionicons name="chevron-forward" size={18} color="#111827" />
+        <Ionicons name="chevron-forward" size={18} color={Colors.text} />
       </TouchableOpacity>
     </Animated.View>
   );
@@ -78,15 +79,15 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   button: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.08)',
-    shadowColor: '#000',
+    borderColor: Colors.border,
+    shadowColor: Colors.primaryDark,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
@@ -100,7 +101,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   badge: {
-    backgroundColor: '#111827',
+    backgroundColor: Colors.primary,
     borderRadius: 10,
     minWidth: 24,
     height: 24,
@@ -109,18 +110,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   badgeText: {
-    color: '#FFFFFF',
+    color: Colors.white,
     fontSize: 12,
     fontWeight: '800',
   },
   label: {
     flex: 1,
-    color: '#111827',
+    color: Colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
   price: {
-    color: '#111827',
+    color: Colors.text,
     fontSize: 16,
     fontWeight: '800',
   },

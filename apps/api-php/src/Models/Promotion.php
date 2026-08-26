@@ -494,6 +494,11 @@ class Promotion
             return null;
         }
 
+        $maxUses = isset($promotion['max_uses']) ? (int)$promotion['max_uses'] : null;
+        if ($maxUses !== null && $maxUses > 0 && self::countCodeUsage((string)$promotion['code']) >= $maxUses) {
+            throw new \DomainException('Este codigo alcanzo su limite maximo de usos.');
+        }
+
         $normalizedItems = self::normalizeCartItems($items);
         if (empty($normalizedItems)) {
             throw new \DomainException('Agrega productos al carrito para usar este codigo.');
@@ -582,6 +587,28 @@ class Promotion
         );
         self::$usageTableAvailable = (int)($row['total'] ?? 0) > 0;
         return self::$usageTableAvailable;
+    }
+
+    /**
+     * Cuenta cuantas veces se ha redimido un codigo en total (todas las
+     * asignaciones de usuario que comparten ese texto de codigo), para
+     * poder aplicar el limite global 'max_uses' de la campana.
+     */
+    private static function countCodeUsage(string $code): int
+    {
+        if (!self::usageTableExists() || $code === '') {
+            return 0;
+        }
+
+        $row = Database::queryOne(
+            "SELECT COUNT(*) AS total
+               FROM mobile_promocion_usos
+              WHERE UPPER(codigo) = UPPER(:code)
+                AND estado = 'usado'",
+            [':code' => $code]
+        );
+
+        return (int)($row['total'] ?? 0);
     }
 
     private static function filterEligibleItems(array $promotion, array $normalizedItems): array

@@ -36,7 +36,7 @@ import { STRIPE_IS_CONFIGURED } from '../../constants/stripe';
 import { WALLET_ENABLED } from '../../constants/features';
 import {
   assertStripeMinimumPaymentAmount,
-  presentAmarePaymentSheet,
+  presentPaymentSheet,
   showStripeMinimumAmountAlert,
   STRIPE_MINIMUM_PAYMENT_MXN,
   stripePaymentLabel,
@@ -68,7 +68,7 @@ const isIOS = Platform.OS === 'ios';
 const ALL_PAYMENT_METHODS: PaymentMethodDef[] = [
   { id: 'card', label: stripePaymentLabel(), icon: 'card-outline', iconActive: 'card' },
   { id: 'cash', label: 'Efectivo', icon: 'cash-outline', iconActive: 'cash' },
-  { id: 'amare', label: 'Saldo Amare', icon: 'sparkles-outline', iconActive: 'sparkles' },
+  { id: 'amare', label: 'Saldo', icon: 'sparkles-outline', iconActive: 'sparkles' },
 ];
 
 function dbMethodToUI(m: MetodoPagoHabilitado): PaymentMethod {
@@ -134,7 +134,7 @@ export default function PaymentScreen() {
   const enabledMethodIds: PaymentMethod[] = (
     config
       ? [...new Set<PaymentMethod>([...config.metodos_pago.map(dbMethodToUI), 'amare'])]
-      : ['card', 'cash', 'amare']
+      : (['card', 'cash', 'amare'] as PaymentMethod[])
   ).filter((id) => id !== 'amare' || WALLET_ENABLED);
 
   const enabledMethods = ALL_PAYMENT_METHODS.filter(
@@ -189,7 +189,7 @@ export default function PaymentScreen() {
         const wallet = await getRewardsWallet();
         if (!cancelled) setRewardsWallet(wallet);
       } catch (error) {
-        console.warn('No se pudo cargar Saldo Amare', error);
+        console.warn('No se pudo cargar el saldo', error);
       }
     }
 
@@ -232,7 +232,7 @@ export default function PaymentScreen() {
         });
         if (!cancelled) setRewardsQuote(quote);
       } catch (error) {
-        console.warn('No se pudo cotizar Saldo Amare', error);
+        console.warn('No se pudo cotizar el saldo', error);
         if (!cancelled) setRewardsQuote(null);
       } finally {
         if (!cancelled) setRewardsLoading(false);
@@ -392,7 +392,7 @@ export default function PaymentScreen() {
 
       if (selectedMethod === 'amare') {
         if (!canPayWithAmare) {
-          throw new Error('Tu Saldo Amare no alcanza para cubrir este pago.');
+          throw new Error('Tu saldo no alcanza para cubrir este pago.');
         }
         const order = existingOrderId ? null : await createOrderBackend('amare_wallet');
         const targetOrderId = existingOrderId ?? order!.id;
@@ -447,7 +447,7 @@ export default function PaymentScreen() {
           throw new Error('No se recibio el cliente de pago de Stripe. Intenta de nuevo.');
         }
         if (prepared.status !== 'succeeded') {
-          await presentAmarePaymentSheet(stripe, {
+          await presentPaymentSheet(stripe, {
             clientSecret: prepared.clientSecret,
             amountMxn: prepared.amount,
             customerName: user?.nombre,
@@ -477,7 +477,7 @@ export default function PaymentScreen() {
       if (stripeCompletedOrderId) {
         Alert.alert(
           'Procesando pago',
-          'Stripe recibio el pago, pero la confirmacion con Amare se interrumpio. Conservaremos tu carrito y verificaremos el resultado automaticamente.'
+          'Stripe recibio el pago, pero la confirmacion se interrumpio. Conservaremos tu carrito y verificaremos el resultado automaticamente.'
         );
         router.replace({ pathname: '/order/[id]', params: { id: String(stripeCompletedOrderId) } });
         return;
@@ -703,7 +703,7 @@ export default function PaymentScreen() {
         <View style={styles.pointsBox}>
           <View style={styles.pointsHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.pointsTitle}>Puntos Amare</Text>
+              <Text style={styles.pointsTitle}>Puntos</Text>
               <Text style={styles.pointsSubtitle}>1 punto = 1 peso. Puedes activarlos o quitarlos para este pedido.</Text>
             </View>
             {availablePoints > 0 ? (
@@ -711,8 +711,8 @@ export default function PaymentScreen() {
                 value={useRewardsPoints}
                 onValueChange={setUseRewardsPoints}
                 disabled={preparedCardPayment !== null}
-                trackColor={{ false: '#D1D5DB', true: '#A7F3D0' }}
-                thumbColor={useRewardsPoints ? '#059669' : '#F9FAFB'}
+                trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                thumbColor={useRewardsPoints ? Colors.primary : Colors.surface}
               />
             ) : null}
           </View>
@@ -739,11 +739,11 @@ export default function PaymentScreen() {
           {availablePoints <= 0 ? (
             <Text style={styles.pointsHint}>Aún no tienes puntos disponibles para usar en este pedido.</Text>
           ) : selectedMethod === 'amare' ? (
-            <Text style={styles.pointsHint}>Con Saldo Amare obtienes 10% de descuento directo.</Text>
+            <Text style={styles.pointsHint}>Con este saldo obtienes 10% de descuento directo.</Text>
           ) : selectedMethod === 'card' && useRewardsPoints && rewardsQuote?.points_limited_by_minimum ? (
             <Text style={styles.pointsHint}>Limitamos los puntos para dejar el minimo de $10.00 MXN requerido por Stripe.</Text>
           ) : (
-            <Text style={styles.pointsHint}>Si no pagas con Saldo Amare, recibes 5% del total pagado en puntos.</Text>
+            <Text style={styles.pointsHint}>Si no pagas con tu saldo, recibes 5% del total pagado en puntos.</Text>
           )}
         </View>
         ) : null}
@@ -752,7 +752,7 @@ export default function PaymentScreen() {
           <View style={styles.rewardsBox}>
             <View style={styles.rewardsHeader}>
               <View style={styles.rewardsHeaderCopy}>
-                <Text style={styles.rewardsTitle}>Saldo Amare</Text>
+                <Text style={styles.rewardsTitle}>Saldo</Text>
                 <Text style={styles.rewardsSubtitle}>Tu prepago aplica 10% de descuento en este pedido</Text>
               </View>
               <Text style={styles.rewardsBalance} numberOfLines={1} adjustsFontSizeToFit>
@@ -766,7 +766,7 @@ export default function PaymentScreen() {
                 <Text style={styles.rewardsValue}>${promoAdjustedAmount.toFixed(2)}</Text>
               </View>
               <View style={styles.rewardsRow}>
-                <Text style={styles.rewardsLabel}>Descuento Amare</Text>
+                <Text style={styles.rewardsLabel}>Descuento por saldo</Text>
                 <Text style={styles.rewardsValue}>-${methodDiscount.toFixed(2)}</Text>
               </View>
               {useRewardsPoints ? (
@@ -782,7 +782,7 @@ export default function PaymentScreen() {
             </View>
 
             {!canPayWithAmare ? (
-              <Text style={styles.rewardsWarning}>Tu Saldo Amare no alcanza para cubrir este pago.</Text>
+              <Text style={styles.rewardsWarning}>Tu saldo no alcanza para cubrir este pago.</Text>
             ) : null}
           </View>
         ) : null}
@@ -812,7 +812,7 @@ export default function PaymentScreen() {
             ) : null}
             {methodDiscount > 0 ? (
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Descuento Amare</Text>
+                <Text style={styles.totalLabel}>Descuento por saldo</Text>
                 <Text style={styles.totalDiscountValue}>-${methodDiscount.toFixed(2)}</Text>
               </View>
             ) : null}
@@ -856,7 +856,7 @@ export default function PaymentScreen() {
             selectedMethod === 'cash'
               ? `Confirmar pago por $${displayedPaymentAmount.toFixed(2)} en efectivo`
               : selectedMethod === 'amare'
-                ? `Pagar $${displayedPaymentAmount.toFixed(2)} con Saldo Amare`
+                ? `Pagar $${displayedPaymentAmount.toFixed(2)} con Saldo`
                 : `Pagar $${displayedPaymentAmount.toFixed(2)} con ${selectedMethod === 'card' ? 'tarjeta' : 'billetera digital'}`
           }
           testID="payment-confirm-btn"
@@ -1066,8 +1066,8 @@ const styles = StyleSheet.create({
     gap: 12,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#FED7AA',
-    backgroundColor: '#FFF7ED',
+    borderColor: `${Colors.accent}40`,
+    backgroundColor: `${Colors.accent}12`,
     padding: Spacing.md,
   },
   pointsHeader: {
@@ -1078,13 +1078,13 @@ const styles = StyleSheet.create({
   pointsTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#7C2D12',
+    color: Colors.text,
   },
   pointsSubtitle: {
     marginTop: 2,
     fontSize: 12,
     fontWeight: '600',
-    color: '#9A3412',
+    color: Colors.textSecondary,
   },
   pointsRows: {
     gap: 7,
@@ -1097,25 +1097,25 @@ const styles = StyleSheet.create({
   pointsLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#9A3412',
+    color: Colors.textSecondary,
   },
   pointsValue: {
     fontSize: 13,
     fontWeight: '900',
-    color: '#7C2D12',
+    color: Colors.accentDark,
   },
   pointsHint: {
     fontSize: 12,
     lineHeight: 18,
-    color: '#9A3412',
+    color: Colors.textMuted,
     fontWeight: '600',
   },
   rewardsBox: {
     gap: 12,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D1FAE5',
-    backgroundColor: '#F0FDF4',
+    borderColor: `${Colors.primary}22`,
+    backgroundColor: `${Colors.primary}0D`,
     padding: Spacing.md,
   },
   rewardsHeader: {
@@ -1128,22 +1128,22 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  rewardsTitle: { fontSize: 16, fontWeight: '800', color: '#064E3B' },
-  rewardsSubtitle: { marginTop: 2, fontSize: 12, lineHeight: 17, fontWeight: '600', color: '#047857' },
+  rewardsTitle: { fontSize: 16, fontWeight: '800', color: Colors.text },
+  rewardsSubtitle: { marginTop: 2, fontSize: 12, lineHeight: 17, fontWeight: '600', color: Colors.textSecondary },
   rewardsBalance: {
     flexShrink: 0,
     maxWidth: 132,
     fontSize: 18,
     lineHeight: 24,
     fontWeight: '900',
-    color: '#065F46',
+    color: Colors.primary,
     textAlign: 'right',
   },
   rewardsRows: { gap: 7 },
   rewardsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  rewardsLabel: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: '#047857' },
-  rewardsValue: { flexShrink: 0, fontSize: 13, fontWeight: '800', color: '#064E3B', textAlign: 'right' },
-  rewardsWarning: { fontSize: 12, fontWeight: '700', color: Colors.error || '#DC2626' },
+  rewardsLabel: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  rewardsValue: { flexShrink: 0, fontSize: 13, fontWeight: '800', color: Colors.text, textAlign: 'right' },
+  rewardsWarning: { fontSize: 12, fontWeight: '700', color: Colors.error },
   totalBox: {
     backgroundColor: Colors.surface,
     borderRadius: 12,

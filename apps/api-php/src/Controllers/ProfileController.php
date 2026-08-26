@@ -49,7 +49,7 @@ class ProfileController
         if (isset($input['nombre'])) {
             $name = preg_replace('/\s+/u', ' ', trim((string)$input['nombre'])) ?? '';
             $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
-            if ($nameLength < 3 || $nameLength > 100 || strcasecmp($name, 'Usuario Amare') === 0) {
+            if ($nameLength < 3 || $nameLength > 100) {
                 Response::validationError(['nombre' => ['Escribe un nombre valido de 3 a 100 caracteres']]);
             }
             $updateData['nombre'] = $name;
@@ -215,7 +215,7 @@ class ProfileController
         }
 
         // Construir URL pública — se usa APP_URL como base
-        $baseUrl = rtrim($_ENV['APP_URL'] ?? 'https://idactivos.digital/api_restaurante', '/');
+        $baseUrl = rtrim($_ENV['APP_URL'] ?? 'https://idactivos.digital/cafeuteq/api-php', '/');
         $fotoUrl = $baseUrl . '/uploads/' . $filename;
 
         if (!User::update($user->id, ['foto_url' => $fotoUrl])) {
@@ -426,31 +426,9 @@ class ProfileController
 
     private function isPhotoReferencedInSocialGallery(int $userId, ?string $photoUrl): bool
     {
-        if ($photoUrl === null || trim($photoUrl) === '') {
-            return false;
-        }
-
-        try {
-            $row = \Amare\Api\Config\Database::queryOne(
-                "SELECT social_photos_json FROM mobile_usuarios WHERE id = :id LIMIT 1",
-                [':id' => $userId]
-            );
-        } catch (\Throwable) {
-            return true;
-        }
-
-        $decoded = json_decode((string)($row['social_photos_json'] ?? ''), true);
-        if (!is_array($decoded)) {
-            return false;
-        }
-
-        $target = $this->normalizePhotoComparisonValue($photoUrl);
-        foreach ($decoded as $photo) {
-            if (is_string($photo) && $this->normalizePhotoComparisonValue($photo) === $target) {
-                return true;
-            }
-        }
-
+        // UTEQ Cafetería no tiene galería/modo social — mobile_usuarios ya no
+        // tiene social_photos_json, así que nunca hay nada más que la
+        // referencie. Se puede borrar la foto anterior con seguridad.
         return false;
     }
 

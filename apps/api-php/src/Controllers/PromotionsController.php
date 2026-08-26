@@ -519,9 +519,9 @@ if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
 
     $path = self::PROMOTION_DB_PATH . $filename;
     $publicBaseUrl = preg_replace(
-        '#/api_restaurante/?$#',
+        '#/(api_restaurante|backend_php|api-php)/?$#',
         '',
-        rtrim($_ENV['APP_URL'] ?? 'https://amarerestaurant.club/api_restaurante', '/')
+        rtrim($_ENV['APP_URL'] ?? 'https://idactivos.digital/cafeuteq/api-php', '/')
     );
 
     Response::success([

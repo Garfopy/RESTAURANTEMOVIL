@@ -22,18 +22,18 @@ import { validateLoginIdentifier, validatePassword } from '../../services/error.
 import { useToast } from '../../context/ToastContext';
 
 const AuthColors = {
-  bg: '#24272D',
-  text: '#F2EBDD',
-  textSecondary: '#D8CDBB',
-  muted: '#B8AC99',
-  border: '#4B5058',
-  inputBg: '#2A2E35',
-  inputFocused: '#30353D',
-  accent: '#E9DDC8',
-  buttonText: '#24272D',
-  error: '#FCA5A5',
-  errorBg: '#3A2B2E',
-  errorBorder: '#B85C63',
+  bg: '#2B1E14',
+  text: '#FBF3E8',
+  textSecondary: '#E3D2BE',
+  muted: '#C9AF95',
+  border: '#5A4633',
+  inputBg: '#3A2A1C',
+  inputFocused: '#4A3524',
+  accent: '#D4B384',
+  buttonText: '#2B1E14',
+  error: '#FF8A80',
+  errorBg: '#4A2420',
+  errorBorder: '#C97A72',
 };
 
 type Step = 'request' | 'code' | 'password' | 'done';
@@ -166,7 +166,7 @@ export default function ForgotPasswordScreen() {
   }
 
   return (
-    <LinearGradient colors={['#181A1F', '#252830', '#1C1E24']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#1A120C']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="light-content" backgroundColor={AuthColors.bg} />
         <View pointerEvents="none" style={styles.decorations}>
@@ -365,7 +365,7 @@ export default function ForgotPasswordScreen() {
                     <Ionicons name="checkmark" size={34} color={AuthColors.buttonText} />
                   </View>
                   <Text style={styles.doneTitle}>Ya puedes iniciar sesión</Text>
-                  <Text style={styles.doneText}>Usa tu nueva contraseña para entrar a Amare.</Text>
+                  <Text style={styles.doneText}>Usa tu nueva contraseña para entrar a UTEQ Cafetería.</Text>
                   <Button
                     label="Ir a iniciar sesión"
                     onPress={() => router.replace('/(auth)/email-login')}

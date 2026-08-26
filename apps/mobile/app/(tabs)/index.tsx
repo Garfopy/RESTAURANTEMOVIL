@@ -23,39 +23,19 @@ import { useBranches } from '../../hooks/useBranches';
 import { useCategories, useDishes } from '../../hooks/useMenu';
 import { requireAuth, saveAuthReturnTo } from '../../services/auth-gate.service';
 import { Colors } from '../../theme';
-import { BannerCarousel } from '../../components/shared/BannerCarousel';
+import { BannerCarousel, type BannerItem } from '../../components/shared/BannerCarousel';
 import { CategoryCard } from '../../components/cards/CategoryCard';
 import { ProductCard } from '../../components/cards/ProductCard';
 import { SearchBar } from '../../components/ui/SearchBar';
-import { StoreFAB } from '../../components/shared/StoreFAB';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useToast } from '../../context/ToastContext';
 import { DEFAULT_RESTAURANT_ID } from '../../constants/branding';
+import { getMyPromotions } from '../../services/promotions.service';
+import { normalizeAppDeepLink } from '../../services/deep-links.service';
+import { formatImageUrl } from '../../services/api';
+import { getBranchOpenStatus } from '../../services/business-hours';
+import { useQuery } from '@tanstack/react-query';
 import type { Platillo, Categoria } from '@amare/types';
-
-const HOME_BANNERS = [
-  {
-    id: '1',
-    titulo: '¡2x1 en Pizzas!',
-    subtitulo: 'Aprovecha todos los martes y jueves en sucursal.',
-    imagen: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=800',
-    deepLink: '/promotions',
-  },
-  {
-    id: '2',
-    titulo: 'Envío Gratis',
-    subtitulo: 'En tu primer pedido mayor a $350 MXN.',
-    imagen: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRbwIYrgWuk2sbrX9QAJWIixayxHtlH2f9s8Q&s',
-    deepLink: '/(tabs)/index',
-  },
-  {
-    id: '3',
-    titulo: 'Nueva Dulcería',
-    subtitulo: 'Descubre nuestra selección de repostería artesanal.',
-    imagen: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&w=800',
-    deepLink: '/(tabs)/index',
-  },
-];
 
 
 export default function HomeScreen() {
@@ -100,9 +80,32 @@ export default function HomeScreen() {
   // Si /branches falla o aún no responde, igual mostramos el menú del
   // único restaurante que existe en vez de dejar la pantalla vacía.
   const restauranteId = menuBranch?.id ?? user?.current_restaurante_id ?? DEFAULT_RESTAURANT_ID;
+  const openStatus = getBranchOpenStatus(menuBranch);
   const { data: categories, isLoading: loadingCats, refetch: refetchCategories } = useCategories(restauranteId);
   const { data: allDishes, isLoading: loadingAllDishes, refetch: refetchAllDishes } = useDishes(restauranteId);
   const refreshBranchConfig = useBranchConfigStore((state) => state.refresh);
+
+  const { data: myPromotions, refetch: refetchPromotions } = useQuery({
+    queryKey: ['home-promotions'],
+    queryFn: () => getMyPromotions(),
+    enabled: Boolean(token),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const homeBanners: BannerItem[] = (myPromotions ?? [])
+    .filter((promo) => promo.activo && promo.imagen)
+    .map((promo) => ({
+      id: String(promo.id),
+      titulo: promo.titulo,
+      subtitulo: promo.descripcion ?? undefined,
+      imagen: formatImageUrl(promo.imagen) ?? '',
+      deepLink: promo.deep_link ?? '/promotions',
+    }));
+
+  function handleBannerPress(item: BannerItem) {
+    const route = normalizeAppDeepLink(item.deepLink) ?? '/promotions';
+    router.push(route as never);
+  }
   const visibleCategories =
     categories && categories.length > 0
       ? categories
@@ -134,6 +137,7 @@ export default function HomeScreen() {
         restauranteId ? refreshBranchConfig(restauranteId, { force: true }) : Promise.resolve(),
         refetchCategories(),
         refetchAllDishes(),
+        refetchPromotions(),
       ]);
     } catch {
       toast.warning('No pudimos actualizar el menú. Conservamos la última versión disponible.');
@@ -199,7 +203,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FAF8F4" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F5EFE6" />
       
       {/* HEADER ULTRA-SLIM CORREGIDO */}
       <Animated.View style={[styles.topNav, {
@@ -245,12 +249,21 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshingHome} onRefresh={() => void refreshHome()} tintColor={Colors.primary} />}
       >
+        {!openStatus.isOpen ? (
+          <View style={styles.closedBanner}>
+            <Ionicons name="moon-outline" size={18} color={Colors.warning} />
+            <Text style={styles.closedBannerText}>
+              Cerrado ahora{openStatus.opensAtLabel ? ` — abre a las ${openStatus.opensAtLabel}` : ''}
+            </Text>
+          </View>
+        ) : null}
+
         {/* SALUDO Y BUSCADOR */}
         <Animated.View style={[styles.welcomeSection, {
           opacity: homeIntro,
           transform: [{ translateY: homeIntro.interpolate({ inputRange: [0, 1], outputRange: [22, 0] }) }],
         }]}>
-          <LinearGradient colors={['#202228', '#30333B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
+          <LinearGradient colors={['#2B1E14', '#4A3524']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
             <Animated.View pointerEvents="none" style={[styles.heroGlow, {
               opacity: heroGlow.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] }),
               transform: [{ scale: heroGlow.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.12] }) }],
@@ -293,7 +306,7 @@ export default function HomeScreen() {
                     <Text style={styles.guestAccountPrimaryText}>Crear cuenta</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.guestAccountIconButton} onPress={openPublicPromotions} activeOpacity={0.86}>
-                    <Ionicons name="pricetag-outline" size={16} color="#E9DDC8" />
+                    <Ionicons name="pricetag-outline" size={16} color="#D4B384" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -302,9 +315,11 @@ export default function HomeScreen() {
         </Animated.View>
 
         {/* BANNERS */}
-        <Animated.View style={[styles.bannerSection, { opacity: homeIntro }]}>
-          <BannerCarousel items={HOME_BANNERS} />
-        </Animated.View>
+        {homeBanners.length > 0 ? (
+          <Animated.View style={[styles.bannerSection, { opacity: homeIntro }]}>
+            <BannerCarousel items={homeBanners} onPress={handleBannerPress} />
+          </Animated.View>
+        ) : null}
 
         {/* CATEGORÍAS */}
         <View style={styles.sectionHeader}>
@@ -411,15 +426,12 @@ export default function HomeScreen() {
         {/* Espacio final interno para empujar el contenido arriba del dock */}
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      {/* BOTÓN FLOTANTE DE TIENDA */}
-      <StoreFAB />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FAF8F4' },
+  safe: { flex: 1, backgroundColor: '#F5EFE6' },
   topNav: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -427,18 +439,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 13,
-    backgroundColor: '#FAF8F4',
+    backgroundColor: '#F5EFE6',
     zIndex: 50,
   },
   locationSelector: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, paddingVertical: 4 },
-  locationIcon: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282E' },
-  locationName: { fontSize: 15, fontWeight: '900', color: '#24262B', marginLeft: 10, flexShrink: 1 },
+  locationIcon: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#2B1E14' },
+  locationName: { fontSize: 15, fontWeight: '900', color: '#2B1E14', marginLeft: 10, flexShrink: 1 },
   profileTrigger: { marginLeft: 15, padding: 2 },
   miniAvatar: { width: 40, height: 40, borderRadius: 15, backgroundColor: '#EEE9E0', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#DED7CC', overflow: 'hidden' },
   miniAvatarImg: { width: '100%', height: '100%' },
   avatarText: { fontWeight: '900', color: Colors.primary },
 
   scrollContent: { paddingTop: 4, paddingBottom: 176 },
+  closedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: `${Colors.warning}15`,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}40`,
+  },
+  closedBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text,
+  },
   welcomeSection: { paddingHorizontal: 16, marginTop: 6, marginBottom: 8 },
   heroCard: {
     borderRadius: 30,
@@ -496,12 +527,12 @@ const styles = StyleSheet.create({
     minHeight: 34,
     borderRadius: 17,
     paddingHorizontal: 12,
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     alignItems: 'center',
     justifyContent: 'center',
   },
   guestAccountPrimaryText: {
-    color: '#202228',
+    color: '#2B1E14',
     fontSize: 10,
     fontWeight: '900',
   },

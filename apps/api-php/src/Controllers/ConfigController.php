@@ -61,7 +61,7 @@ class ConfigController
         }
 
         if (isset($input['tipos_entrega'])) {
-            $allowed = ['delivery', 'pickup', 'eat_in'];
+            $allowed = ['pickup'];
             if (is_array($input['tipos_entrega'])) {
                 foreach ($input['tipos_entrega'] as $t) {
                     if (!in_array($t, $allowed, true)) {

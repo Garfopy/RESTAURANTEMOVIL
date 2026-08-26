@@ -37,8 +37,11 @@ function TimelineStep({ step, index, isLast }: TimelineStepProps) {
   }, []);
 
   const animStyle = { opacity, transform: [{ translateX }] };
+  const isCancelled = step.estado === 'cancelado';
 
-  const dotColor = step.completado
+  const dotColor = isCancelled
+    ? Colors.error
+    : step.completado
     ? Colors.success
     : step.en_curso
     ? Colors.accent
@@ -48,8 +51,9 @@ function TimelineStep({ step, index, isLast }: TimelineStepProps) {
     <Animated.View style={[styles.step, animStyle]}>
       <View style={styles.leftCol}>
         <View style={[styles.dot, { backgroundColor: dotColor }]}>
-          {step.completado && <Ionicons name="checkmark" size={10} color={Colors.white} />}
-          {step.en_curso && <View style={styles.dotPulse} />}
+          {isCancelled && <Ionicons name="close" size={12} color={Colors.white} />}
+          {!isCancelled && step.completado && <Ionicons name="checkmark" size={10} color={Colors.white} />}
+          {!isCancelled && step.en_curso && <View style={styles.dotPulse} />}
         </View>
         {!isLast && <View style={[styles.line, { backgroundColor: step.completado ? Colors.success : Colors.border }]} />}
       </View>
@@ -59,6 +63,7 @@ function TimelineStep({ step, index, isLast }: TimelineStepProps) {
             styles.label,
             step.en_curso && styles.labelActive,
             step.completado && styles.labelDone,
+            isCancelled && styles.labelCancelled,
           ]}
         >
           {step.label}
@@ -99,6 +104,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '600', color: Colors.textMuted },
   labelActive: { color: Colors.accent },
   labelDone: { color: Colors.text },
+  labelCancelled: { color: Colors.error },
   description: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   timestamp: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
 });

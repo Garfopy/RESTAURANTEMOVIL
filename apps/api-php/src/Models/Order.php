@@ -204,6 +204,13 @@ class Order
         $data['subtotal'] = round($subtotal, 2);
         $data['total'] = round($subtotal, 2);
 
+        $pedidoMinimo = (float)(RestaurantConfig::getByRestaurant($restaurantId)['pedido_minimo'] ?? 0);
+        if ($pedidoMinimo > 0 && $data['subtotal'] < $pedidoMinimo) {
+            throw new \InvalidArgumentException(
+                sprintf('El pedido minimo es de $%.2f MXN. Agrega mas productos para continuar.', $pedidoMinimo)
+            );
+        }
+
         $promoCode = trim((string)($data['promo_code'] ?? $data['coupon_code'] ?? ''));
         if ($promoCode !== '' && !empty($data['user_id'])) {
             try {
@@ -1337,6 +1344,7 @@ class Order
             $itemColumns = self::getTableColumns('rest_pedido_items');
             $hasExtrasJson = in_array('extras_json', $itemColumns, true);
             $hasOrigen = in_array('origen', $itemColumns, true);
+            $hasSubtotal = in_array('subtotal', $itemColumns, true);
 
             foreach ($data['items'] as $item) {
                 $platilloId = $item['platillo_id'] ?? $item['product_id'] ?? null;
@@ -1369,6 +1377,10 @@ class Order
 
                 if ($hasOrigen) {
                     $itemData['origen'] = $origen;
+                }
+
+                if ($hasSubtotal) {
+                    $itemData['subtotal'] = round((float)$precio * (float)$cantidad, 2);
                 }
 
                 if ($hasExtrasJson) {

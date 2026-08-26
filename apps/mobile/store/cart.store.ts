@@ -4,15 +4,6 @@ import type { CarritoItem, Platillo, ModificadorSeleccionado, TipoPedido } from 
 
 const CART_KEY = 'amare_cart';
 
-export type DeliveryAddressSelection = {
-  id?: number | string | null;
-  alias?: string | null;
-  text: string;
-  lat?: number | null;
-  lng?: number | null;
-  instrucciones?: string | null;
-};
-
 function money(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -36,7 +27,6 @@ interface CartState {
   items: CarritoItem[];
   restauranteId: number | null;
   tipoPedido: TipoPedido | null;
-  deliveryAddress: DeliveryAddressSelection | null;
   total: number;
   itemCount: number;
 
@@ -50,7 +40,6 @@ interface CartState {
   updateQty: (itemId: string, cantidad: number) => void;
   clear: () => void;
   setTipoPedido: (tipo: TipoPedido | null) => void;
-  setDeliveryAddress: (address: DeliveryAddressSelection | null) => void;
   _persist: () => void;
 }
 
@@ -68,7 +57,6 @@ export const useCartStore = create<CartState>((set, get) => ({
   items: [],
   restauranteId: null,
   tipoPedido: null,
-  deliveryAddress: null,
   total: 0,
   itemCount: 0,
 
@@ -143,26 +131,18 @@ export const useCartStore = create<CartState>((set, get) => ({
   },
 
   clear: () => {
-    set({ items: [], restauranteId: null, tipoPedido: null, deliveryAddress: null, total: 0, itemCount: 0 });
+    set({ items: [], restauranteId: null, tipoPedido: null, total: 0, itemCount: 0 });
     AsyncStorage.removeItem(CART_KEY).catch(() => {});
   },
 
   setTipoPedido: (tipo) => {
-    set((state) => ({
-      tipoPedido: tipo,
-      deliveryAddress: tipo === 'delivery' ? state.deliveryAddress : null,
-    }));
-    get()._persist();
-  },
-
-  setDeliveryAddress: (address) => {
-    set({ deliveryAddress: address });
+    set({ tipoPedido: tipo });
     get()._persist();
   },
 
   _persist: () => {
-    const { items, restauranteId, tipoPedido, deliveryAddress } = get();
-    AsyncStorage.setItem(CART_KEY, JSON.stringify({ items, restauranteId, tipoPedido, deliveryAddress })).catch(() => {});
+    const { items, restauranteId, tipoPedido } = get();
+    AsyncStorage.setItem(CART_KEY, JSON.stringify({ items, restauranteId, tipoPedido })).catch(() => {});
   },
 }));
 
@@ -171,7 +151,7 @@ export async function hydrateCart(): Promise<void> {
   try {
     const json = await AsyncStorage.getItem(CART_KEY);
     if (json) {
-      const { items, restauranteId, tipoPedido, deliveryAddress } = JSON.parse(json);
+      const { items, restauranteId, tipoPedido } = JSON.parse(json);
       const derivedRestaurantId =
         restauranteId ??
         items?.[0]?.platillo?.restaurante_id ??
@@ -194,7 +174,6 @@ export async function hydrateCart(): Promise<void> {
         restauranteId:
           derivedRestaurantId == null ? null : Number.isNaN(Number(derivedRestaurantId)) ? null : Number(derivedRestaurantId),
         tipoPedido: restoredItems.length > 0 ? tipoPedido ?? null : null,
-        deliveryAddress: tipoPedido === 'delivery' ? deliveryAddress ?? null : null,
         total,
         itemCount,
       });

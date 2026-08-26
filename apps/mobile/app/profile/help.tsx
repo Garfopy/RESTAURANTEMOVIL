@@ -5,8 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing } from '../../theme';
 
-const SUPPORT_EMAIL = 'soporte@amarerestaurant.club';
-const SUPPORT_URL = 'https://amarerestaurant.club/soporte';
+const SUPPORT_EMAIL = 'contacto@uteqcafeteria.com';
+const SUPPORT_URL = 'https://uteqcafeteria.com/soporte';
 
 const FAQS = [
   {
@@ -14,12 +14,12 @@ const FAQS = [
     body: 'Si Stripe aprobo el cobro pero se corto la conexion, no repitas el pago. Abre el pedido y espera la conciliacion automatica.',
   },
   {
-    title: 'Saldo Amare y reembolsos',
+    title: 'Saldo y reembolsos',
     body: 'El saldo promocional se usa primero. Puedes solicitar el reembolso del saldo comprado que no hayas utilizado; puntos y promociones no son reembolsables.',
   },
   {
     title: 'Eliminar mi cuenta',
-    body: 'Ve a Perfil > Eliminar cuenta. Si tienes saldo comprado disponible, Amare inicia su reembolso antes de completar la eliminacion.',
+    body: 'Ve a Perfil > Eliminar cuenta. Si tienes saldo comprado disponible, iniciamos su reembolso antes de completar la eliminacion.',
   },
   {
     title: 'Reportes y bloqueo',
@@ -35,7 +35,7 @@ export default function HelpScreen() {
   const router = useRouter();
 
   function emailSupport() {
-    void Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Ayuda%20con%20Amare`);
+    void Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Ayuda%20con%20UTEQ%20Cafeteria`);
   }
 
   return (

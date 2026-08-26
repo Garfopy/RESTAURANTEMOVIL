@@ -218,7 +218,7 @@ export default function CompleteProfileScreen() {
   }
 
   return (
-    <LinearGradient colors={['#17191E', '#23262D', '#17191E']} style={styles.gradient}>
+    <LinearGradient colors={['#2B1E14', '#4A3524', '#2B1E14']} style={styles.gradient}>
       <SafeAreaView style={styles.safe}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView
@@ -229,7 +229,7 @@ export default function CompleteProfileScreen() {
           >
             <View style={styles.header}>
               <View style={styles.badge}>
-                <Ionicons name="sparkles-outline" size={22} color="#E9DDC8" />
+                <Ionicons name="sparkles-outline" size={22} color="#D4B384" />
               </View>
               <Text style={styles.title}>Completa tu perfil</Text>
               <Text style={styles.subtitle}>
@@ -250,7 +250,7 @@ export default function CompleteProfileScreen() {
                   autoCorrect={false}
                   textContentType="name"
                   placeholder="Tu nombre"
-                  placeholderTextColor="#857D71"
+                  placeholderTextColor="#9A8672"
                   style={styles.nameInput}
                   maxLength={100}
                   returnKeyType="next"
@@ -272,7 +272,7 @@ export default function CompleteProfileScreen() {
                     keyboardType="phone-pad"
                     textContentType="telephoneNumber"
                     placeholder="10 dígitos"
-                    placeholderTextColor="#857D71"
+                    placeholderTextColor="#9A8672"
                     style={styles.input}
                   />
                 </View>
@@ -290,7 +290,7 @@ export default function CompleteProfileScreen() {
                     </Text>
                     <Text style={styles.dateHint}>Debes tener 18 años o más</Text>
                   </View>
-                  <Ionicons name="calendar-outline" size={22} color="#E9DDC8" />
+                  <Ionicons name="calendar-outline" size={22} color="#D4B384" />
                 </TouchableOpacity>
               </View>
 
@@ -300,7 +300,7 @@ export default function CompleteProfileScreen() {
                 activeOpacity={0.85}
               >
                 <View style={[styles.checkBox, termsAccepted && styles.checkBoxOn]}>
-                  {termsAccepted ? <Ionicons name="checkmark" size={16} color="#24272D" /> : null}
+                  {termsAccepted ? <Ionicons name="checkmark" size={16} color="#2B1E14" /> : null}
                 </View>
                 <Text style={styles.checkText}>Acepto términos, condiciones y aviso de privacidad.</Text>
               </TouchableOpacity>
@@ -310,19 +310,19 @@ export default function CompleteProfileScreen() {
                 onPress={() => router.push('/legal/terms' as never)}
                 activeOpacity={0.82}
               >
-                <Ionicons name="document-text-outline" size={16} color="#E9DDC8" />
+                <Ionicons name="document-text-outline" size={16} color="#D4B384" />
                 <Text style={styles.termsLinkText}>Ver términos y aviso legal</Text>
               </TouchableOpacity>
 
               <View style={styles.switchRow}>
                 <View style={styles.switchCopy}>
                   <Text style={styles.switchTitle}>Promos de cumpleaños</Text>
-                  <Text style={styles.switchText}>Recibir beneficios, cupones y novedades de Amare.</Text>
+                  <Text style={styles.switchText}>Recibir beneficios, cupones y novedades de UTEQ Cafetería.</Text>
                 </View>
                 <Switch
                   value={marketingOptIn}
                   onValueChange={setMarketingOptIn}
-                  trackColor={{ false: '#55515A', true: '#E9DDC8' }}
+                  trackColor={{ false: '#5A4633', true: '#D4B384' }}
                   thumbColor={marketingOptIn ? Colors.accent : '#F4F1EA'}
                 />
               </View>
@@ -336,11 +336,11 @@ export default function CompleteProfileScreen() {
                 disabled={!canSubmit}
               >
                 {saving ? (
-                  <ActivityIndicator color="#24272D" />
+                  <ActivityIndicator color="#2B1E14" />
                 ) : (
                   <>
-                    <Text style={styles.primaryLabel}>Entrar a Amare</Text>
-                    <Ionicons name="arrow-forward" size={19} color="#24272D" />
+                    <Text style={styles.primaryLabel}>Entrar a UTEQ Cafetería</Text>
+                    <Ionicons name="arrow-forward" size={19} color="#2B1E14" />
                   </>
                 )}
               </TouchableOpacity>
@@ -352,7 +352,7 @@ export default function CompleteProfileScreen() {
                 disabled={canceling || saving}
               >
                 {canceling ? (
-                  <ActivityIndicator size="small" color="#BDB4A5" />
+                  <ActivityIndicator size="small" color="#C9AF95" />
                 ) : (
                   <Text style={styles.exitText}>Cancelar</Text>
                 )}
@@ -369,7 +369,7 @@ export default function CompleteProfileScreen() {
                     <Text style={styles.calendarSubtitle}>Solo mayores de edad</Text>
                   </View>
                   <TouchableOpacity style={styles.calendarClose} onPress={() => setCalendarVisible(false)} activeOpacity={0.8}>
-                    <Ionicons name="close" size={20} color="#F6F0E6" />
+                    <Ionicons name="close" size={20} color="#FBF3E8" />
                   </TouchableOpacity>
                 </View>
 
@@ -378,11 +378,11 @@ export default function CompleteProfileScreen() {
                     <Text style={styles.yearButtonText}>-10</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((current) => moveYear(current, -1))}>
-                    <Ionicons name="chevron-back" size={18} color="#E9DDC8" />
+                    <Ionicons name="chevron-back" size={18} color="#D4B384" />
                   </TouchableOpacity>
                   <Text style={styles.yearLabel}>{calendarMonth.getFullYear()}</Text>
                   <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((current) => moveYear(current, 1))}>
-                    <Ionicons name="chevron-forward" size={18} color="#E9DDC8" />
+                    <Ionicons name="chevron-forward" size={18} color="#D4B384" />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.yearButton} onPress={() => setCalendarMonth((current) => moveYear(current, 10))}>
                     <Text style={styles.yearButtonText}>+10</Text>
@@ -391,11 +391,11 @@ export default function CompleteProfileScreen() {
 
                 <View style={styles.monthControls}>
                   <TouchableOpacity style={styles.monthArrow} onPress={() => setCalendarMonth((current) => moveMonth(current, -1))}>
-                    <Ionicons name="chevron-back" size={18} color="#24272D" />
+                    <Ionicons name="chevron-back" size={18} color="#2B1E14" />
                   </TouchableOpacity>
                   <Text style={styles.monthLabel}>{MONTHS[calendarMonth.getMonth()]}</Text>
                   <TouchableOpacity style={styles.monthArrow} onPress={() => setCalendarMonth((current) => moveMonth(current, 1))}>
-                    <Ionicons name="chevron-forward" size={18} color="#24272D" />
+                    <Ionicons name="chevron-forward" size={18} color="#2B1E14" />
                   </TouchableOpacity>
                 </View>
 
@@ -461,12 +461,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PlayfairDisplay_700Bold',
     fontSize: 31,
     lineHeight: 38,
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     textAlign: 'center',
   },
   subtitle: {
     ...Typography.body,
-    color: '#BDB4A5',
+    color: '#C9AF95',
     textAlign: 'center',
     marginTop: 10,
     maxWidth: 330,
@@ -480,14 +480,14 @@ const styles = StyleSheet.create({
     gap: 15,
   },
   field: { gap: 8 },
-  label: { color: '#E9DDC8', fontSize: 12, fontWeight: '800' },
+  label: { color: '#D4B384', fontSize: 12, fontWeight: '800' },
   nameInput: {
     minHeight: 56,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(233,221,200,0.16)',
     backgroundColor: 'rgba(23,25,30,0.72)',
-    color: '#F6F0E6',
+    color: '#FBF3E8',
     fontSize: 16,
     fontWeight: '700',
     paddingHorizontal: 14,
@@ -508,9 +508,9 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: 'rgba(233,221,200,0.12)',
   },
-  prefixText: { color: '#E9DDC8', fontSize: 15, fontWeight: '900' },
-  input: { flex: 1, color: '#F6F0E6', fontSize: 16, fontWeight: '700', paddingHorizontal: 14 },
-  phoneHint: { color: '#AAA396', fontSize: 11, lineHeight: 15, textAlign: 'right' },
+  prefixText: { color: '#D4B384', fontSize: 15, fontWeight: '900' },
+  input: { flex: 1, color: '#FBF3E8', fontSize: 16, fontWeight: '700', paddingHorizontal: 14 },
+  phoneHint: { color: '#C9AF95', fontSize: 11, lineHeight: 15, textAlign: 'right' },
   phoneHintComplete: { color: '#9ED8B3' },
   dateButton: {
     minHeight: 56,
@@ -525,9 +525,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  dateValue: { color: '#F6F0E6', fontSize: 16, fontWeight: '800' },
-  datePlaceholder: { color: '#857D71' },
-  dateHint: { color: '#AAA396', fontSize: 11, lineHeight: 15, marginTop: 2 },
+  dateValue: { color: '#FBF3E8', fontSize: 16, fontWeight: '800' },
+  datePlaceholder: { color: '#9A8672' },
+  dateHint: { color: '#C9AF95', fontSize: 11, lineHeight: 15, marginTop: 2 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 2 },
   checkBox: {
     width: 24,
@@ -538,8 +538,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(233,221,200,0.34)',
   },
-  checkBoxOn: { backgroundColor: '#E9DDC8', borderColor: '#E9DDC8' },
-  checkText: { flex: 1, color: '#CFC6B8', fontSize: 12, lineHeight: 17 },
+  checkBoxOn: { backgroundColor: '#D4B384', borderColor: '#D4B384' },
+  checkText: { flex: 1, color: '#E3D2BE', fontSize: 12, lineHeight: 17 },
   termsLinkButton: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -547,7 +547,7 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingVertical: 2,
   },
-  termsLinkText: { color: '#E9DDC8', fontSize: 12, fontWeight: '800' },
+  termsLinkText: { color: '#D4B384', fontSize: 12, fontWeight: '800' },
   switchRow: {
     minHeight: 76,
     borderRadius: 18,
@@ -560,22 +560,22 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   switchCopy: { flex: 1 },
-  switchTitle: { color: '#F6F0E6', fontSize: 14, fontWeight: '900' },
-  switchText: { color: '#AAA396', fontSize: 12, lineHeight: 17, marginTop: 3 },
-  errorText: { color: '#FFB4AD', fontSize: 12, lineHeight: 17, textAlign: 'center' },
+  switchTitle: { color: '#FBF3E8', fontSize: 14, fontWeight: '900' },
+  switchText: { color: '#C9AF95', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  errorText: { color: '#FF8A80', fontSize: 12, lineHeight: 17, textAlign: 'center' },
   primaryButton: {
     minHeight: 58,
     borderRadius: 18,
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
   primaryButtonDisabled: { opacity: 0.48 },
-  primaryLabel: { color: '#24272D', fontSize: 15, fontWeight: '900' },
+  primaryLabel: { color: '#2B1E14', fontSize: 15, fontWeight: '900' },
   exitButton: { minHeight: 38, alignItems: 'center', justifyContent: 'center' },
-  exitText: { color: '#BDB4A5', fontSize: 13, fontWeight: '800' },
+  exitText: { color: '#C9AF95', fontSize: 13, fontWeight: '800' },
   modalBackdrop: {
     flex: 1,
     justifyContent: 'center',
@@ -585,7 +585,7 @@ const styles = StyleSheet.create({
   calendarSheet: {
     borderRadius: 26,
     padding: 16,
-    backgroundColor: '#24272D',
+    backgroundColor: '#2B1E14',
     borderWidth: 1,
     borderColor: 'rgba(233,221,200,0.16)',
   },
@@ -595,8 +595,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 14,
   },
-  calendarTitle: { color: '#F6F0E6', fontSize: 18, fontWeight: '900' },
-  calendarSubtitle: { color: '#AAA396', fontSize: 12, marginTop: 3 },
+  calendarTitle: { color: '#FBF3E8', fontSize: 18, fontWeight: '900' },
+  calendarSubtitle: { color: '#C9AF95', fontSize: 12, marginTop: 3 },
   calendarClose: {
     width: 36,
     height: 36,
@@ -619,12 +619,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(233,221,200,0.08)',
   },
-  yearButtonText: { color: '#E9DDC8', fontSize: 12, fontWeight: '900' },
-  yearLabel: { flex: 1, color: '#F6F0E6', fontSize: 22, fontWeight: '900', textAlign: 'center' },
+  yearButtonText: { color: '#D4B384', fontSize: 12, fontWeight: '900' },
+  yearLabel: { flex: 1, color: '#FBF3E8', fontSize: 22, fontWeight: '900', textAlign: 'center' },
   monthControls: {
     minHeight: 48,
     borderRadius: 16,
-    backgroundColor: '#E9DDC8',
+    backgroundColor: '#D4B384',
     marginTop: 12,
     paddingHorizontal: 8,
     flexDirection: 'row',
@@ -638,9 +638,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  monthLabel: { color: '#24272D', fontSize: 16, fontWeight: '900' },
+  monthLabel: { color: '#2B1E14', fontSize: 16, fontWeight: '900' },
   weekRow: { flexDirection: 'row', marginTop: 14 },
-  weekDay: { flex: 1, textAlign: 'center', color: '#BDB4A5', fontSize: 11, fontWeight: '900' },
+  weekDay: { flex: 1, textAlign: 'center', color: '#C9AF95', fontSize: 11, fontWeight: '900' },
   daysGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
   dayCell: {
     width: `${100 / 7}%`,
@@ -649,8 +649,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 13,
   },
-  dayCellSelected: { backgroundColor: '#E9DDC8' },
-  dayText: { color: '#F6F0E6', fontSize: 14, fontWeight: '800' },
+  dayCellSelected: { backgroundColor: '#D4B384' },
+  dayText: { color: '#FBF3E8', fontSize: 14, fontWeight: '800' },
   dayTextDisabled: { color: 'rgba(246,240,230,0.22)' },
-  dayTextSelected: { color: '#24272D' },
+  dayTextSelected: { color: '#2B1E14' },
 });
