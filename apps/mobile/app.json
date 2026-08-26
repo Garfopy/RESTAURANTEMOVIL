@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "UTEQ Cafetería",
-    "slug": "amare-app",
+    "slug": "cafeteria-uteq",
     "newArchEnabled": false,
     "version": "1.0.2",
     "orientation": "portrait",
@@ -114,10 +114,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "db96a1b2-b362-4950-98a7-287432fb19c7"
-      }
+      "router": {}
     },
     "owner": "impactos-digitales"
   }
